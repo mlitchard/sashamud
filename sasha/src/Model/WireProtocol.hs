@@ -4,6 +4,7 @@ module Model.WireProtocol
 
 import SashaPrelude
 
+import Model.Core (SessionId)
 import Control.DeepSeq (NFData)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Aeson.TypeScript (derivingTypeScriptDefinition)
@@ -11,9 +12,9 @@ import Data.Map.Strict (Map)
 import Model.RichText (RichText)
 
 -- | All constructors exist from commit 1. Only SystemMessage carries
--- content in commit 1 (heartbeats). SessionId sent on WebSocket connect.
+-- content in commit 1 (heartbeats). SessionAck sent on WebSocket connect.
 data WireMessage
-  = SessionId Text
+  = SessionAck SessionId
   | GameNarration [RichText]
   | CommandResponse [RichText]
   | ChatMessage Text

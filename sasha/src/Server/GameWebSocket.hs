@@ -4,30 +4,18 @@ module Server.GameWebSocket
 
 import SashaPrelude
 
-import API.Types (MessageFrom (MessageFrom))
-import Control.Concurrent.STM (atomically, putTMVar, writeTChan)
-import Model.WireProtocol (WireMessage (SessionId))
+import API.Types (AuthenticatedUser (AuthenticatedUser), GameCommand (GameCommand), MessageFrom (MessageFrom))
+import Control.Concurrent (modifyMVar_)
+import Control.Concurrent.STM (atomically, writeTChan)
+import Data.Map.Strict qualified as Map (delete, insert)
+import Model.WireProtocol (WireMessage)
 import Servant.API.WebSocket (Handler (Handler, handle, recieve))
-import Server.App (AppCtx (acInbound))
-import Server.Session
-  ( GameSession (gsSendMsgs)
-  , GameSessionRegistry
-  , lookupGameSession
-  , removeGameSession
-  )
+import Server.App (AppCtx (acConnections, acInbound))
 
-gameWebSocket :: AppCtx -> GameSessionRegistry -> Text -> ([WireMessage] -> IO ()) -> IO (Handler Text)
-gameWebSocket ctx registry sessionId sendMsgs = do
-  mSession <- lookupGameSession registry sessionId
-  case mSession of
-    Nothing -> pure Handler
-      { recieve = \_ -> pure ()
-      , handle = \_ -> pure ()
-      }
-    Just gs -> do
-      atomically (putTMVar (gsSendMsgs gs) sendMsgs)
-      sendMsgs [SessionId sessionId]
-      pure Handler
-        { recieve = \cmd -> atomically (writeTChan (acInbound ctx) (MessageFrom sessionId cmd))
-        , handle = \_ -> removeGameSession registry sessionId
-        }
+gameWebSocket :: AppCtx -> AuthenticatedUser -> ([WireMessage] -> IO ()) -> IO (Handler Text)
+gameWebSocket ctx (AuthenticatedUser sessionId) sendMsgs = do
+  modifyMVar_ (acConnections ctx) (pure . Map.insert sessionId sendMsgs)
+  pure Handler
+    { recieve = \cmd -> atomically (writeTChan (acInbound ctx) (MessageFrom sessionId (GameCommand cmd)))
+    , handle = \_ -> modifyMVar_ (acConnections ctx) (pure . Map.delete sessionId)
+    }

@@ -8,76 +8,45 @@ module Server.Server
 import SashaPrelude
 
 import API.Routes (SashaAPI)
-import API.Types (LoginResponse (LoginResponse), MessageTo (MessageTo), PlayerName (PlayerName))
-import Control.Concurrent.Async (race_)
-import Control.Concurrent.STM
-  ( TVar
-  , atomically
-  , modifyTVar'
-  , newEmptyTMVarIO
-  , newTVarIO
-  , readTVar
-  , writeTChan
-  , writeTVar
+import API.Types
+  ( LoginResponse (LoginResponse)
+  , MessageTo (MessageTo)
+  , PlayerJoined (PlayerJoined)
+  , PlayerName
+  , SessionId (SessionId)
   )
-import Control.Monad.Reader (ReaderT (..), asks)
+import Control.Concurrent (readMVar)
+import Control.Concurrent.Async (race_)
+import Control.Concurrent.STM (atomically, readTChan, writeTChan)
+import Control.Monad (forever)
+import Control.Monad.Reader (ask, runReaderT)
 import Data.Aeson (eitherDecode, encode)
-import Data.Map.Strict (insert, lookup)
-import Data.Set (singleton)
+import Data.Map.Strict (lookup)
 import Data.UUID (toText)
 import Data.UUID.V4 (nextRandom)
 import Engine.Simulation.EffectNetwork (gameLoop)
-import Lens.Micro.Platform (set, view)
-import Model.Core
-  ( Agent (Agent, _agentShortName, _agentDescription, _agentTitle, _agentActionManagement, _agentCurrentScene, _agentKind)
-  , AgentKind (PlayerAgent)
-  , AgentMap (AgentMap)
-  , GIDToDataMap (GIDToDataMap)
-  , GameState
-  , PossibilityGraph
-  , agentMap
-  , defaultActionManagement
-  , getAgentMap
-  , sceneAgents
-  , sceneMap
-  , world
-  , getGIDToDataMap
-  )
-import Model.GID (GID (GID))
-import Model.RichText (TextColor (White), colored)
-import Model.WireProtocol (WireMessage (ChatMessage))
-import Network.Wai (Application, Request)
+import Model.Core (GameState, PossibilityGraph)
+import Model.WireProtocol (WireMessage)
+import Network.Wai (Application)
 import Network.Wai.Handler.Warp (run)
 import Network.WebSockets (DataMessage (Binary, Text), WebSocketsData (fromDataMessage, fromLazyByteString, toLazyByteString))
 import Servant
-  ( Handler
-  , HasServer (hoistServerWithContext)
+  ( HasServer (hoistServerWithContext)
   , Proxy (Proxy)
   , serveWithContext
   , type (:<|>) ((:<|>))
   )
-import Servant.Server.Experimental.Auth (AuthHandler)
 import Server.App
-  ( AppCtx (acNextAgentId, acOutbound, acPlayerMap, acRegistry, acGameLog)
+  ( AppCtx (acConnections, acJoinChan, acOutbound, acGameLog)
+  , AppM (..)
   , GameLog (GameLog)
   , newAppCtx
   )
-import Server.Authentication (sashaContext)
+import Server.Authentication (authProxy, sashaContext)
 import Server.GameWebSocket (gameWebSocket)
 import Server.Log (LogEntry (PlayerLogin, ServerStart), writeLog)
-import Server.Session
-  ( GameSession (GameSession)
-  , addGameSession
-  )
 import System.Environment (lookupEnv)
 import Text.Read (readMaybe)
-
-data ServerCtx = ServerCtx
-  { srvAppCtx        :: AppCtx
-  , srvGameStateTVar :: TVar GameState
-  }
-
-type AppM = ReaderT ServerCtx Handler
 
 instance WebSocketsData WireMessage where
   toLazyByteString = encode
@@ -87,60 +56,38 @@ instance WebSocketsData WireMessage where
   fromDataMessage (Text lbs _) = fromLazyByteString lbs
   fromDataMessage (Binary lbs) = fromLazyByteString lbs
 
-app :: ServerCtx -> Application
-app sctx = serveWithContext (Proxy @SashaAPI) sashaContext
-  $ hoistServerWithContext (Proxy @SashaAPI) (Proxy @'[AuthHandler Request Text]) (flip runReaderT sctx)
-    (loginHandler :<|> gameWebSocket (srvAppCtx sctx) (acRegistry (srvAppCtx sctx)))
+app :: AppCtx -> Application
+app ctx = serveWithContext (Proxy @SashaAPI) sashaContext
+  $ hoistServerWithContext (Proxy @SashaAPI) authProxy (flip runReaderT ctx . unAppM)
+    (loginHandler :<|> gameWebSocket ctx)
 
 loginHandler :: PlayerName -> AppM LoginResponse
-loginHandler (PlayerName playerName) = do
-  ctx <- asks srvAppCtx
-  let registry = acRegistry ctx
-  gsTVar <- asks srvGameStateTVar
-  sessionId <- liftIO (toText <$> nextRandom)
-  liftIO . atomically $ do
-    agentId <- readTVar (acNextAgentId ctx)
-    writeTVar (acNextAgentId ctx) (agentId + 1)
-    let agentGid = GID agentId
-        lobbyGid = GID 0
-        agent = Agent
-          { _agentShortName        = playerName
-          , _agentDescription      = colored White "A newly arrived adventurer."
-          , _agentTitle            = ""
-          , _agentActionManagement = defaultActionManagement
-          , _agentCurrentScene     = lobbyGid
-          , _agentKind             = PlayerAgent
-          }
-    gs <- readTVar gsTVar
-    let gsWorld = view world gs
-        am' = insert agentGid agent (view (agentMap . getAgentMap) gsWorld)
-        lobbyScene = case lookup lobbyGid (view (sceneMap . getGIDToDataMap) gsWorld) of
-              Just s  -> s
-              Nothing -> error "Login: lobby scene not in sceneMap"
-        lobbyScene' = set sceneAgents (view sceneAgents lobbyScene <> singleton agentGid) lobbyScene
-        gsWorld' = set agentMap (AgentMap am')
-                 (set sceneMap (GIDToDataMap (insert lobbyGid lobbyScene' (view (sceneMap . getGIDToDataMap) gsWorld))) gsWorld)
-    writeTVar gsTVar (set world gsWorld' gs)
-    modifyTVar' (acPlayerMap ctx) (insert sessionId agentGid)
-  sendMsgsTVar <- liftIO newEmptyTMVarIO
-  shutdownVar <- liftIO (newTVarIO False)
-  let session = GameSession sessionId sendMsgsTVar shutdownVar
-  liftIO (addGameSession registry sessionId session)
+loginHandler playerName = do
+  ctx <- ask
+  sessionId <- liftIO (SessionId . toText <$> nextRandom)
   liftIO . atomically $
-    writeTChan (acOutbound ctx) (MessageTo sessionId (ChatMessage ("Welcome, " <> playerName <> "!")))
+    writeTChan (acJoinChan ctx) (PlayerJoined sessionId playerName)
   liftIO $ writeLog (acGameLog ctx) (PlayerLogin playerName)
   pure (LoginResponse sessionId)
+
+deliverOutbound :: AppCtx -> IO ()
+deliverOutbound ctx = forever $ do
+  MessageTo sid wireMsg <- atomically (readTChan (acOutbound ctx))
+  conns <- readMVar (acConnections ctx)
+  case lookup sid conns of
+    Nothing -> pure ()
+    Just sendMsgs -> sendMsgs [wireMsg]
 
 startServer :: GameState -> PossibilityGraph -> IO ()
 startServer initialGS pg = do
   port <- maybe 8081 readPort <$> lookupEnv "SASHA_WEB_PORT"
   let logCfg = GameLog stderr
   ctx <- newAppCtx logCfg
-  gsTVar <- newTVarIO initialGS
-  let sctx = ServerCtx ctx gsTVar
   writeLog logCfg (ServerStart port)
   hPutStrLn stderr ("sasha-web server starting on port " <> show port)
-  race_ (gameLoop ctx initialGS pg) (run port (app sctx))
+  race_
+    (race_ (gameLoop ctx initialGS pg) (deliverOutbound ctx))
+    (run port (app ctx))
 
 readPort :: String -> Int
 readPort s = fromMaybe 8081 (readMaybe s)

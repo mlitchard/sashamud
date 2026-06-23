@@ -6,7 +6,7 @@ module API.TSClient (client) where
 import SashaPrelude
 
 import API.Routes (SashaAPI)
-import API.Types (LoginResponse, PlayerName)
+import API.Types (GameCommand, LoginResponse, PlayerName, SessionId)
 import GHC.TypeLits (KnownSymbol)
 import Model.RichText (RichText, StyledSpan, TextColor, TextStyle)
 import Model.WireProtocol (WireMessage)
@@ -25,6 +25,8 @@ client = tsClient
     , TSDef StyledSpan
     , TSDef RichText
     , TSDef WireMessage
+    , TSDef SessionId
+    , TSDef GameCommand
     , TSDef PlayerName
     , TSDef LoginResponse
     ] @SashaAPI

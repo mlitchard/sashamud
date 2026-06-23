@@ -1,4 +1,4 @@
-import { API } from '@sasha/type-gen-output/client';
+import { API, LoginResponse } from '@sasha/type-gen-output/client';
 import { createDOM } from './game/createDOM';
 import { GameConnection } from './game/GameConnection';
 import { ViewportManager } from './game/ViewportManager';
@@ -55,7 +55,7 @@ function showLogin(): void {
     error.textContent = '';
 
     API["/api/game/login(PlayerName)"](name)
-      .then((sessionId: string) => {
+      .then((sessionId: LoginResponse) => {
         overlay.remove();
         const conn = new GameConnection();
         const _viewports = new ViewportManager(conn);

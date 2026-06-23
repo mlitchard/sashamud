@@ -16,6 +16,7 @@ NEVER — specific prohibitions:
 - Direct record field access — use lenses (view, set, over) from Lens.Micro.Platform
 - Mutate GameState outside the Rhine network — state changes go through the reactive graph
 - head, [x] = expr, or any partial pattern match — handle all branches
+- Naked types — use newtypes for all domain values (session IDs, player names, commands), never raw Text/Int/String
 
 Context: read memory/MEMORY.md for project state and conventions.
 

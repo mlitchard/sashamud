@@ -1,100 +1,219 @@
 {-# OPTIONS_GHC -fsimpl-tick-factor=200 #-}
 
 module Engine.Simulation.EffectNetwork
-  ( RhineM
+  ( WorldAccum (..)
+  , JoinResult (..)
+  , RhineM
   , gameLoop
   ) where
 
 import SashaPrelude
 
-import API.Types (MessageFrom, MessageTo (MessageTo))
-import Control.Concurrent.STM (TChan, atomically, readTVarIO, tryReadTChan, tryReadTMVar, writeTChan)
-import Control.Monad.Trans.Accum (AccumT, runAccumT)
+import API.Types
+  ( MessageTo (MessageTo)
+  , PlayerJoined (..)
+  , PlayerName (..)
+  , SessionId
+  )
+import Control.Concurrent (modifyMVar_, readMVar)
+import Control.Concurrent.STM (TChan, atomically, tryReadTChan, writeTChan)
+import Control.Monad.Trans.Accum (AccumT, add, look, runAccumT)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT (runReaderT), ask)
-import Data.Map.Strict (keys)
-import Data.Monoid (Last (Last))
+import Data.Map.Strict (Map, insert, keys, lookup, singleton)
+import Data.Ord (max)
+import Data.Set (Set)
+import Data.Set qualified as Set (insert)
 import Engine.Simulation.Clocks (HeartbeatTick, PlayerTick)
-import FRP.Rhine (ClSF, IOClock, ParallelClock, Rhine, constMCl, flow, ioClock, waitClock, (@@), (|@|))
-import Model.Core (GameState, PossibilityGraph)
-import Model.WireProtocol (WireMessage (SystemMessage))
-import Server.App (AppCtx (acInbound, acOutbound, acPlayerMap, acRegistry))
-import Server.Session
-  ( GameSession (gsSendMsgs)
-  , GameSessionRegistry
-  , lookupGameSession
+import FRP.Rhine (ClSF, IOClock, ParallelClock, Rhine, arrMCl, constMCl, flow, ioClock, waitClock, (@@), (>->), (|@|))
+import Lens.Micro.Platform (view, set)
+import Model.Core
+  ( Agent (..)
+  , AgentKind (PlayerAgent)
+  , AgentMap (AgentMap)
+  , Evaluator (Evaluator)
+  , GameState (GameState)
+  , GIDToDataMap (GIDToDataMap)
+  , Object
+  , PerceptionMap (PerceptionMap)
+  , PossibilityGraph
+  , Scene
+  , SpatialRelationshipMap (SpatialRelationshipMap)
+  , World (World)
+  , agentMap
+  , defaultActionManagement
+  , defaultNarration
+  , getAgentMap
+  , getGIDToDataMap
+  , globalSemanticMap
+  , objectMap
+  , perceptionMap
+  , sceneAgents
+  , sceneMap
+  , spatialRelationshipMap
+  , world
   )
+import Model.GID (GID (GID))
+import Model.RichText (TextColor (White), colored)
+import Model.WireProtocol (WireMessage (ChatMessage, SystemMessage))
+import Server.App (AppCtx (acJoinChan, acKnownPlayers, acOutbound, acPlayerMap))
 
--- RhineM: the reactive monad stack.
--- Follows IX.Reactive.EventNetwork: pure game functions lifted into
--- a reactive dataflow graph, with IO at the edges.
---
--- Each tick builds the next GameState and sends update messages
--- (like IX: eGameState <@ eTick, reactimate $ writeOut <$> eGameState).
---
--- Last GameState in AccumT (look to read, add to update).
--- PossibilityGraph in ReaderT (immutable after DSL construction).
--- AppCtx in ReaderT (server concerns: channels, sessions, registry).
--- IO at the base.
+data WorldAccum = WorldAccum
+  { waAgentMap               :: Map (GID Agent) Agent
+  , waSceneMap               :: Map (GID Scene) Scene
+  , waObjectMap              :: Map (GID Object) Object
+  , waSpatialRelationshipMap :: SpatialRelationshipMap
+  , waGlobalSemanticMap      :: Map Text (Set (GID Object))
+  , waPerceptionMap          :: PerceptionMap
+  , waNextAgentId            :: Int
+  }
+
+instance Semigroup WorldAccum where
+  wa1 <> wa2 = WorldAccum
+    { waAgentMap               = waAgentMap wa2 <> waAgentMap wa1
+    , waSceneMap               = waSceneMap wa2 <> waSceneMap wa1
+    , waObjectMap              = waObjectMap wa2 <> waObjectMap wa1
+    , waSpatialRelationshipMap = waSpatialRelationshipMap wa2
+    , waGlobalSemanticMap      = waGlobalSemanticMap wa2 <> waGlobalSemanticMap wa1
+    , waPerceptionMap          = waPerceptionMap wa2
+    , waNextAgentId            = max (waNextAgentId wa1) (waNextAgentId wa2)
+    }
+
+instance Monoid WorldAccum where
+  mempty = WorldAccum mempty mempty mempty SpatialRelationshipMap mempty PerceptionMap 0
+
+data JoinResult
+  = NewPlayerJoined SessionId PlayerName (GID Agent)
+  | ReturningPlayerJoined SessionId PlayerName (GID Agent)
 
 type RhineM :: Type -> Type
 type RhineM =
-  AccumT (Last GameState)
+  AccumT WorldAccum
     (ReaderT PossibilityGraph
       (ReaderT AppCtx IO))
 
--- The DSL produces the initial GameState. The game loop seeds
--- the AccumT accumulator with it (like IX seeds accumB with InitMaps).
--- flow runs the Rhine event network forever.
 gameLoop :: AppCtx -> GameState -> PossibilityGraph -> IO ()
 gameLoop ctx gs pg =
-  void (runReaderT
+  let iw = view world gs
+      initAccum = WorldAccum
+        { waAgentMap               = view (agentMap . getAgentMap) iw
+        , waSceneMap               = view (sceneMap . getGIDToDataMap) iw
+        , waObjectMap              = view (objectMap . getGIDToDataMap) iw
+        , waSpatialRelationshipMap = view spatialRelationshipMap iw
+        , waGlobalSemanticMap      = view globalSemanticMap iw
+        , waPerceptionMap          = view perceptionMap iw
+        , waNextAgentId            = 1000
+        }
+  in void (runReaderT
     (runReaderT
-      (runAccumT (flow rhinePipeline) (Last (Just gs)))
+      (runAccumT (flow rhinePipeline) initAccum)
       pg)
     ctx)
 
-rhinePipeline :: Rhine RhineM (ParallelClock (IOClock RhineM HeartbeatTick) (IOClock RhineM PlayerTick)) () ()
+rhinePipeline :: Rhine RhineM
+  (ParallelClock
+    (ParallelClock
+      (IOClock RhineM HeartbeatTick)
+      (IOClock RhineM PlayerTick))
+    (IOClock RhineM PlayerTick)) () ()
 rhinePipeline =
-      heartbeatSF @@ ioClock (waitClock :: HeartbeatTick)
-  |@| playerTickSF @@ ioClock (waitClock :: PlayerTick)
+      (heartbeatSF
+        @@ ioClock (waitClock :: HeartbeatTick)
+  |@| (processJoinsSF >-> executeJoinsSF)
+        @@ ioClock (waitClock :: PlayerTick))
+  |@| (assembleGameStateSF >-> writeOutSF)
+        @@ ioClock (waitClock :: PlayerTick)
 
 heartbeatSF :: ClSF RhineM (IOClock RhineM HeartbeatTick) () ()
 heartbeatSF = constMCl $ do
   appCtx <- lift (lift ask)
   liftIO $ do
-    pMap <- readTVarIO (acPlayerMap appCtx)
+    pMap <- readMVar (acPlayerMap appCtx)
     let msg = SystemMessage "*** heartbeat"
     atomically $
       mapM_ (\sid -> writeTChan (acOutbound appCtx) (MessageTo sid msg))
         (keys pMap)
 
-playerTickSF :: ClSF RhineM (IOClock RhineM PlayerTick) () ()
-playerTickSF = constMCl $ do
+processJoinsSF :: ClSF RhineM (IOClock RhineM PlayerTick) () [JoinResult]
+processJoinsSF = constMCl $ do
   appCtx <- lift (lift ask)
-  liftIO $ do
-    drainInbound (acInbound appCtx)
-    drainOutbound (acOutbound appCtx) (acRegistry appCtx)
+  joins <- liftIO $ drainJoinChan (acJoinChan appCtx)
+  known <- liftIO $ readMVar (acKnownPlayers appCtx)
+  traverse (processOneJoin known) joins
 
-drainInbound :: TChan MessageFrom -> IO ()
-drainInbound chan = do
-  mMsg <- atomically (tryReadTChan chan)
-  case mMsg of
-    Nothing  -> pure ()
-    Just msg -> seq msg (drainInbound chan)
+executeJoinsSF :: ClSF RhineM (IOClock RhineM PlayerTick) [JoinResult] ()
+executeJoinsSF = arrMCl $ \results -> do
+  appCtx <- lift (lift ask)
+  liftIO $ mapM_ (executeJoin appCtx) results
 
-drainOutbound :: TChan MessageTo -> GameSessionRegistry -> IO ()
-drainOutbound chan registry = do
-  mMsg <- atomically (tryReadTChan chan)
-  case mMsg of
-    Nothing -> pure ()
-    Just (MessageTo sid wireMsg) -> do
-      mSession <- lookupGameSession registry sid
-      case mSession of
-        Nothing -> pure ()
-        Just session -> do
-          mSend <- atomically (tryReadTMVar (gsSendMsgs session))
-          case mSend of
-            Nothing -> pure ()
-            Just sendMsgs -> sendMsgs [wireMsg]
-      drainOutbound chan registry
+assembleGameStateSF :: ClSF RhineM (IOClock RhineM PlayerTick) () GameState
+assembleGameStateSF = constMCl $ do
+  wa <- look
+  pure $ GameState
+    (World
+      (GIDToDataMap (waObjectMap wa))
+      (GIDToDataMap (waSceneMap wa))
+      (waSpatialRelationshipMap wa)
+      (waGlobalSemanticMap wa)
+      (waPerceptionMap wa)
+      (AgentMap (waAgentMap wa)))
+    defaultNarration
+    Evaluator
+
+writeOutSF :: ClSF RhineM (IOClock RhineM PlayerTick) GameState ()
+writeOutSF = arrMCl $ \_ -> pure ()
+
+processOneJoin :: Map PlayerName (GID Agent) -> PlayerJoined -> RhineM JoinResult
+processOneJoin known (PlayerJoined sid name) =
+  case lookup name known of
+    Just gid -> pure (ReturningPlayerJoined sid name gid)
+    Nothing -> do
+      wa <- look
+      let nextId = waNextAgentId wa
+          gid = GID nextId
+          lobbyGid = GID 0
+          agent = mkPlayerAgent name lobbyGid
+          lobby = fromMaybe
+            (error "processOneJoin: lobby scene (GID 0) not found — game state is broken")
+            (lookup lobbyGid (waSceneMap wa))
+          lobby' = set sceneAgents (Set.insert gid (view sceneAgents lobby)) lobby
+      add WorldAccum
+        { waAgentMap               = singleton gid agent
+        , waSceneMap               = singleton lobbyGid lobby'
+        , waObjectMap              = mempty
+        , waSpatialRelationshipMap = SpatialRelationshipMap
+        , waGlobalSemanticMap      = mempty
+        , waPerceptionMap          = PerceptionMap
+        , waNextAgentId            = nextId + 1
+        }
+      pure (NewPlayerJoined sid name gid)
+
+mkPlayerAgent :: PlayerName -> GID Scene -> Agent
+mkPlayerAgent name sceneGid = Agent
+  { _agentShortName        = pnText name
+  , _agentDescription      = colored White "A newly arrived adventurer."
+  , _agentTitle            = ""
+  , _agentActionManagement = defaultActionManagement
+  , _agentCurrentScene     = sceneGid
+  , _agentKind             = PlayerAgent
+  }
+
+executeJoin :: AppCtx -> JoinResult -> IO ()
+executeJoin ctx (NewPlayerJoined sid name gid) = do
+  modifyMVar_ (acKnownPlayers ctx) (pure . insert name gid)
+  modifyMVar_ (acPlayerMap ctx) (pure . insert sid gid)
+  atomically $
+    writeTChan (acOutbound ctx)
+      (MessageTo sid (ChatMessage ("Welcome, " <> pnText name <> "!")))
+executeJoin ctx (ReturningPlayerJoined sid _name gid) = do
+  modifyMVar_ (acPlayerMap ctx) (pure . insert sid gid)
+  atomically $
+    writeTChan (acOutbound ctx)
+      (MessageTo sid (ChatMessage "Welcome back!"))
+
+drainJoinChan :: TChan PlayerJoined -> IO [PlayerJoined]
+drainJoinChan chan = do
+  mJoin <- atomically (tryReadTChan chan)
+  case mJoin of
+    Nothing -> pure []
+    Just j  -> (j :) <$> drainJoinChan chan

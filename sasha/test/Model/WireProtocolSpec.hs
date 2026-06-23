@@ -1,16 +1,20 @@
 module Model.WireProtocolSpec (spec) where
 
 import SashaPrelude
+import API.Types (SessionId (SessionId))
 import Data.Aeson (decode, encode)
 import Data.Map.Strict (singleton)
+import Data.UUID (toText)
+import Data.UUID.V4 (nextRandom)
 import Model.RichText (TextColor (White), colored)
-import Model.WireProtocol (WireMessage (AnalysisData, ChatMessage, CommandResponse, GameNarration, SessionId, SystemMessage))
+import Model.WireProtocol (WireMessage (AnalysisData, ChatMessage, CommandResponse, GameNarration, SessionAck, SystemMessage))
 import Test.Hspec
 
 spec :: Spec
 spec = describe "Model.WireProtocol" $ do
-  it "SessionId roundtrips" $ do
-    let msg = SessionId "abc-123"
+  it "SessionAck roundtrips" $ do
+    sessionId <- SessionId . toText <$> nextRandom
+    let msg = SessionAck sessionId
     decode (encode msg) `shouldBe` Just msg
 
   it "SystemMessage roundtrips" $ do

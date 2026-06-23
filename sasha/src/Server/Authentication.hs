@@ -1,24 +1,30 @@
 module Server.Authentication
-  ( SashaContext
+  ( AuthenticatedUser (..)
+  , SashaContext
   , sashaContext
+  , authProxy
   ) where
 
 import SashaPrelude
 
+import API.Types (AuthenticatedUser (AuthenticatedUser), SessionId (SessionId))
 import Data.List (lookup)
 import Data.Text.Encoding (decodeUtf8)
 import Network.Wai (Request, requestHeaders)
-import Servant (Context (EmptyContext, (:.)), Handler)
+import Servant (Context (EmptyContext, (:.)), Handler, Proxy (Proxy), err401, throwError)
 import Servant.Server.Experimental.Auth (AuthHandler, mkAuthHandler)
 
 type SashaContext :: Type
-type SashaContext = Context '[AuthHandler Request Text]
+type SashaContext = Context '[AuthHandler Request AuthenticatedUser]
+
+authProxy :: Proxy '[AuthHandler Request AuthenticatedUser]
+authProxy = Proxy
 
 sashaContext :: SashaContext
 sashaContext = mkAuthHandler authHandler :. EmptyContext
   where
-    authHandler :: Request -> Handler Text
+    authHandler :: Request -> Handler AuthenticatedUser
     authHandler req =
       case lookup "Sec-WebSocket-Protocol" (requestHeaders req) of
-        Nothing -> pure ""
-        Just token -> pure (decodeUtf8 token)
+        Nothing -> throwError err401
+        Just rawSessionId -> pure (AuthenticatedUser (SessionId (decodeUtf8 rawSessionId)))

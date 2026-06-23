@@ -10,6 +10,8 @@ module Model.Core
   , SpatialRelationshipMap (SpatialRelationshipMap)
   , PerceptionMap (PerceptionMap)
   , Object
+    -- * Session
+  , SessionId (SessionId, unSessionId)
     -- * GameState
   , GameState (..)
   , GameStateT (GameStateT, runGameStateT)
@@ -55,6 +57,8 @@ module Model.Core
 import SashaPrelude
 
 import Control.DeepSeq (NFData (rnf))
+import Data.Aeson (FromJSON, ToJSON)
+import Data.Aeson.TypeScript (derivingTypeScriptDefinition)
 import Control.Monad.Morph (MFunctor)
 import Control.Monad.State (MonadState, StateT)
 import Control.Monad.Trans (MonadTrans (lift))
@@ -64,6 +68,14 @@ import Lens.Micro.Platform (makeLenses)
 import Model.Core.Mappings
 import Model.GID (GID)
 import Model.RichText (RichText)
+
+-- Session
+
+newtype SessionId = SessionId { unSessionId :: Text }
+  deriving stock (Generic, Show)
+  deriving newtype (Eq, FromJSON, NFData, Ord, ToJSON)
+
+derivingTypeScriptDefinition ''SessionId
 
 -- Entity Types
 
