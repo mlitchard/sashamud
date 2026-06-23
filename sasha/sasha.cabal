@@ -59,7 +59,6 @@ library
     Server.Authentication
     Server.Server
     Server.GameWebSocket
-    Server.Session
     Server.Log
 
   build-depends:
@@ -119,3 +118,4 @@ executable sasha-tests
     , microlens-platform
     , sasha
     , text
+    , uuid

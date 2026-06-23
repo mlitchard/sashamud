@@ -1,29 +1,31 @@
-// Defined in API.Types of sasha-0.1.0.0-BZkptM5UayE5JoDiC4OuQj
-export type LoginResponse = string;
-// Defined in API.Types of sasha-0.1.0.0-BZkptM5UayE5JoDiC4OuQj
+// Defined in API.Types of sasha-0.1.0.0-E52Uz84tstZFiBbuO6Etf7
+export type GameCommand = string;
+// Defined in API.Types of sasha-0.1.0.0-E52Uz84tstZFiBbuO6Etf7
+export type LoginResponse = SessionId;
+// Defined in API.Types of sasha-0.1.0.0-E52Uz84tstZFiBbuO6Etf7
 export type PlayerName = string;
-// Defined in Model.RichText of sasha-0.1.0.0-BZkptM5UayE5JoDiC4OuQj
+// Defined in Model.RichText of sasha-0.1.0.0-E52Uz84tstZFiBbuO6Etf7
 export interface StyledSpan {
   // readonly tag: "StyledSpan";
   readonly ssStyle: TextStyle;
   readonly ssText: string;
 }
-// Defined in Model.RichText of sasha-0.1.0.0-BZkptM5UayE5JoDiC4OuQj
+// Defined in Model.RichText of sasha-0.1.0.0-E52Uz84tstZFiBbuO6Etf7
 export interface TextStyle {
   // readonly tag: "TextStyle";
   readonly tsFgColor: TextColor | null;
   readonly tsBold: boolean;
   readonly tsItalic: boolean;
 }
-// Defined in Model.RichText of sasha-0.1.0.0-BZkptM5UayE5JoDiC4OuQj
+// Defined in Model.RichText of sasha-0.1.0.0-E52Uz84tstZFiBbuO6Etf7
 export type RichText = Array<StyledSpan>;
-// Defined in Model.RichText of sasha-0.1.0.0-BZkptM5UayE5JoDiC4OuQj
+// Defined in Model.RichText of sasha-0.1.0.0-E52Uz84tstZFiBbuO6Etf7
 export type TextColor = "Red" | "Green" | "Blue" | "Yellow" | "Cyan" | "Magenta" | "White" | "BrightWhite" | "BrightRed" | "BrightGreen" | "BrightBlue" | "BrightYellow" | "BrightCyan" | "BrightMagenta";
-// Defined in Model.WireProtocol of sasha-0.1.0.0-BZkptM5UayE5JoDiC4OuQj
-export type WireMessage = SessionId | GameNarration | CommandResponse | ChatMessage | SystemMessage | AnalysisData;
-export interface SessionId {
-  readonly tag: "SessionId";
-  readonly contents: string;
+// Defined in Model.WireProtocol of sasha-0.1.0.0-E52Uz84tstZFiBbuO6Etf7
+export type WireMessage = SessionAck | GameNarration | CommandResponse | ChatMessage | SystemMessage | AnalysisData;
+export interface SessionAck {
+  readonly tag: "SessionAck";
+  readonly contents: SessionId;
 }
 export interface GameNarration {
   readonly tag: "GameNarration";

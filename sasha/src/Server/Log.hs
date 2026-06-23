@@ -5,13 +5,15 @@ module Server.Log
 
 import SashaPrelude
 
+import API.Types (PlayerName)
+import Network.Wai.Handler.Warp (Port)
 import Server.App (GameLog (..))
 
 data LogEntry
   = Heartbeat
-  | PlayerLogin Text
-  | PlayerDisconnect Text
-  | ServerStart Int
+  | PlayerLogin PlayerName
+  | PlayerDisconnect PlayerName
+  | ServerStart Port
   deriving stock (Show)
 
 writeLog :: GameLog -> LogEntry -> IO ()

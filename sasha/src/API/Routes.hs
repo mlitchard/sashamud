@@ -8,7 +8,7 @@ module API.Routes
 
 import SashaPrelude
 
-import API.Types (LoginResponse, PlayerName)
+import API.Types (AuthenticatedUser, LoginResponse, PlayerName)
 import Model.WireProtocol (WireMessage)
 import Servant.API
   ( AuthProtect
@@ -21,7 +21,7 @@ import Servant.API
 import Servant.API.WebSocket (MsgType (Text), SecWebSocketProtocol, TypedWebSocket)
 import Servant.Server.Experimental.Auth (AuthServerData)
 
-type instance AuthServerData (AuthProtect SecWebSocketProtocol) = Text
+type instance AuthServerData (AuthProtect SecWebSocketProtocol) = AuthenticatedUser
 
 type LoginAPI =
   "api" :> "game" :> "login"
