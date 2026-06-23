@@ -6,7 +6,6 @@ module Model.Core
   , Scene (..)
   , World (..)
   , Narration (..)
-  , GameStatus (Running, GameOver)
   , Evaluator (Evaluator)
   , SpatialRelationshipMap (SpatialRelationshipMap)
   , PerceptionMap (PerceptionMap)
@@ -46,7 +45,6 @@ module Model.Core
   , world
   , narration
   , evaluation
-  , gameStatus
   , actionMaps
   , entityActionEffects
   , worldOutcomeEffects
@@ -139,11 +137,6 @@ data Narration = Narration
   deriving anyclass (NFData)
   deriving (Monoid, Semigroup) via (Generically Narration)
 
-type GameStatus :: Type
-data GameStatus = Running | GameOver
-  deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
-
 type Evaluator :: Type
 data Evaluator = Evaluator
   deriving stock (Eq, Generic, Ord, Show)
@@ -156,7 +149,6 @@ data GameState = GameState
   { _world      :: World
   , _narration  :: Narration
   , _evaluation :: Evaluator
-  , _gameStatus :: GameStatus
   }
 
 type GameStateT :: (Type -> Type) -> Type -> Type
@@ -213,7 +205,6 @@ defaultGameState = GameState
   { _world      = defaultWorld
   , _narration  = defaultNarration
   , _evaluation = Evaluator
-  , _gameStatus = Running
   }
 
 defaultPossibilityGraph :: PossibilityGraph

@@ -1,6 +1,7 @@
 module API.Types
   ( PlayerName (..)
   , LoginResponse (..)
+  , PlayerJoined (..)
   , MessageFrom (..)
   , MessageTo (..)
   ) where
@@ -10,6 +11,8 @@ import SashaPrelude
 import Control.DeepSeq (NFData)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Aeson.TypeScript (derivingTypeScriptDefinition)
+import Model.Core (Agent)
+import Model.GID (GID)
 import Model.WireProtocol (WireMessage)
 
 newtype PlayerName = PlayerName { pnText :: Text }
@@ -24,6 +27,14 @@ newtype LoginResponse = LoginResponse { lrSessionId :: Text }
 
 derivingTypeScriptDefinition ''PlayerName
 derivingTypeScriptDefinition ''LoginResponse
+
+data PlayerJoined = PlayerJoined
+  { pjSessionId  :: Text
+  , pjAgentGid   :: GID Agent
+  , pjPlayerName :: Text
+  }
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data MessageFrom = MessageFrom
   { mfSessionId :: Text
