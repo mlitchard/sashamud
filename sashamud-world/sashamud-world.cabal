@@ -1,0 +1,47 @@
+cabal-version: 3.0
+name:          sashamud-world
+version:       0.1.0.0
+synopsis:      Game content for SashaMUD
+license:       MIT
+author:        Michael Litchard
+build-type:    Simple
+
+common shared
+  default-language:   GHC2021
+  ghc-options:
+    -Wall -Wcompat -fwarn-redundant-constraints
+    -fwarn-incomplete-uni-patterns -fwarn-tabs
+    -fwarn-incomplete-record-updates -fwarn-identities
+    -Wno-orphans
+
+  default-extensions:
+    DerivingStrategies
+    OverloadedStrings
+    NoImplicitPrelude
+
+library
+  import:          shared
+  hs-source-dirs:  src
+  exposed-modules:
+    SashaMudWorld
+
+  build-depends:
+    , base             >=4.7 && <5
+    , sasha
+    , sasha-grammar
+    , sasha-vocabulary
+
+executable sashamud-world-tests
+  import:         shared
+  main-is:        Spec.hs
+  hs-source-dirs: test
+  other-modules:
+    DSL.BuilderSpec
+  build-depends:
+    , base
+    , containers
+    , hspec
+    , hspec-discover
+    , microlens-platform
+    , sasha
+    , sashamud-world

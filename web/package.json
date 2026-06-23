@@ -1,0 +1,18 @@
+{
+  "name": "sashamud-web-repo",
+  "version": "1.0.0",
+  "description": "SashaMUD web interface",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "./packages/*",
+    "./apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @sasha/sasha-web",
+    "dev": "npm run dev -w @sasha/sasha-web"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}

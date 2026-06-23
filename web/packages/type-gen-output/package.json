@@ -1,0 +1,10 @@
+{
+  "name": "@sasha/type-gen-output",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    "./client": {
+      "import": "./src/client.ts"
+    }
+  }
+}

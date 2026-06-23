@@ -1,0 +1,121 @@
+cabal-version: 3.0
+name:          sasha
+version:       0.1.0.0
+synopsis:      SashaMUD engine, API, and server
+license:       MIT
+author:        Michael Litchard
+build-type:    Simple
+
+common shared
+  default-language:   GHC2021
+  ghc-options:
+    -Wall -Wcompat -fwarn-redundant-constraints
+    -fwarn-incomplete-uni-patterns -fwarn-tabs
+    -fwarn-incomplete-record-updates -fwarn-identities -threaded
+    -fno-warn-missing-home-modules -rtsopts -freduction-depth=1000
+    -Wno-orphans
+
+  default-extensions:
+    BlockArguments
+    DataKinds
+    DeriveAnyClass
+    DerivingStrategies
+    DerivingVia
+    DuplicateRecordFields
+    LambdaCase
+    MultiParamTypeClasses
+    OverloadedRecordDot
+    OverloadedStrings
+    RecordWildCards
+    RoleAnnotations
+    StrictData
+    TemplateHaskell
+    TypeApplications
+    TypeFamilies
+    TypeOperators
+    NoImplicitPrelude
+
+library
+  import:          shared
+  hs-source-dirs:  src
+  exposed-modules:
+    SashaPrelude
+    Error
+    Model.GID
+    Model.RichText
+    Model.WireProtocol
+    Model.RandomPool
+    Model.Core
+    Model.Core.Mappings
+    DSL.Builder
+    DSL.Vocabulary
+    DSL.Model.EDSL.SashaLambdaDSL
+    Engine.Simulation.Clocks
+    Engine.Simulation.EffectNetwork
+    API.Types
+    API.Routes
+    API.TSClient
+    Server.App
+    Server.Authentication
+    Server.Server
+    Server.GameWebSocket
+    Server.Session
+    Server.Log
+
+  build-depends:
+    , aeson
+    , aeson-typescript
+    , async
+    , base                          >=4.7 && <5
+    , bytestring
+    , containers
+    , deepseq
+    , hashable
+    , microlens-platform
+    , mmorph
+    , mtl
+    , transformers
+    , rhine                         >=1.6
+    , sasha-grammar
+    , sasha-vocabulary
+    , servant
+    , servant-aeson-typescript
+    , servant-server
+    , servant-websockets
+    , stm
+    , text
+    , uuid
+    , wai
+    , warp
+    , websockets
+
+executable sasha-client-generator
+  import:         shared
+  main-is:        ClientGenerator.hs
+  hs-source-dirs: app
+  build-depends:
+    , base
+    , sasha
+    , text
+
+executable sasha-tests
+  import:         shared
+  main-is:        Spec.hs
+  hs-source-dirs: test
+  other-modules:
+    Model.GIDSpec
+    Model.RichTextSpec
+    Model.WireProtocolSpec
+    Model.Core.GameStateSpec
+    Model.Core.DefaultsSpec
+    API.TypesSpec
+  build-depends:
+    , aeson
+    , base
+    , bytestring
+    , containers
+    , hspec
+    , hspec-discover
+    , microlens-platform
+    , sasha
+    , text

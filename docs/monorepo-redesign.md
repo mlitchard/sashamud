@@ -4,7 +4,7 @@ Conforms to: [commit-01-working-mud.md](roadmap/commit-01-working-mud.md), [feat
 
 ## Overview
 
-SashaMud is organized as a monorepo with four cabal packages.
+SashaMud is organized as a monorepo with five cabal packages.
 
 ```
 sasha-grammar ─── sasha-vocabulary
@@ -12,6 +12,8 @@ sasha-grammar ─── sasha-vocabulary
          sasha
            |
       sashamud-world
+           |
+     sashamud-server
 ```
 
 Each package exists because a different consumer needs a different subset of
@@ -67,6 +69,20 @@ The specific game world. Scenes, objects, agents, puzzles, narratives,
 effect wiring. A different game world is a different package.
 
 **Depends on:** sasha, sasha-grammar, sasha-vocabulary
+
+### sashamud-server — Server Executable
+
+The thin top-level package that wires the server to the game content.
+Contains only the `sasha-server` executable (`Main.hs`), which imports
+`startServer` from `sasha` and `gameState`/`possibilityGraph` from
+`sashamud-world`. Future end-to-end tests live here.
+
+**Depends on:** sasha, sashamud-world
+
+**Why it exists:** The server executable needs both the engine (`sasha`)
+and the game content (`sashamud-world`). Placing it in either package
+creates a circular dependency. This package sits at the top of the
+dependency tree, assembling the final application.
 
 ---
 
@@ -499,6 +515,8 @@ sasha-grammar ──────────────────────
    └──────── sasha ─────────┘
                 │
            sashamud-world
+                │
+          sashamud-server
 ```
 
 ---
@@ -548,6 +566,7 @@ packages:
   ./sasha-vocabulary
   ./sasha
   ./sashamud-world
+  ./sashamud-server
 
 test-show-details: streaming
 ```
