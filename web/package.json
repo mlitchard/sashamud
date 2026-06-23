@@ -10,14 +10,9 @@
   ],
   "scripts": {
     "build": "npm run build -w @sasha/sasha-web",
-    "dev": "npm run dev -w @sasha/sasha-web",
-    "lint": "eslint .",
-    "lint-fix": "eslint --fix .",
-    "typecheck": "npm run typecheck -w @sasha/sasha-web"
+    "dev": "npm run dev -w @sasha/sasha-web"
   },
   "devDependencies": {
-    "@antfu/eslint-config": "^4.12.0",
-    "eslint": "^9.10.0",
     "typescript": "^5.4.5"
   }
 }

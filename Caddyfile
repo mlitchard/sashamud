@@ -1,0 +1,15 @@
+:8080 {
+  handle /ws/* {
+    reverse_proxy localhost:8081
+  }
+
+  handle /api/* {
+    reverse_proxy localhost:8081
+  }
+
+  handle {
+    root * web/apps/sasha-web/dist
+    try_files {path} /index.html
+    file_server
+  }
+}

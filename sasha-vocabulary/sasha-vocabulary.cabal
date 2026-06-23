@@ -11,7 +11,8 @@ common shared
   ghc-options:
     -Wall -Wcompat -fwarn-redundant-constraints
     -fwarn-incomplete-uni-patterns -fwarn-tabs
-    -fwarn-incomplete-record-updates -fwarn-identities -Wno-orphans
+    -fwarn-incomplete-record-updates -fwarn-identities
+    -Wno-orphans
 
   default-extensions:
     DerivingStrategies
@@ -21,7 +22,9 @@ common shared
 library
   import:          shared
   hs-source-dirs:  src
-  exposed-modules: SashaVocabulary
+  exposed-modules:
+    SashaVocabulary
+
   build-depends:
     , base           >=4.7 && <5
     , sasha-grammar

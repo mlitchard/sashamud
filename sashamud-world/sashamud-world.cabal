@@ -11,19 +11,37 @@ common shared
   ghc-options:
     -Wall -Wcompat -fwarn-redundant-constraints
     -fwarn-incomplete-uni-patterns -fwarn-tabs
-    -fwarn-incomplete-record-updates -fwarn-identities -Wno-orphans
+    -fwarn-incomplete-record-updates -fwarn-identities
+    -Wno-orphans
 
   default-extensions:
     DerivingStrategies
-    NoImplicitPrelude
     OverloadedStrings
+    NoImplicitPrelude
 
 library
   import:          shared
   hs-source-dirs:  src
-  exposed-modules: SashaMudWorld
+  exposed-modules:
+    SashaMudWorld
+
   build-depends:
-    , base              >=4.7 && <5
+    , base             >=4.7 && <5
     , sasha
     , sasha-grammar
     , sasha-vocabulary
+
+executable sashamud-world-tests
+  import:         shared
+  main-is:        Spec.hs
+  hs-source-dirs: test
+  other-modules:
+    DSL.BuilderSpec
+  build-depends:
+    , base
+    , containers
+    , hspec
+    , hspec-discover
+    , microlens-platform
+    , sasha
+    , sashamud-world
