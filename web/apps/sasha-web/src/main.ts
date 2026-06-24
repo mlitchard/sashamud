@@ -24,7 +24,7 @@ function showLogin(): void {
   const input = document.createElement('input');
   input.id = 'login-name';
   input.type = 'text';
-  input.maxLength = 10;
+  input.maxLength = 20;
   input.placeholder = 'Character name';
   input.autocomplete = 'off';
   input.autofocus = true;
@@ -50,11 +50,15 @@ function showLogin(): void {
       error.textContent = 'Enter a name.';
       return;
     }
+    if (!/^[A-Za-z0-9]+$/.test(name)) {
+      error.textContent = 'Letters and numbers only.';
+      return;
+    }
     button.disabled = true;
     button.textContent = 'Logging in...';
     error.textContent = '';
 
-    API["/api/game/login(PlayerName)"](name)
+    API["/api/game/login(PlayerNameUNV)"](name)
       .then((sessionId: LoginResponse) => {
         overlay.remove();
         const conn = new GameConnection();

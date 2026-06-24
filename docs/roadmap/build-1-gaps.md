@@ -58,10 +58,7 @@ Gaps identified by audit against commit-01-working-mud.md spec.
    - Enforce length limit (match server-side limit)
    - Reject disallowed characters
    - Show inline error message
-3. Add validation to command input in `GameConnection.ts` or `createDOM.ts`:
-   - Trim whitespace
-   - Reject empty commands
-   - Enforce max command length
+3. ~~Add validation to command input~~ — deferred, not a build-1 concern
 4. Validation rules must match server-side rules in Validator.hs (single source of truth is the server; client mirrors them for UX)
 
 ---

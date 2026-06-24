@@ -170,6 +170,12 @@
                       cd web && npm run lint-fix
                     '';
                   };
+                  typecheck-ts = {
+                    description = "typecheck the TypeScript frontend";
+                    script = ''
+                      cd web && npm run typecheck
+                    '';
+                  };
                 };
                 "Run" = {
                   start-sashamud = {
@@ -267,6 +273,20 @@
               dontNpmBuild = true;
               buildPhase = ''
                 node_modules/.bin/eslint .
+              '';
+              installPhase = ''
+                echo 0 > $out
+              '';
+            };
+            ts-typecheck = pkgs.buildNpmPackage {
+              name = "ts-typecheck";
+              src = ./web;
+              npmDeps = webNpmDeps;
+              dontNpmBuild = true;
+              nativeBuildInputs = [ legacyPackages.sasha ];
+              buildPhase = ''
+                sasha-client-generator packages/type-gen-output/src/client.ts
+                node_modules/.bin/tsc -p apps/sasha-web/tsconfig.json --noEmit
               '';
               installPhase = ''
                 echo 0 > $out
