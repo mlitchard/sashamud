@@ -3,14 +3,24 @@
 module API.Routes
   ( SashaAPI
   , LoginAPI
+  , LogoutAPI
   , WebSocketAPI
   ) where
 
 import           SashaPrelude
 
 import           API.Types (AuthenticatedUser, LoginResponse)
+import           Model.Core (SessionId)
 import           Model.WireProtocol (WireMessage)
-import           Servant.API (AuthProtect, JSON, Post, type (:<|>), type (:>))
+import           Servant.API
+  ( AuthProtect
+  , DeleteNoContent
+  , JSON
+  , Post
+  , ReqBody
+  , type (:<|>)
+  , type (:>)
+  )
 import           Servant.API.WebSocket
   ( MsgType (Text)
   , SecWebSocketProtocol
@@ -26,6 +36,11 @@ type LoginAPI =
   :> ValidatedBody '[JSON] PlayerNameUNV PlayerNameVAL
   :> Post '[JSON] LoginResponse
 
+type LogoutAPI =
+  "api" :> "game" :> "logout"
+  :> ReqBody '[JSON] SessionId
+  :> DeleteNoContent
+
 type WebSocketAPI =
   "ws" :> "game"
   :> AuthProtect SecWebSocketProtocol
@@ -33,4 +48,5 @@ type WebSocketAPI =
 
 type SashaAPI =
        LoginAPI
+  :<|> LogoutAPI
   :<|> WebSocketAPI

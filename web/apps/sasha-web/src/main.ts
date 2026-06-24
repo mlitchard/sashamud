@@ -64,6 +64,7 @@ function showLogin(): void {
         const conn = new GameConnection();
         const _viewports = new ViewportManager(conn);
         conn.connect(sessionId);
+        addLogoutButton(conn);
       })
       .catch((err: unknown) => {
         button.disabled = false;
@@ -75,5 +76,33 @@ function showLogin(): void {
   button.addEventListener('click', doLogin);
   input.addEventListener('keydown', (e: KeyboardEvent) => {
     if (e.key === 'Enter') doLogin();
+  });
+}
+
+function addLogoutButton(conn: GameConnection): void {
+  const toolbar = document.getElementById('toolbar');
+  if (!toolbar) return;
+
+  const btn = document.createElement('button');
+  btn.id = 'logout-btn';
+  btn.textContent = 'Logout';
+  toolbar.appendChild(btn);
+
+  btn.addEventListener('click', () => {
+    const sessionId = conn.getSessionId();
+    if (!sessionId) return;
+
+    btn.disabled = true;
+    API["/api/game/logout(SessionId)"](sessionId)
+      .then(() => {
+        conn.disconnect();
+        btn.remove();
+        showLogin();
+      })
+      .catch(() => {
+        conn.disconnect();
+        btn.remove();
+        showLogin();
+      });
   });
 }

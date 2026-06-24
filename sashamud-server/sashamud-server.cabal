@@ -15,14 +15,37 @@ common shared
 
   default-extensions:
     DerivingStrategies
+    ExplicitNamespaces
     NoImplicitPrelude
     OverloadedStrings
+    TypeFamilies
+    UndecidableInstances
 
 executable sasha-server
   import:         shared
   main-is:        Main.hs
   hs-source-dirs: app
+  ghc-options:    -threaded -rtsopts
   build-depends:
     , base            >=4.7 && <5
     , sasha
     , sashamud-world
+
+test-suite sashamud-integration-tests
+  import:             shared
+  type:               exitcode-stdio-1.0
+  main-is:            Spec.hs
+  hs-source-dirs:     test
+  ghc-options:        -threaded -rtsopts
+  other-modules:      Integration.LoginLogoutSpec
+  build-tool-depends: hspec-discover:hspec-discover
+  build-depends:
+    , base                 >=4.7 && <5
+    , hspec
+    , http-client
+    , sasha
+    , sashamud-world
+    , servant-client
+    , servant-client-core
+    , servant-server
+    , warp
