@@ -11,8 +11,7 @@ import           SashaPrelude
 
 import           API.Types
   ( MessageTo (MessageTo)
-  , PlayerJoined (..)
-  , PlayerName (..)
+  , PlayerJoined (PlayerJoined)
   , SessionId
   )
 import           Control.Concurrent (modifyMVar_, readMVar)
@@ -77,6 +76,7 @@ import           Model.WireProtocol (WireMessage (ChatMessage, SystemMessage))
 import           Server.App
   ( AppCtx (acJoinChan, acKnownPlayers, acOutbound, acPlayerMap)
   )
+import           Server.Validator (PlayerNameVAL, unPlayerNameVAL)
 
 data WorldAccum = WorldAccum
   { waAgentMap               :: Map (GID Agent) Agent
@@ -102,8 +102,8 @@ instance Semigroup WorldAccum where
 instance Monoid WorldAccum where
   mempty = WorldAccum mempty mempty mempty SpatialRelationshipMap mempty PerceptionMap 0
 
-data JoinResult = NewPlayerJoined SessionId PlayerName (GID Agent)
-                | ReturningPlayerJoined SessionId PlayerName (GID Agent)
+data JoinResult = NewPlayerJoined SessionId PlayerNameVAL (GID Agent)
+                | ReturningPlayerJoined SessionId PlayerNameVAL (GID Agent)
 
 type RhineM :: Type -> Type
 type RhineM =
@@ -182,7 +182,7 @@ assembleGameStateSF = constMCl $ do
 writeOutSF :: ClSF RhineM (IOClock RhineM PlayerTick) GameState ()
 writeOutSF = arrMCl $ \_ -> pure ()
 
-processOneJoin :: Map PlayerName (GID Agent) -> PlayerJoined -> RhineM JoinResult
+processOneJoin :: Map PlayerNameVAL (GID Agent) -> PlayerJoined -> RhineM JoinResult
 processOneJoin known (PlayerJoined sid name) =
   case lookup name known of
     Just gid -> pure (ReturningPlayerJoined sid name gid)
@@ -207,9 +207,9 @@ processOneJoin known (PlayerJoined sid name) =
         }
       pure (NewPlayerJoined sid name gid)
 
-mkPlayerAgent :: PlayerName -> GID Scene -> Agent
+mkPlayerAgent :: PlayerNameVAL -> GID Scene -> Agent
 mkPlayerAgent name sceneGid = Agent
-  { _agentShortName        = pnText name
+  { _agentShortName        = view unPlayerNameVAL name
   , _agentDescription      = colored White "A newly arrived adventurer."
   , _agentTitle            = ""
   , _agentActionManagement = defaultActionManagement
@@ -223,7 +223,7 @@ executeJoin ctx (NewPlayerJoined sid name gid) = do
   modifyMVar_ (acPlayerMap ctx) (pure . insert sid gid)
   atomically $
     writeTChan (acOutbound ctx)
-      (MessageTo sid (ChatMessage ("Welcome, " <> pnText name <> "!")))
+      (MessageTo sid (ChatMessage ("Welcome, " <> view unPlayerNameVAL name <> "!")))
 executeJoin ctx (ReturningPlayerJoined sid _name gid) = do
   modifyMVar_ (acPlayerMap ctx) (pure . insert sid gid)
   atomically $

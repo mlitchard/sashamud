@@ -20,6 +20,6 @@ gameWebSocket :: AppCtx -> AuthenticatedUser -> ([WireMessage] -> IO ()) -> IO (
 gameWebSocket ctx (AuthenticatedUser sessionId) sendMsgs = do
   modifyMVar_ (acConnections ctx) (pure . Map.insert sessionId sendMsgs)
   pure Handler
-    { recieve = \cmd -> atomically (writeTChan (acInbound ctx) (MessageFrom sessionId (GameCommand cmd)))
+    { recieve = atomically . writeTChan (acInbound ctx) . MessageFrom sessionId . GameCommand
     , handle = \_ -> modifyMVar_ (acConnections ctx) (pure . Map.delete sessionId)
     }

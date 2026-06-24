@@ -12,7 +12,7 @@ import           API.Types
   , SessionId (SessionId)
   )
 import           Data.List (lookup)
-import           Data.Text.Encoding (decodeUtf8)
+import           Data.Text.Encoding (decodeUtf8')
 import           Network.Wai (Request, requestHeaders)
 import           Servant
   ( Context (EmptyContext, (:.))
@@ -36,4 +36,6 @@ sashaContext = mkAuthHandler authHandler :. EmptyContext
     authHandler req =
       case lookup "Sec-WebSocket-Protocol" (requestHeaders req) of
         Nothing -> throwError err401
-        Just rawSessionId -> pure (AuthenticatedUser (SessionId (decodeUtf8 rawSessionId)))
+        Just rawSessionId -> case decodeUtf8' rawSessionId of
+          Left _  -> throwError err401
+          Right t -> pure (AuthenticatedUser (SessionId t))

@@ -1,17 +1,24 @@
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Monoid law, right identity" #-}
+{-# HLINT ignore "Monoid law, left identity" #-}
+
 module Model.RichTextSpec (spec) where
 
 import           Data.Aeson (decode, encode)
+import           Lens.Micro.Platform (view)
 import           Model.RichText
   ( RichText (RichText)
   , StyledSpan (StyledSpan)
   , TextColor (Red, White)
-  , TextStyle (TextStyle, tsBold, tsItalic)
+  , TextStyle (TextStyle)
   , boldColored
   , colored
   , toPlainText
+  , tsBold
+  , tsItalic
   )
 import           SashaPrelude
-import           Test.Hspec
+import           Test.Hspec (Spec, describe, expectationFailure, it, shouldBe)
 
 spec :: Spec
 spec = describe "Model.RichText" $ do
@@ -23,8 +30,8 @@ spec = describe "Model.RichText" $ do
     it "boldColored creates bold span" $ do
       case boldColored Red "test" of
         RichText (StyledSpan style txt : rest) -> do
-          tsBold style `shouldBe` True
-          tsItalic style `shouldBe` False
+          view tsBold style `shouldBe` True
+          view tsItalic style `shouldBe` False
           txt `shouldBe` "test"
           rest `shouldBe` []
         RichText [] -> expectationFailure "boldColored produced empty RichText"

@@ -3,7 +3,7 @@ module Model.Core.Mappings
     ActionManagement
   , ActionManagementFunctions (..)
   , actionManagementFunctions
-  , GIDToDataMap (..)
+  , GIDToDataMap (GIDToDataMap)
   , getGIDToDataMap
     -- * Registries (empty at commit 1)
   , ActionMaps (..)

@@ -8,7 +8,7 @@ import           Model.GID (GID (GID))
 import           Model.RichText (toPlainText)
 import           SashaMudWorld (gameState)
 import           SashaPrelude
-import           Test.Hspec
+import           Test.Hspec (Spec, describe, expectationFailure, it, shouldBe)
 
 spec :: Spec
 spec = describe "DSL.Builder" $ do

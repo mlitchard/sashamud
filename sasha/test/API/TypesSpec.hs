@@ -2,17 +2,17 @@ module API.TypesSpec (spec) where
 
 import           API.Types
   ( LoginResponse (LoginResponse)
-  , PlayerName (PlayerName)
   , SessionId (SessionId)
   )
 import           Data.Aeson (decode, encode)
 import           SashaPrelude
-import           Test.Hspec
+import           Server.Validator (PlayerNameUNV (PlayerNameUNV))
+import           Test.Hspec (Spec, describe, it, shouldBe)
 
 spec :: Spec
 spec = describe "API.Types" $ do
-  it "PlayerName roundtrips" $ do
-    let pn = PlayerName "TestPlayer"
+  it "PlayerNameUNV roundtrips" $ do
+    let pn = PlayerNameUNV "TestPlayer"
     decode (encode pn) `shouldBe` Just pn
 
   it "LoginResponse roundtrips" $ do

@@ -10,6 +10,10 @@ IMPORTANT: No helpers, no abstractions, no conveniences that are not already in 
 
 IMPORTANT: Never write placeholder stubs, TODO comments, or fake implementations. If you cannot write the real code, STOP and say so. Do not fill a file with garbage.
 
+IMPORTANT: Always use explicit imports — list every name you import, no wildcards (..). When a qualified import is needed for name collisions, the qualifier is the module name — no aliases. If stuck on a collision, STOP and ask.
+
+IMPORTANT: You are forbidden from second-guessing. When the user gives an instruction, apply it. If it doesn't compile, come back with the specific error. Do not pre-debate.
+
 NEVER — specific prohibitions:
 - TVar for GameState — GameState lives in AccumT inside RhineM, never in a TVar
 - TMChan — use TChan (see old code: sasha-server/src/MUD/GameLoop.hs)

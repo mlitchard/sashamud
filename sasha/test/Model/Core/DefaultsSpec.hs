@@ -1,3 +1,7 @@
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Monoid law, right identity" #-}
+{-# HLINT ignore "Monoid law, left identity" #-}
+
 module Model.Core.DefaultsSpec (spec) where
 
 import           Model.Core
@@ -8,7 +12,7 @@ import           Model.Core
   )
 import           Model.RichText (RichText (RichText))
 import           SashaPrelude
-import           Test.Hspec
+import           Test.Hspec (Spec, describe, it, shouldBe)
 
 spec :: Spec
 spec = describe "Model.Core.Defaults" $ do
