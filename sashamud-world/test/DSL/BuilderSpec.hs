@@ -1,19 +1,14 @@
 module DSL.BuilderSpec (spec) where
 
-import SashaPrelude
-import Data.Map.Strict (lookup, size)
-import Lens.Micro.Platform (view)
-import Model.Core
-  ( getGIDToDataMap
-  , sceneDescription
-  , sceneMap
-  , world
-  )
-import Model.Core qualified as Core (title)
-import Model.GID (GID (GID))
-import Model.RichText (toPlainText)
-import SashaMudWorld (gameState)
-import Test.Hspec
+import           Data.Map.Strict (lookup, size)
+import           Lens.Micro.Platform (view)
+import           Model.Core (getGIDToDataMap, sceneDescription, sceneMap, world)
+import qualified Model.Core as Core (title)
+import           Model.GID (GID (GID))
+import           Model.RichText (toPlainText)
+import           SashaMudWorld (gameState)
+import           SashaPrelude
+import           Test.Hspec
 
 spec :: Spec
 spec = describe "DSL.Builder" $ do

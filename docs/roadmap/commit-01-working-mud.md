@@ -50,17 +50,11 @@ sasha/src/
 ├── SashaPrelude.hs                  -- Custom prelude (NoImplicitPrelude enforced)
 │
 ├── Model/                           -- SHARED TYPES (full skeleton, empty maps)
-│   ├── Core.hs                      -- re-exports from Core/
+│   ├── Core.hs                      -- GameState, PossibilityGraph, Agent, Scene, World, Defaults, EntityKey
 │   ├── Core/
-│   │   ├── GameState.hs             -- GameState, PossibilityGraph
-│   │   ├── Agent.hs                 -- Agent, AgentKind, AgentMap
-│   │   ├── Scene.hs                 -- Scene
-│   │   ├── EntityKey.hs             -- EntityKey constructors
-│   │   ├── Defaults.hs             -- defaultAgent, defaultScene, default action management
-│   │   ├── Mappings.hs             -- ActionManagement types, ActionManagementFunctions
-│   │   └── World.hs                -- World (agentMap, sceneMap, spatialRelationshipMap)
+│   │   └── Mappings.hs             -- ActionManagement types, ActionManagementFunctions
 │   ├── GID.hs                       -- GID newtype (phantom-typed), role phantom
-│   ├── RichText.hs                  -- RichText, StyledSpan, TextStyle (Clay.Color)
+│   ├── RichText.hs                  -- RichText, StyledSpan, TextStyle (TextColor enum)
 │   ├── WireProtocol.hs              -- WireMessage (all constructors)
 │   └── RandomPool.hs               -- RNG stream types
 │
@@ -74,10 +68,8 @@ sasha/src/
 │
 ├── Engine/                          -- WORLD RUNTIME (basic engine)
 │   └── Simulation/                  -- Rhine FRP network
-│       ├── GameLoop.hs              -- rhinePipeline (heartbeatSF only)
-│       ├── Clocks.hs                -- HeartbeatTick, GameClock
-│       ├── Monad.hs                 -- GameChan, RhineM
-│       └── Route.hs                 -- routeToClient (heartbeat delivery)
+│       ├── EffectNetwork.hs         -- rhinePipeline, RhineM, signal functions, routing
+│       └── Clocks.hs               -- HeartbeatTick, GameClock
 │
 ├── API/                             -- I/O contracts
 │   ├── Types.hs                     -- GameCommand, PlayerName, LoginResponse
@@ -87,11 +79,19 @@ sasha/src/
 └── Server/                          -- I/O binding
     ├── App.hs                       -- AppCtx (server concerns only)
     ├── Server.hs                    -- startServer
+    ├── Authentication.hs            -- auth pipeline (acConnections MVar replaces session registry)
     ├── GameWebSocket.hs             -- WebSocket handler
-    ├── Session.hs                   -- session registry
     ├── Validator.hs                 -- input validation
     └── Log.hs                       -- structured logging categories
 ```
+
+### Consolidation Decisions
+
+**Model/Core/ consolidated into Core.hs** — GameState, Agent, Scene, World, EntityKey, and Defaults all live in one file rather than separate files per type. The types are small at commit 1 and tightly interdependent. Mappings.hs stays separate because ActionManagement types are a distinct concern.
+
+**Engine/Simulation/ consolidated into EffectNetwork.hs** — RhineM monad, signal functions, and routing all live in one file rather than GameLoop.hs + Monad.hs + Route.hs. At commit 1 the Rhine network is minimal (heartbeat + player tick). Clocks.hs stays separate.
+
+**Session.hs removed** — The old GameSessionRegistry (TVar of Map Text GameSession) is replaced by acConnections MVar in AppCtx. Session lifecycle (create on login, bind on WS connect, cleanup on disconnect) is handled directly in Authentication.hs and GameWebSocket.hs.
 
 **What does NOT exist in commit 1:**
 - `DSL/Internal/` — commit 2 (HasPerception, HasAction, HasEffect, EffectAlgebra, EffectCluster, TypeMappings)

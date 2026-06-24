@@ -12,13 +12,13 @@ module Model.Core.Mappings
   , emptyActionMaps
   ) where
 
-import SashaPrelude
+import           SashaPrelude
 
-import Control.DeepSeq (NFData (..))
-import Data.Map.Strict (Map)
-import Data.Set (Set)
-import Lens.Micro.Platform (makeLenses)
-import Model.GID (GID)
+import           Control.DeepSeq (NFData (..))
+import           Data.Map.Strict (Map)
+import           Data.Set (Set)
+import           Lens.Micro.Platform (makeLenses)
+import           Model.GID (GID)
 
 -- | Action management stubs. Commit 2 adds verb-keyed constructors.
 type ActionManagement :: Type
@@ -29,8 +29,7 @@ instance NFData ActionManagement where
   rnf _ = ()
 
 type ActionManagementFunctions :: Type
-newtype ActionManagementFunctions = ActionManagementFunctions
-  { _actionManagementFunctions :: Set ActionManagement }
+newtype ActionManagementFunctions = ActionManagementFunctions { _actionManagementFunctions :: Set ActionManagement }
   deriving stock (Eq, Ord, Show)
   deriving newtype (NFData)
 
@@ -47,7 +46,8 @@ makeLenses ''GIDToDataMap
 -- | Action maps — all empty at commit 1.
 -- Commit 2 adds ImplicitStimulusMap etc.
 type ActionMaps :: Type
-data ActionMaps = ActionMaps
+data ActionMaps
+  = ActionMaps
   deriving stock (Eq, Ord, Show)
 
 instance NFData ActionMaps where

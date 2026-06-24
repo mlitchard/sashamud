@@ -1,14 +1,16 @@
 module Model.WireProtocolSpec (spec) where
 
-import SashaPrelude
-import API.Types (SessionId (SessionId))
-import Data.Aeson (decode, encode)
-import Data.Map.Strict (singleton)
-import Data.UUID (toText)
-import Data.UUID.V4 (nextRandom)
-import Model.RichText (TextColor (White), colored)
-import Model.WireProtocol (WireMessage (AnalysisData, ChatMessage, CommandResponse, GameNarration, SessionAck, SystemMessage))
-import Test.Hspec
+import           API.Types (SessionId (SessionId))
+import           Data.Aeson (decode, encode)
+import           Data.Map.Strict (singleton)
+import           Data.UUID (toText)
+import           Data.UUID.V4 (nextRandom)
+import           Model.RichText (TextColor (White), colored)
+import           Model.WireProtocol
+  ( WireMessage (AnalysisData, ChatMessage, CommandResponse, GameNarration, SessionAck, SystemMessage)
+  )
+import           SashaPrelude
+import           Test.Hspec
 
 spec :: Spec
 spec = describe "Model.WireProtocol" $ do

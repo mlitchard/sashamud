@@ -1,10 +1,10 @@
 module Model.GIDSpec (spec) where
 
-import SashaPrelude
-import Data.Aeson (decode, encode)
-import Model.GID (GID (..))
-import Model.Core (Agent, Scene)
-import Test.Hspec
+import           Data.Aeson (decode, encode)
+import           Model.Core (Agent, Scene)
+import           Model.GID (GID (..))
+import           SashaPrelude
+import           Test.Hspec
 
 spec :: Spec
 spec = describe "Model.GID" $ do

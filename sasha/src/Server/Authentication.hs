@@ -5,14 +5,23 @@ module Server.Authentication
   , authProxy
   ) where
 
-import SashaPrelude
+import           SashaPrelude
 
-import API.Types (AuthenticatedUser (AuthenticatedUser), SessionId (SessionId))
-import Data.List (lookup)
-import Data.Text.Encoding (decodeUtf8)
-import Network.Wai (Request, requestHeaders)
-import Servant (Context (EmptyContext, (:.)), Handler, Proxy (Proxy), err401, throwError)
-import Servant.Server.Experimental.Auth (AuthHandler, mkAuthHandler)
+import           API.Types
+  ( AuthenticatedUser (AuthenticatedUser)
+  , SessionId (SessionId)
+  )
+import           Data.List (lookup)
+import           Data.Text.Encoding (decodeUtf8)
+import           Network.Wai (Request, requestHeaders)
+import           Servant
+  ( Context (EmptyContext, (:.))
+  , Handler
+  , Proxy (Proxy)
+  , err401
+  , throwError
+  )
+import           Servant.Server.Experimental.Auth (AuthHandler, mkAuthHandler)
 
 type SashaContext :: Type
 type SashaContext = Context '[AuthHandler Request AuthenticatedUser]

@@ -24,6 +24,7 @@ common shared
     DuplicateRecordFields
     LambdaCase
     MultiParamTypeClasses
+    NoImplicitPrelude
     OverloadedRecordDot
     OverloadedStrings
     RecordWildCards
@@ -33,39 +34,38 @@ common shared
     TypeApplications
     TypeFamilies
     TypeOperators
-    NoImplicitPrelude
 
 library
   import:          shared
   hs-source-dirs:  src
   exposed-modules:
-    SashaPrelude
-    Error
-    Model.GID
-    Model.RichText
-    Model.WireProtocol
-    Model.RandomPool
-    Model.Core
-    Model.Core.Mappings
-    DSL.Builder
-    DSL.Vocabulary
-    DSL.Model.EDSL.SashaLambdaDSL
-    Engine.Simulation.Clocks
-    Engine.Simulation.EffectNetwork
-    API.Types
     API.Routes
     API.TSClient
+    API.Types
+    DSL.Builder
+    DSL.Model.EDSL.SashaLambdaDSL
+    DSL.Vocabulary
+    Engine.Simulation.Clocks
+    Engine.Simulation.EffectNetwork
+    Error
+    Model.Core
+    Model.Core.Mappings
+    Model.GID
+    Model.RandomPool
+    Model.RichText
+    Model.WireProtocol
+    SashaPrelude
     Server.App
     Server.Authentication
-    Server.Server
     Server.GameWebSocket
     Server.Log
+    Server.Server
 
   build-depends:
     , aeson
     , aeson-typescript
     , async
-    , base                          >=4.7 && <5
+    , base                      >=4.7 && <5
     , bytestring
     , containers
     , deepseq
@@ -73,8 +73,7 @@ library
     , microlens-platform
     , mmorph
     , mtl
-    , transformers
-    , rhine                         >=1.6
+    , rhine                     >=1.6
     , sasha-grammar
     , sasha-vocabulary
     , servant
@@ -83,6 +82,7 @@ library
     , servant-websockets
     , stm
     , text
+    , transformers
     , uuid
     , wai
     , warp
@@ -102,12 +102,13 @@ executable sasha-tests
   main-is:        Spec.hs
   hs-source-dirs: test
   other-modules:
+    API.TypesSpec
+    Model.Core.DefaultsSpec
+    Model.Core.GameStateSpec
     Model.GIDSpec
     Model.RichTextSpec
     Model.WireProtocolSpec
-    Model.Core.GameStateSpec
-    Model.Core.DefaultsSpec
-    API.TypesSpec
+
   build-depends:
     , aeson
     , base

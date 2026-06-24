@@ -119,6 +119,14 @@
           lu-pkgs = lint-utils.packages.${system};
           projectRoot = ./.;
 
+          webNpmDeps = pkgs.fetchNpmDeps {
+            src = lib.fileset.toSource {
+              root = ./web;
+              fileset = lib.fileset.fileFilter (f: f.hasExt "json") ./web;
+            };
+            hash = "sha256-yexn2zbub03CT9aIgkd3XwySAfO7jW4vbvl6QOkU+SQ=";
+          };
+
           teardown = script: teardown': ''
             (set -e
             ${script}
@@ -137,6 +145,30 @@
                   check = {
                     description = "run nix flake check with logs";
                     script = "nix flake check -L";
+                  };
+                  fmt-cabal = {
+                    description = "format all .cabal files in the repo";
+                    script = ''
+                      ${lib.getExe lu-pkgs.cabal-fmt} -i **/*.cabal
+                    '';
+                  };
+                  fmt-haskell = {
+                    description = "apply stylish-haskell to all .hs files in the repo";
+                    script = ''
+                      find sasha-grammar sasha-vocabulary sasha sashamud-world sashamud-server -name '*.hs' -exec ${lib.getExe lu-pkgs.stylish-haskell} -i {} +
+                    '';
+                  };
+                  lint-ts = {
+                    description = "lint all TypeScript files";
+                    script = ''
+                      cd web && npm run lint
+                    '';
+                  };
+                  fmt-ts = {
+                    description = "lint and fix all TypeScript files";
+                    script = ''
+                      cd web && npm run lint-fix
+                    '';
                   };
                 };
                 "Run" = {
@@ -164,6 +196,7 @@
           devShells.default = pkgs.mkShell {
             buildInputs = [
               pkgs.cabal-install
+              lu-pkgs.cabal-fmt
               lu-pkgs.hlint
               lu-pkgs.stylish-haskell
               pkgs.caddy
@@ -188,6 +221,57 @@
           };
 
           checks = {
+            cabal-formatting = lu.cabal-fmt {
+              src = pkgs.lib.cleanSourceWith {
+                src = projectRoot;
+                filter = path: type:
+                  let baseName = baseNameOf path;
+                      excluded = baseName == "attic" || baseName == "dist-newstyle" || baseName == ".git" || baseName == "result";
+                  in !excluded && (
+                    lib.hasSuffix ".cabal" baseName
+                    || type == "directory"
+                  );
+              };
+            };
+            haskell-formatting = (lu.stylish-haskell {
+              src = pkgs.lib.cleanSourceWith {
+                src = projectRoot;
+                filter = path: type:
+                  let baseName = baseNameOf path;
+                      excluded = baseName == "attic" || baseName == "dist-newstyle" || baseName == ".git" || baseName == "result";
+                  in !excluded && (
+                    lib.hasSuffix ".hs" baseName
+                    || lib.hasSuffix ".cabal" baseName
+                    || baseName == ".stylish-haskell.yaml"
+                    || type == "directory"
+                  );
+              };
+            }).overrideAttrs (old: { LANG = "C.UTF-8"; LC_ALL = "C.UTF-8"; });
+            haskell-linting = (lu.hlint {
+              src = pkgs.lib.cleanSourceWith {
+                src = projectRoot;
+                filter = path: type:
+                  let baseName = baseNameOf path;
+                      excluded = baseName == "attic" || baseName == "dist-newstyle" || baseName == ".git" || baseName == "result";
+                  in !excluded && (
+                    lib.hasSuffix ".hs" baseName
+                    || baseName == ".hlint.yaml"
+                    || type == "directory"
+                  );
+              };
+            }).overrideAttrs (old: { LANG = "C.UTF-8"; LC_ALL = "C.UTF-8"; });
+            ts-linting = pkgs.buildNpmPackage {
+              name = "ts-linting";
+              src = ./web;
+              npmDeps = webNpmDeps;
+              dontNpmBuild = true;
+              buildPhase = ''
+                node_modules/.bin/eslint .
+              '';
+              installPhase = ''
+                echo 0 > $out
+              '';
+            };
             haskell-warnings-sasha = lu.werror { pkg = legacyPackages.sasha; };
             haskell-warnings-grammar = lu.werror { pkg = legacyPackages.sasha-grammar; };
             haskell-warnings-vocabulary = lu.werror { pkg = legacyPackages.sasha-vocabulary; };

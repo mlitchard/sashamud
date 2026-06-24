@@ -6,11 +6,11 @@ module API.Routes
   , WebSocketAPI
   ) where
 
-import SashaPrelude
+import           SashaPrelude
 
-import API.Types (AuthenticatedUser, LoginResponse, PlayerName)
-import Model.WireProtocol (WireMessage)
-import Servant.API
+import           API.Types (AuthenticatedUser, LoginResponse, PlayerName)
+import           Model.WireProtocol (WireMessage)
+import           Servant.API
   ( AuthProtect
   , JSON
   , Post
@@ -18,8 +18,12 @@ import Servant.API
   , type (:<|>)
   , type (:>)
   )
-import Servant.API.WebSocket (MsgType (Text), SecWebSocketProtocol, TypedWebSocket)
-import Servant.Server.Experimental.Auth (AuthServerData)
+import           Servant.API.WebSocket
+  ( MsgType (Text)
+  , SecWebSocketProtocol
+  , TypedWebSocket
+  )
+import           Servant.Server.Experimental.Auth (AuthServerData)
 
 type instance AuthServerData (AuthProtect SecWebSocketProtocol) = AuthenticatedUser
 

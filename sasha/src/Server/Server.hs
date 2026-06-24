@@ -5,48 +5,51 @@ module Server.Server
   ( startServer
   ) where
 
-import SashaPrelude
+import           SashaPrelude
 
-import API.Routes (SashaAPI)
-import API.Types
+import           API.Routes (SashaAPI)
+import           API.Types
   ( LoginResponse (LoginResponse)
   , MessageTo (MessageTo)
   , PlayerJoined (PlayerJoined)
   , PlayerName
   , SessionId (SessionId)
   )
-import Control.Concurrent (readMVar)
-import Control.Concurrent.Async (race_)
-import Control.Concurrent.STM (atomically, readTChan, writeTChan)
-import Control.Monad (forever)
-import Control.Monad.Reader (ask, runReaderT)
-import Data.Aeson (eitherDecode, encode)
-import Data.Map.Strict (lookup)
-import Data.UUID (toText)
-import Data.UUID.V4 (nextRandom)
-import Engine.Simulation.EffectNetwork (gameLoop)
-import Model.Core (GameState, PossibilityGraph)
-import Model.WireProtocol (WireMessage)
-import Network.Wai (Application)
-import Network.Wai.Handler.Warp (run)
-import Network.WebSockets (DataMessage (Binary, Text), WebSocketsData (fromDataMessage, fromLazyByteString, toLazyByteString))
-import Servant
+import           Control.Concurrent (readMVar)
+import           Control.Concurrent.Async (race_)
+import           Control.Concurrent.STM (atomically, readTChan, writeTChan)
+import           Control.Monad (forever)
+import           Control.Monad.Reader (ask, runReaderT)
+import           Data.Aeson (eitherDecode, encode)
+import           Data.Map.Strict (lookup)
+import           Data.UUID (toText)
+import           Data.UUID.V4 (nextRandom)
+import           Engine.Simulation.EffectNetwork (gameLoop)
+import           Model.Core (GameState, PossibilityGraph)
+import           Model.WireProtocol (WireMessage)
+import           Network.Wai (Application)
+import           Network.Wai.Handler.Warp (run)
+import           Network.WebSockets
+  ( DataMessage (Binary, Text)
+  , WebSocketsData (fromDataMessage, fromLazyByteString, toLazyByteString)
+  )
+import           Servant
   ( HasServer (hoistServerWithContext)
   , Proxy (Proxy)
   , serveWithContext
   , type (:<|>) ((:<|>))
   )
-import Server.App
-  ( AppCtx (acConnections, acJoinChan, acOutbound, acGameLog)
+import           Server.App
+  ( AppCtx (acConnections, acGameLog, acJoinChan, acOutbound)
   , AppM (..)
   , GameLog (GameLog)
   , newAppCtx
   )
-import Server.Authentication (authProxy, sashaContext)
-import Server.GameWebSocket (gameWebSocket)
-import Server.Log (LogEntry (PlayerLogin, ServerStart), writeLog)
-import System.Environment (lookupEnv)
-import Text.Read (readMaybe)
+import           Server.Authentication (authProxy, sashaContext)
+import           Server.GameWebSocket (gameWebSocket)
+import           Server.Log (LogEntry (PlayerLogin, ServerStart), writeLog)
+import           System.Environment (lookupEnv)
+import           Text.Read (readMaybe)
 
 instance WebSocketsData WireMessage where
   toLazyByteString = encode
@@ -75,7 +78,7 @@ deliverOutbound ctx = forever $ do
   MessageTo sid wireMsg <- atomically (readTChan (acOutbound ctx))
   conns <- readMVar (acConnections ctx)
   case lookup sid conns of
-    Nothing -> pure ()
+    Nothing       -> pure ()
     Just sendMsgs -> sendMsgs [wireMsg]
 
 startServer :: GameState -> PossibilityGraph -> IO ()

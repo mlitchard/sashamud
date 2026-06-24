@@ -1,15 +1,15 @@
 module Model.Core.GameStateSpec (spec) where
 
-import SashaPrelude
-import Lens.Micro.Platform (view)
-import Model.Core
+import           Lens.Micro.Platform (view)
+import           Model.Core
   ( defaultGameState
   , defaultPossibilityGraph
   , getGIDToDataMap
   , sceneMap
   , world
   )
-import Test.Hspec
+import           SashaPrelude
+import           Test.Hspec
 
 spec :: Spec
 spec = describe "Model.Core.GameState" $ do

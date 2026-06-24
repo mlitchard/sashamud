@@ -54,20 +54,20 @@ module Model.Core
   , module Model.Core.Mappings
   ) where
 
-import SashaPrelude
+import           SashaPrelude
 
-import Control.DeepSeq (NFData (rnf))
-import Data.Aeson (FromJSON, ToJSON)
-import Data.Aeson.TypeScript (derivingTypeScriptDefinition)
-import Control.Monad.Morph (MFunctor)
-import Control.Monad.State (MonadState, StateT)
-import Control.Monad.Trans (MonadTrans (lift))
-import Data.Map.Strict (Map)
-import Data.Set (Set)
-import Lens.Micro.Platform (makeLenses)
-import Model.Core.Mappings
-import Model.GID (GID)
-import Model.RichText (RichText)
+import           Control.DeepSeq (NFData (rnf))
+import           Control.Monad.Morph (MFunctor)
+import           Control.Monad.State (MonadState, StateT)
+import           Control.Monad.Trans (MonadTrans (lift))
+import           Data.Aeson (FromJSON, ToJSON)
+import           Data.Aeson.TypeScript (derivingTypeScriptDefinition)
+import           Data.Map.Strict (Map)
+import           Data.Set (Set)
+import           Lens.Micro.Platform (makeLenses)
+import           Model.Core.Mappings
+import           Model.GID (GID)
+import           Model.RichText (RichText)
 
 -- Session
 
@@ -80,11 +80,14 @@ derivingTypeScriptDefinition ''SessionId
 -- Entity Types
 
 type AgentKind :: Type
-data AgentKind = PlayerAgent | FixtureAgent
+data AgentKind
+  = PlayerAgent
+  | FixtureAgent
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
-data Object = Object
+data Object
+  = Object
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
@@ -116,12 +119,14 @@ data Scene = Scene
   deriving anyclass (NFData)
 
 type SpatialRelationshipMap :: Type
-data SpatialRelationshipMap = SpatialRelationshipMap
+data SpatialRelationshipMap
+  = SpatialRelationshipMap
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
 type PerceptionMap :: Type
-data PerceptionMap = PerceptionMap
+data PerceptionMap
+  = PerceptionMap
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
@@ -147,10 +152,12 @@ data Narration = Narration
   }
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
-  deriving (Monoid, Semigroup) via (Generically Narration)
+  deriving (Monoid, Semigroup)
+    via (Generically Narration)
 
 type Evaluator :: Type
-data Evaluator = Evaluator
+data Evaluator
+  = Evaluator
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 

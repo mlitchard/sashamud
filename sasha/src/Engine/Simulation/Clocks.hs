@@ -3,9 +3,9 @@ module Engine.Simulation.Clocks
   , PlayerTick
   ) where
 
-import SashaPrelude
+import           SashaPrelude
 
-import FRP.Rhine (Millisecond)
+import           FRP.Rhine (Millisecond)
 
 -- | Heartbeat every 5 seconds.
 type HeartbeatTick :: Type

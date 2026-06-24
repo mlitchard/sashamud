@@ -5,19 +5,25 @@ module Server.App
   , newAppCtx
   ) where
 
-import SashaPrelude
+import           SashaPrelude
 
-import API.Types (MessageFrom, MessageTo, PlayerJoined, PlayerName, SessionId)
-import Control.Concurrent (MVar, newMVar)
-import Control.Concurrent.STM (TChan, newTChanIO)
-import Control.Monad.Except (MonadError)
-import Control.Monad.Reader (MonadReader, ReaderT)
-import Data.Map.Strict (Map)
-import Model.Core (Agent)
-import Model.GID (GID)
-import Model.WireProtocol (WireMessage)
-import Servant (Handler)
-import Servant.Server (ServerError)
+import           API.Types
+  ( MessageFrom
+  , MessageTo
+  , PlayerJoined
+  , PlayerName
+  , SessionId
+  )
+import           Control.Concurrent (MVar, newMVar)
+import           Control.Concurrent.STM (TChan, newTChanIO)
+import           Control.Monad.Except (MonadError)
+import           Control.Monad.Reader (MonadReader, ReaderT)
+import           Data.Map.Strict (Map)
+import           Model.Core (Agent)
+import           Model.GID (GID)
+import           Model.WireProtocol (WireMessage)
+import           Servant (Handler)
+import           Servant.Server (ServerError)
 
 data GameLog = GameLog
   { logHandle :: Handle

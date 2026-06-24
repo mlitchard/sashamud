@@ -1,9 +1,17 @@
 module Model.RichTextSpec (spec) where
 
-import SashaPrelude
-import Data.Aeson (decode, encode)
-import Model.RichText (RichText (RichText), StyledSpan (StyledSpan), TextColor (Red, White), TextStyle (TextStyle, tsBold, tsItalic), colored, boldColored, toPlainText)
-import Test.Hspec
+import           Data.Aeson (decode, encode)
+import           Model.RichText
+  ( RichText (RichText)
+  , StyledSpan (StyledSpan)
+  , TextColor (Red, White)
+  , TextStyle (TextStyle, tsBold, tsItalic)
+  , boldColored
+  , colored
+  , toPlainText
+  )
+import           SashaPrelude
+import           Test.Hspec
 
 spec :: Spec
 spec = describe "Model.RichText" $ do

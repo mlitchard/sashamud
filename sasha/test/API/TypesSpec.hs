@@ -1,9 +1,13 @@
 module API.TypesSpec (spec) where
 
-import SashaPrelude
-import Data.Aeson (decode, encode)
-import API.Types (LoginResponse (LoginResponse), PlayerName (PlayerName), SessionId (SessionId))
-import Test.Hspec
+import           API.Types
+  ( LoginResponse (LoginResponse)
+  , PlayerName (PlayerName)
+  , SessionId (SessionId)
+  )
+import           Data.Aeson (decode, encode)
+import           SashaPrelude
+import           Test.Hspec
 
 spec :: Spec
 spec = describe "API.Types" $ do

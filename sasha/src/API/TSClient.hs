@@ -3,15 +3,15 @@
 
 module API.TSClient (client) where
 
-import SashaPrelude
+import           SashaPrelude
 
-import API.Routes (SashaAPI)
-import API.Types (GameCommand, LoginResponse, PlayerName, SessionId)
-import GHC.TypeLits (KnownSymbol)
-import Model.RichText (RichText, StyledSpan, TextColor, TextStyle)
-import Model.WireProtocol (WireMessage)
-import Servant (AuthProtect, Header', JSON, type (:>))
-import Servant.Client.TypeScript (Fletch (..), TSDef, tsClient)
+import           API.Routes (SashaAPI)
+import           API.Types (GameCommand, LoginResponse, PlayerName, SessionId)
+import           GHC.TypeLits (KnownSymbol)
+import           Model.RichText (RichText, StyledSpan, TextColor, TextStyle)
+import           Model.WireProtocol (WireMessage)
+import           Servant (AuthProtect, Header', JSON, type (:>))
+import           Servant.Client.TypeScript (Fletch (..), TSDef, tsClient)
 
 instance (Fletch xs, KnownSymbol s) => Fletch (AuthProtect s :> xs) where
   argBits = argBits @(Header' '[JSON] s Text :> xs)
