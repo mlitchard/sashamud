@@ -42,6 +42,21 @@ export class GameConnection {
     });
   }
 
+  disconnect(): void {
+    this.maxReconnect = 0;
+    if (this.ws) {
+      this.ws.onclose = null;
+      this.ws.close();
+      this.ws = null;
+    }
+    this.setStatus('disconnected');
+    this.sessionId = null;
+  }
+
+  getSessionId(): string | null {
+    return this.sessionId;
+  }
+
   sendCommand(text: string): void {
     if (!this.ws) return;
     this.ws.send(JSON.stringify(text));

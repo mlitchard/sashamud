@@ -2,7 +2,8 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 module Server.Server
-  ( startServer
+  ( app
+  , startServer
   ) where
 
 import           SashaPrelude
@@ -14,13 +15,13 @@ import           API.Types
   , PlayerJoined (PlayerJoined)
   , SessionId (SessionId)
   )
-import           Control.Concurrent (readMVar)
+import           Control.Concurrent (modifyMVar_, readMVar)
 import           Control.Concurrent.Async (race_)
 import           Control.Concurrent.STM (atomically, readTChan, writeTChan)
 import           Control.Monad (forever)
 import           Control.Monad.Reader (ask, runReaderT)
 import           Data.Aeson (eitherDecode, encode)
-import           Data.Map.Strict (lookup)
+import           Data.Map.Strict (delete, lookup)
 import           Data.UUID (toText)
 import           Data.UUID.V4 (nextRandom)
 import           Engine.Simulation.EffectNetwork (gameLoop)
@@ -34,12 +35,13 @@ import           Network.WebSockets
   )
 import           Servant
   ( HasServer (hoistServerWithContext)
+  , NoContent (NoContent)
   , Proxy (Proxy)
   , serveWithContext
   , type (:<|>) ((:<|>))
   )
 import           Server.App
-  ( AppCtx (acConnections, acGameLog, acJoinChan, acOutbound)
+  ( AppCtx (acConnections, acGameLog, acJoinChan, acOutbound, acPlayerMap)
   , AppM (..)
   , GameLog (GameLog)
   , newAppCtx
@@ -62,7 +64,7 @@ instance WebSocketsData WireMessage where
 app :: AppCtx -> Application
 app ctx = serveWithContext (Proxy @SashaAPI) sashaContext
   $ hoistServerWithContext (Proxy @SashaAPI) authProxy (flip runReaderT ctx . unAppM)
-    (loginHandler :<|> gameWebSocket ctx)
+    (loginHandler :<|> logoutHandler :<|> gameWebSocket ctx)
 
 loginHandler :: PlayerNameVAL -> AppM LoginResponse
 loginHandler playerName = do
@@ -72,6 +74,13 @@ loginHandler playerName = do
     writeTChan (acJoinChan ctx) (PlayerJoined sessionId playerName)
   liftIO $ writeLog (acGameLog ctx) (PlayerLogin playerName)
   pure (LoginResponse sessionId)
+
+logoutHandler :: SessionId -> AppM NoContent
+logoutHandler sessionId = do
+  ctx <- ask
+  liftIO $ modifyMVar_ (acPlayerMap ctx) (pure . delete sessionId)
+  liftIO $ modifyMVar_ (acConnections ctx) (pure . delete sessionId)
+  pure NoContent
 
 deliverOutbound :: AppCtx -> IO ()
 deliverOutbound ctx = forever $ do

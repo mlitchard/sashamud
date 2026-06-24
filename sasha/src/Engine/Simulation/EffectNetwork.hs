@@ -24,10 +24,25 @@ import           Control.Concurrent.STM
 import           Control.Monad.Trans.Accum (AccumT, add, look, runAccumT)
 import           Control.Monad.Trans.Class (lift)
 import           Control.Monad.Trans.Reader (ReaderT (runReaderT), ask)
-import           Data.Map.Strict (Map, insert, keys, lookup, singleton)
+import           Data.Map.Strict
+  ( Map
+  , assocs
+  , elems
+  , insert
+  , keys
+  , lookup
+  , singleton
+  )
 import           Data.Ord (max)
 import           Data.Set (Set)
-import qualified Data.Set as Set (insert)
+import qualified Data.Set as Set
+  ( delete
+  , filter
+  , fromList
+  , insert
+  , member
+  , null
+  )
 import           Engine.Simulation.Clocks (HeartbeatTick, PlayerTick)
 import           FRP.Rhine
   ( ClSF
@@ -57,7 +72,10 @@ import           Model.Core
   , Scene
   , SpatialRelationshipMap (SpatialRelationshipMap)
   , World (World)
+  , agentCurrentScene
+  , agentKind
   , agentMap
+  , agentShortName
   , defaultActionManagement
   , defaultNarration
   , getAgentMap
@@ -138,7 +156,7 @@ rhinePipeline :: Rhine RhineM
 rhinePipeline =
       (heartbeatSF
         @@ ioClock (waitClock :: HeartbeatTick)
-  |@| (processJoinsSF >-> executeJoinsSF)
+  |@| (processJoinsSF >-> executeJoinsSF >-> processLeavesSF)
         @@ ioClock (waitClock :: PlayerTick))
   |@| (assembleGameStateSF >-> writeOutSF)
         @@ ioClock (waitClock :: PlayerTick)
@@ -165,6 +183,33 @@ executeJoinsSF = arrMCl $ \results -> do
   appCtx <- lift (lift ask)
   liftIO $ mapM_ (executeJoin appCtx) results
 
+processLeavesSF :: ClSF RhineM (IOClock RhineM PlayerTick) () ()
+processLeavesSF = constMCl $ do
+  appCtx <- lift (lift ask)
+  wa <- look
+  pMap <- liftIO $ readMVar (acPlayerMap appCtx)
+  let activeGids = Set.fromList (elems pMap)
+  forM_ (assocs (waSceneMap wa)) $ \(sceneGid, scene) -> do
+    let agents = view sceneAgents scene
+        isDeparted gid = case lookup gid (waAgentMap wa) of
+          Just agent -> view agentKind agent == PlayerAgent
+                     && not (Set.member gid activeGids)
+          Nothing    -> False
+        departed = Set.filter isDeparted agents
+    when (not (Set.null departed)) $ do
+      let scene' = set sceneAgents (foldl' (flip Set.delete) agents (toList departed)) scene
+          witnessSids = [sid | (sid, gid) <- assocs pMap, Set.member gid agents]
+      add mempty { waSceneMap = singleton sceneGid scene' }
+      forM_ (toList departed) $ \gid ->
+        case lookup gid (waAgentMap wa) of
+          Nothing -> pure ()
+          Just agent -> do
+            let name = view agentShortName agent
+                msg = SystemMessage ("*** " <> name <> " has departed")
+            liftIO . atomically $
+              mapM_ (\sid -> writeTChan (acOutbound appCtx) (MessageTo sid msg))
+                witnessSids
+
 assembleGameStateSF :: ClSF RhineM (IOClock RhineM PlayerTick) () GameState
 assembleGameStateSF = constMCl $ do
   wa <- look
@@ -185,7 +230,18 @@ writeOutSF = arrMCl $ \_ -> pure ()
 processOneJoin :: Map PlayerNameVAL (GID Agent) -> PlayerJoined -> RhineM JoinResult
 processOneJoin known (PlayerJoined sid name) =
   case lookup name known of
-    Just gid -> pure (ReturningPlayerJoined sid name gid)
+    Just gid -> do
+      wa <- look
+      case lookup gid (waAgentMap wa) of
+        Nothing -> pure ()
+        Just agent -> do
+          let sceneGid = view agentCurrentScene agent
+          case lookup sceneGid (waSceneMap wa) of
+            Nothing -> pure ()
+            Just scene -> do
+              let scene' = set sceneAgents (Set.insert gid (view sceneAgents scene)) scene
+              add mempty { waSceneMap = singleton sceneGid scene' }
+      pure (ReturningPlayerJoined sid name gid)
     Nothing -> do
       wa <- look
       let nextId = waNextAgentId wa

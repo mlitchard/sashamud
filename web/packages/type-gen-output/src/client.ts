@@ -80,6 +80,31 @@ export const API = {
   };
   f.urlBuilder = urlBuilder;
   return f; })(),
+"/api/game/logout(SessionId)": (() => {
+  const urlBuilder = () => `${API.base}/api/game/logout`;
+  const f = async (SessionId:SessionId): Promise<null> => {
+    const uri = urlBuilder();
+    return fetch(uri, {
+      method: "DELETE",
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(SessionId),
+      redirect: 'manual'
+    }).then(res => {
+      const location = res.headers.get('Location');
+      if (res.status === 401 && location) {
+        window.location.replace(location);
+        return Promise.reject(res);
+      } else {
+        return res.status === 204
+          ? Promise.resolve(null)
+          : Promise.reject(res);
+      }
+    });
+  };
+  f.urlBuilder = urlBuilder;
+  return f; })(),
 "/ws/game{Sec-WebSocket-Protocol}": (Sec_WebSocket_Protocol:string):
     Promise<{ send : (input: string) => void
             , receive : (cb: (output: WireMessage) => void) => void

@@ -167,3 +167,16 @@ body {
 #login-btn:disabled { opacity: 0.5; cursor: default; }
 
 .no-viewports { padding: 20px; color: #666; text-align: center; }
+
+#logout-btn {
+  margin-left: auto;
+  padding: 2px 12px;
+  border: 1px solid #933;
+  border-radius: 3px;
+  background: #722;
+  color: #fff;
+  cursor: pointer;
+  font-size: 11px;
+  font-family: inherit;
+}
+#logout-btn:hover { background: #933; }

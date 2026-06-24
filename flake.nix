@@ -318,6 +318,9 @@
                 machine.succeed("sasha-tests")
               '';
             };
+            run-integration-tests = legacyPackages.sashamud-server.overrideAttrs (old: {
+              doCheck = true;
+            });
           };
         });
 }
