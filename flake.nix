@@ -192,6 +192,7 @@
             haskell-warnings-grammar = lu.werror { pkg = legacyPackages.sasha-grammar; };
             haskell-warnings-vocabulary = lu.werror { pkg = legacyPackages.sasha-vocabulary; };
             haskell-warnings-world = lu.werror { pkg = legacyPackages.sashamud-world; };
+            haskell-warnings-server = lu.werror { pkg = legacyPackages.sashamud-server; };
             client-check =
               let
                 client-ts = pkgs.runCommand "client.ts" { }
