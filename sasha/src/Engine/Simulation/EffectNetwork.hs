@@ -7,33 +7,51 @@ module Engine.Simulation.EffectNetwork
   , gameLoop
   ) where
 
-import SashaPrelude
+import           SashaPrelude
 
-import API.Types
+import           API.Types
   ( MessageTo (MessageTo)
   , PlayerJoined (..)
   , PlayerName (..)
   , SessionId
   )
-import Control.Concurrent (modifyMVar_, readMVar)
-import Control.Concurrent.STM (TChan, atomically, tryReadTChan, writeTChan)
-import Control.Monad.Trans.Accum (AccumT, add, look, runAccumT)
-import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.Reader (ReaderT (runReaderT), ask)
-import Data.Map.Strict (Map, insert, keys, lookup, singleton)
-import Data.Ord (max)
-import Data.Set (Set)
-import Data.Set qualified as Set (insert)
-import Engine.Simulation.Clocks (HeartbeatTick, PlayerTick)
-import FRP.Rhine (ClSF, IOClock, ParallelClock, Rhine, arrMCl, constMCl, flow, ioClock, waitClock, (@@), (>->), (|@|))
-import Lens.Micro.Platform (view, set)
-import Model.Core
+import           Control.Concurrent (modifyMVar_, readMVar)
+import           Control.Concurrent.STM
+  ( TChan
+  , atomically
+  , tryReadTChan
+  , writeTChan
+  )
+import           Control.Monad.Trans.Accum (AccumT, add, look, runAccumT)
+import           Control.Monad.Trans.Class (lift)
+import           Control.Monad.Trans.Reader (ReaderT (runReaderT), ask)
+import           Data.Map.Strict (Map, insert, keys, lookup, singleton)
+import           Data.Ord (max)
+import           Data.Set (Set)
+import qualified Data.Set as Set (insert)
+import           Engine.Simulation.Clocks (HeartbeatTick, PlayerTick)
+import           FRP.Rhine
+  ( ClSF
+  , IOClock
+  , ParallelClock
+  , Rhine
+  , arrMCl
+  , constMCl
+  , flow
+  , ioClock
+  , waitClock
+  , (>->)
+  , (@@)
+  , (|@|)
+  )
+import           Lens.Micro.Platform (set, view)
+import           Model.Core
   ( Agent (..)
   , AgentKind (PlayerAgent)
   , AgentMap (AgentMap)
   , Evaluator (Evaluator)
-  , GameState (GameState)
   , GIDToDataMap (GIDToDataMap)
+  , GameState (GameState)
   , Object
   , PerceptionMap (PerceptionMap)
   , PossibilityGraph
@@ -53,10 +71,12 @@ import Model.Core
   , spatialRelationshipMap
   , world
   )
-import Model.GID (GID (GID))
-import Model.RichText (TextColor (White), colored)
-import Model.WireProtocol (WireMessage (ChatMessage, SystemMessage))
-import Server.App (AppCtx (acJoinChan, acKnownPlayers, acOutbound, acPlayerMap))
+import           Model.GID (GID (GID))
+import           Model.RichText (TextColor (White), colored)
+import           Model.WireProtocol (WireMessage (ChatMessage, SystemMessage))
+import           Server.App
+  ( AppCtx (acJoinChan, acKnownPlayers, acOutbound, acPlayerMap)
+  )
 
 data WorldAccum = WorldAccum
   { waAgentMap               :: Map (GID Agent) Agent
@@ -82,9 +102,8 @@ instance Semigroup WorldAccum where
 instance Monoid WorldAccum where
   mempty = WorldAccum mempty mempty mempty SpatialRelationshipMap mempty PerceptionMap 0
 
-data JoinResult
-  = NewPlayerJoined SessionId PlayerName (GID Agent)
-  | ReturningPlayerJoined SessionId PlayerName (GID Agent)
+data JoinResult = NewPlayerJoined SessionId PlayerName (GID Agent)
+                | ReturningPlayerJoined SessionId PlayerName (GID Agent)
 
 type RhineM :: Type -> Type
 type RhineM =

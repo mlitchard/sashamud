@@ -1,9 +1,9 @@
 module Main (main) where
 
-import SashaPrelude
-import API.TSClient (client)
-import Data.Text.IO qualified as TIO
-import System.Environment (getArgs)
+import           API.TSClient (client)
+import qualified Data.Text.IO as TIO
+import           SashaPrelude
+import           System.Environment (getArgs)
 
 main :: IO ()
 main = do

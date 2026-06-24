@@ -3,17 +3,16 @@ module Server.Log
   , writeLog
   ) where
 
-import SashaPrelude
+import           SashaPrelude
 
-import API.Types (PlayerName)
-import Network.Wai.Handler.Warp (Port)
-import Server.App (GameLog (..))
+import           API.Types (PlayerName)
+import           Network.Wai.Handler.Warp (Port)
+import           Server.App (GameLog (..))
 
-data LogEntry
-  = Heartbeat
-  | PlayerLogin PlayerName
-  | PlayerDisconnect PlayerName
-  | ServerStart Port
+data LogEntry = Heartbeat
+              | PlayerLogin PlayerName
+              | PlayerDisconnect PlayerName
+              | ServerStart Port
   deriving stock (Show)
 
 writeLog :: GameLog -> LogEntry -> IO ()

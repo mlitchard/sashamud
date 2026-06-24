@@ -7,21 +7,20 @@ module DSL.Model.EDSL.SashaLambdaDSL
   , finalizeGameState
   ) where
 
-import SashaPrelude hiding (map)
+import           SashaPrelude hiding (map)
 
-import Model.Core (GameState, Scene)
-import Model.GID (GID)
-import Model.RichText (RichText)
+import           Model.Core (GameState, Scene)
+import           Model.GID (GID)
+import           Model.RichText (RichText)
 
 type SashaLambdaDSL :: Type -> Type
-data SashaLambdaDSL a where
-  Pure  :: a -> SashaLambdaDSL a
-  Bind  :: SashaLambdaDSL a -> (a -> SashaLambdaDSL b) -> SashaLambdaDSL b
-  DeclareSceneGID      :: Text -> SashaLambdaDSL (GID Scene)
-  RegisterScene        :: GID Scene -> SashaLambdaDSL Scene -> SashaLambdaDSL ()
-  Title                :: Text -> Scene -> SashaLambdaDSL Scene
-  SceneDescription     :: RichText -> Scene -> SashaLambdaDSL Scene
-  FinalizeGameState    :: SashaLambdaDSL GameState
+data SashaLambdaDSL a where Pure :: a -> SashaLambdaDSL a
+                            Bind :: SashaLambdaDSL a -> (a -> SashaLambdaDSL b) -> SashaLambdaDSL b
+                            DeclareSceneGID :: Text -> SashaLambdaDSL (GID Scene)
+                            RegisterScene :: GID Scene -> SashaLambdaDSL Scene -> SashaLambdaDSL ()
+                            Title :: Text -> Scene -> SashaLambdaDSL Scene
+                            SceneDescription :: RichText -> Scene -> SashaLambdaDSL Scene
+                            FinalizeGameState :: SashaLambdaDSL GameState
 
 instance Functor SashaLambdaDSL where
   fmap f m = Bind m (Pure . f)

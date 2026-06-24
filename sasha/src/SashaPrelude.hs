@@ -121,7 +121,7 @@ module SashaPrelude
 
 import           Control.Monad (guard, unless, void, when, (=<<), (>=>))
 import           Control.Monad.Fail (fail)
-import           Control.Monad.IO.Class (MonadIO(liftIO))
+import           Control.Monad.IO.Class (MonadIO (liftIO))
 import           Data.Bool (not, (&&), (||))
 import           Data.Either (Either (Left, Right), either)
 import           Data.Eq (Eq ((/=), (==)))
@@ -175,7 +175,7 @@ import           GHC.Base
   )
 import           GHC.Enum (Bounded (maxBound, minBound), Enum (fromEnum))
 import           GHC.Err (error, undefined)
-import           GHC.Generics (Generic, Generically(Generically))
+import           GHC.Generics (Generic, Generically (Generically))
 import           GHC.Num (Integer, Num, fromInteger, (*), (+), (-))
 import           GHC.Read (Read)
 import           GHC.Real (fromIntegral, toInteger)

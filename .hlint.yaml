@@ -16,6 +16,10 @@
 - group: { name: dollar, enabled: true }
 
 - modules:
+    - { name: SashaPrelude, importStyle: unrestricted }
+    # Re-exported modules in Model.Core
+    - { name: Model.RichText, within: [Model.Core], importStyle: unrestricted }
+    - { name: Model.WireProtocol, within: [Model.Core], importStyle: unrestricted }
     - { name: "**.*", importStyle: explicitOrQualified }
 
 - functions:

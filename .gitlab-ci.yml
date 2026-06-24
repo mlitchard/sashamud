@@ -9,9 +9,36 @@ Flake Linting:
   script:
     - nix flake check --no-build
 
-Haskell No Warnings:
+Cabal Style:
+  stage: Lint
   needs: []
+  script:
+    - nix build .#checks.x86_64-linux.cabal-formatting -L --no-link
+
+Haskell Formatting:
+  needs: []
+  stage: Lint
+  script:
+    - nix build .#checks.x86_64-linux.haskell-formatting -L --no-link
+
+Haskell Linting:
+  needs: []
+  stage: Lint
+  script:
+    - nix build .#checks.x86_64-linux.haskell-linting -L --no-link
+
+TypeScript Linting:
+  needs: []
+  stage: Lint
+  script:
+    - nix build .#checks.x86_64-linux.ts-linting -L --no-link
+
+Haskell No Warnings:
   stage: Build
+  needs:
+    - Haskell Linting
+    - Haskell Formatting
+    - Cabal Style
   script:
     - nix build .#checks.x86_64-linux.haskell-warnings-grammar -L --no-link
     - nix build .#checks.x86_64-linux.haskell-warnings-vocabulary -L --no-link
@@ -21,7 +48,10 @@ Haskell No Warnings:
 
 Executable:
   stage: Build
-  needs: []
+  needs:
+    - Haskell Linting
+    - Haskell Formatting
+    - Cabal Style
   script:
     - nix build .#sasha-server -L --no-link
 

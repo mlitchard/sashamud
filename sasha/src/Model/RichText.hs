@@ -16,11 +16,11 @@ module Model.RichText
   , defaultStyle
   ) where
 
-import SashaPrelude
+import           SashaPrelude
 
-import Control.DeepSeq (NFData)
-import Data.Aeson (FromJSON, ToJSON)
-import Data.Aeson.TypeScript (derivingTypeScriptDefinition)
+import           Control.DeepSeq (NFData)
+import           Data.Aeson (FromJSON, ToJSON)
+import           Data.Aeson.TypeScript (derivingTypeScriptDefinition)
 
 type TextColor :: Type
 data TextColor

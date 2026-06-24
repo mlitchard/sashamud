@@ -2,8 +2,8 @@ module Error
   ( throwMaybeM
   ) where
 
-import SashaPrelude
-import Control.Monad.Except (MonadError, throwError)
+import           Control.Monad.Except (MonadError, throwError)
+import           SashaPrelude
 
 throwMaybeM :: (MonadError Text m) => Text -> Maybe a -> m a
 throwMaybeM msg = \case

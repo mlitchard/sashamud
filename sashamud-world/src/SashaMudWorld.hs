@@ -5,10 +5,15 @@ module SashaMudWorld
   , possibilityGraph
   ) where
 
-import SashaPrelude
+import           SashaPrelude
 
-import DSL.Builder (WorldBuilderResult (resultGameState, resultPossibilityGraph), initialBuilderState, interpretDSL, runWorldBuilder)
-import DSL.Model.EDSL.SashaLambdaDSL
+import           DSL.Builder
+  ( WorldBuilderResult (resultGameState, resultPossibilityGraph)
+  , initialBuilderState
+  , interpretDSL
+  , runWorldBuilder
+  )
+import           DSL.Model.EDSL.SashaLambdaDSL
   ( SashaLambdaDSL
   , declareSceneGID
   , finalizeGameState
@@ -16,9 +21,9 @@ import DSL.Model.EDSL.SashaLambdaDSL
   , sceneDescriptionRich
   , title
   )
-import DSL.Vocabulary (andThen)
-import Model.Core
-  ( Agent (Agent, _agentShortName, _agentDescription, _agentTitle, _agentActionManagement, _agentCurrentScene, _agentKind)
+import           DSL.Vocabulary (andThen)
+import           Model.Core
+  ( Agent (Agent, _agentActionManagement, _agentCurrentScene, _agentDescription, _agentKind, _agentShortName, _agentTitle)
   , AgentKind (PlayerAgent)
   , GameState
   , PossibilityGraph
@@ -27,8 +32,8 @@ import Model.Core
   , defaultGameState
   , defaultScene
   )
-import Model.GID (GID)
-import Model.RichText (TextColor (White), colored)
+import           Model.GID (GID)
+import           Model.RichText (TextColor (White), colored)
 
 buildLobby :: SashaLambdaDSL Scene
 buildLobby =

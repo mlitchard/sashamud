@@ -1,8 +1,8 @@
 module Main (main) where
 
-import SashaPrelude
-import Server.Server (startServer)
-import SashaMudWorld (gameState, possibilityGraph)
+import           SashaMudWorld (gameState, possibilityGraph)
+import           SashaPrelude
+import           Server.Server (startServer)
 
 main :: IO ()
 main = startServer gameState possibilityGraph

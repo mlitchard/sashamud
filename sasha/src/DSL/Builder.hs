@@ -6,25 +6,25 @@ module DSL.Builder
   , WorldBuilderResult (WorldBuilderResult, resultGameState, resultPossibilityGraph)
   ) where
 
-import SashaPrelude
+import           SashaPrelude
 
-import Control.Monad.State (State, get, put, runState)
-import Data.Map.Strict (insert)
-import DSL.Model.EDSL.SashaLambdaDSL (SashaLambdaDSL (..))
-import Lens.Micro.Platform (Lens', (^.))
-import Model.Core
+import           Control.Monad.State (State, get, put, runState)
+import           Data.Map.Strict (insert)
+import           DSL.Model.EDSL.SashaLambdaDSL (SashaLambdaDSL (..))
+import           Lens.Micro.Platform (Lens', (^.))
+import           Model.Core
   ( ActionMaps
   , EntityActionRegistry
   , GIDToDataMap (GIDToDataMap, _getGIDToDataMap)
   , GameState (_world)
   , PossibilityGraph (PossibilityGraph, _actionMaps, _entityActionEffects, _worldOutcomeEffects)
-  , Scene (_title, _sceneDescription)
+  , Scene (_sceneDescription, _title)
   , World (_sceneMap)
   , WorldOutcomeRegistry
   , emptyActionMaps
   , sceneMap
   )
-import Model.GID (GID (GID))
+import           Model.GID (GID (GID))
 
 data BuilderState = BuilderState
   { bsGameState            :: GameState

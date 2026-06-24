@@ -1,9 +1,14 @@
 module Model.Core.DefaultsSpec (spec) where
 
-import SashaPrelude
-import Model.Core (Narration (Narration), Scene (_title, _sceneAgents), defaultNarration, defaultScene)
-import Model.RichText (RichText (RichText))
-import Test.Hspec
+import           Model.Core
+  ( Narration (Narration)
+  , Scene (_sceneAgents, _title)
+  , defaultNarration
+  , defaultScene
+  )
+import           Model.RichText (RichText (RichText))
+import           SashaPrelude
+import           Test.Hspec
 
 spec :: Spec
 spec = describe "Model.Core.Defaults" $ do
