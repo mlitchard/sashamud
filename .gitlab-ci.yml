@@ -1,0 +1,61 @@
+stages:
+  - Lint
+  - Build
+  - Check
+
+Flake Linting:
+  needs: []
+  stage: Lint
+  script:
+    - nix flake check --no-build
+
+Haskell No Warnings:
+  needs: []
+  stage: Build
+  script:
+    - nix build .#checks.x86_64-linux.haskell-warnings-grammar -L --no-link
+    - nix build .#checks.x86_64-linux.haskell-warnings-vocabulary -L --no-link
+    - nix build .#checks.x86_64-linux.haskell-warnings-sasha -L --no-link
+    - nix build .#checks.x86_64-linux.haskell-warnings-world -L --no-link
+    - nix build .#checks.x86_64-linux.haskell-warnings-server -L --no-link
+
+Executable:
+  stage: Build
+  needs: []
+  script:
+    - nix build .#sasha-server -L --no-link
+
+Client:
+  stage: Build
+  needs: []
+  script:
+    - nix build .#sasha-client-generator -L --no-link
+
+Build Dev Shell:
+  stage: Build
+  needs: []
+  script:
+    - nix build .#devShells.x86_64-linux.default -L --no-link
+
+Client Check:
+  needs:
+    - Client
+  stage: Check
+  script:
+    - nix build .#checks.x86_64-linux.client-check -L --no-link
+
+Run Tests:
+  stage: Check
+  needs:
+    - Executable
+  script:
+    - nix build .#checks.x86_64-linux.run-sasha-tests -L --no-link
+
+Flake Check:
+  needs:
+    - Haskell No Warnings
+    - Run Tests
+    - Client Check
+  stage: Check
+  script:
+    - nix flake check
