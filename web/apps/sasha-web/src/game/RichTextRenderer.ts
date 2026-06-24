@@ -24,16 +24,16 @@ export function renderRichTextLine(richText: RichText, container: HTMLElement): 
   lineDiv.className = 'rich-line';
 
   for (const span of richText) {
-    const parts = span.ssText.split('\n');
+    const parts = span._ssText.split('\n');
     for (let i = 0; i < parts.length; i++) {
       if (i > 0) lineDiv.appendChild(document.createElement('br'));
       if (parts[i].length > 0) {
         const el = document.createElement('span');
         el.textContent = parts[i];
-        const color = span.ssStyle.tsFgColor;
+        const color = span._ssStyle._tsFgColor;
         el.style.color = color ? (TEXT_COLORS[color] ?? DEFAULT_TEXT_COLOR) : DEFAULT_TEXT_COLOR;
-        if (span.ssStyle.tsBold) el.style.fontWeight = 'bold';
-        if (span.ssStyle.tsItalic) el.style.fontStyle = 'italic';
+        if (span._ssStyle._tsBold) el.style.fontWeight = 'bold';
+        if (span._ssStyle._tsItalic) el.style.fontStyle = 'italic';
         lineDiv.appendChild(el);
       }
     }

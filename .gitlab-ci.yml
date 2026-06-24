@@ -33,6 +33,13 @@ TypeScript Linting:
   script:
     - nix build .#checks.x86_64-linux.ts-linting -L --no-link
 
+TypeScript Typecheck:
+  needs:
+    - Client
+  stage: Check
+  script:
+    - nix build .#checks.x86_64-linux.ts-typecheck -L --no-link
+
 Haskell No Warnings:
   stage: Build
   needs:
@@ -86,6 +93,7 @@ Flake Check:
     - Haskell No Warnings
     - Run Tests
     - Client Check
+    - TypeScript Typecheck
   stage: Check
   script:
     - nix flake check

@@ -2,20 +2,20 @@
 export type GameCommand = string;
 // Defined in API.Types of sasha-0.1.0.0-E52Uz84tstZFiBbuO6Etf7
 export type LoginResponse = SessionId;
-// Defined in API.Types of sasha-0.1.0.0-E52Uz84tstZFiBbuO6Etf7
-export type PlayerName = string;
+// Defined in Model.Core of sasha-0.1.0.0-E52Uz84tstZFiBbuO6Etf7
+export type SessionId = string;
 // Defined in Model.RichText of sasha-0.1.0.0-E52Uz84tstZFiBbuO6Etf7
 export interface StyledSpan {
   // readonly tag: "StyledSpan";
-  readonly ssStyle: TextStyle;
-  readonly ssText: string;
+  readonly _ssStyle: TextStyle;
+  readonly _ssText: string;
 }
 // Defined in Model.RichText of sasha-0.1.0.0-E52Uz84tstZFiBbuO6Etf7
 export interface TextStyle {
   // readonly tag: "TextStyle";
-  readonly tsFgColor: TextColor | null;
-  readonly tsBold: boolean;
-  readonly tsItalic: boolean;
+  readonly _tsFgColor: TextColor | null;
+  readonly _tsBold: boolean;
+  readonly _tsItalic: boolean;
 }
 // Defined in Model.RichText of sasha-0.1.0.0-E52Uz84tstZFiBbuO6Etf7
 export type RichText = Array<StyledSpan>;
@@ -47,20 +47,24 @@ export interface AnalysisData {
   readonly tag: "AnalysisData";
   readonly contents: { [key: string]: Array<RichText> };
 }
+// Defined in Server.Validator of sasha-0.1.0.0-E52Uz84tstZFiBbuO6Etf7
+export type PlayerNameUNV = string;
+// Defined in Server.Validator of sasha-0.1.0.0-E52Uz84tstZFiBbuO6Etf7
+export type PlayerNameVAL = string;
 //API
 export const API = {
   base: "",
   baseWS: "",
-  "/api/game/login(PlayerName)": (() => {
+  "/api/game/login(PlayerNameUNV)": (() => {
   const urlBuilder = () => `${API.base}/api/game/login`;
-  const f = async (PlayerName:PlayerName): Promise<LoginResponse> => {
+  const f = async (PlayerNameUNV:PlayerNameUNV): Promise<LoginResponse> => {
     const uri = urlBuilder();
     return fetch(uri, {
       method: "POST",
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(PlayerName),
+      body: JSON.stringify(PlayerNameUNV),
       redirect: 'manual'
     }).then(res => {
       const location = res.headers.get('Location');

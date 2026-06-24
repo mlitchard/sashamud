@@ -27,14 +27,14 @@ instance (Fletch (ReqBody list unv :> xs)) => Fletch (ValidatedBody list unv val
 
 client :: Text
 client = tsClient
-  @'[ TSDef TextColor
-    , TSDef TextStyle
-    , TSDef StyledSpan
-    , TSDef RichText
-    , TSDef WireMessage
-    , TSDef SessionId
+  @'[ TSDef SessionId
     , TSDef GameCommand
     , TSDef PlayerNameUNV
     , TSDef PlayerNameVAL
     , TSDef LoginResponse
+    , TSDef TextColor
+    , TSDef TextStyle
+    , TSDef StyledSpan
+    , TSDef RichText
+    , TSDef WireMessage
     ] @SashaAPI
