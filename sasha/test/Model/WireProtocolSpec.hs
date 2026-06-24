@@ -10,7 +10,7 @@ import           Model.WireProtocol
   ( WireMessage (AnalysisData, ChatMessage, CommandResponse, GameNarration, SessionAck, SystemMessage)
   )
 import           SashaPrelude
-import           Test.Hspec
+import           Test.Hspec (Spec, describe, it, shouldBe)
 
 spec :: Spec
 spec = describe "Model.WireProtocol" $ do

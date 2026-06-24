@@ -12,7 +12,6 @@ import           API.Types
   ( LoginResponse (LoginResponse)
   , MessageTo (MessageTo)
   , PlayerJoined (PlayerJoined)
-  , PlayerName
   , SessionId (SessionId)
   )
 import           Control.Concurrent (readMVar)
@@ -48,6 +47,7 @@ import           Server.App
 import           Server.Authentication (authProxy, sashaContext)
 import           Server.GameWebSocket (gameWebSocket)
 import           Server.Log (LogEntry (PlayerLogin, ServerStart), writeLog)
+import           Server.Validator (PlayerNameVAL)
 import           System.Environment (lookupEnv)
 import           Text.Read (readMaybe)
 
@@ -64,7 +64,7 @@ app ctx = serveWithContext (Proxy @SashaAPI) sashaContext
   $ hoistServerWithContext (Proxy @SashaAPI) authProxy (flip runReaderT ctx . unAppM)
     (loginHandler :<|> gameWebSocket ctx)
 
-loginHandler :: PlayerName -> AppM LoginResponse
+loginHandler :: PlayerNameVAL -> AppM LoginResponse
 loginHandler playerName = do
   ctx <- ask
   sessionId <- liftIO (SessionId . toText <$> nextRandom)

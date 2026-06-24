@@ -8,20 +8,21 @@ module DSL.Builder
 
 import           SashaPrelude
 
-import           Control.Monad.State (State, get, put, runState)
+import           Control.Monad.State (State, get, gets, put, runState)
 import           Data.Map.Strict (insert)
 import           DSL.Model.EDSL.SashaLambdaDSL (SashaLambdaDSL (..))
 import           Lens.Micro.Platform (Lens', (^.))
 import           Model.Core
   ( ActionMaps
   , EntityActionRegistry
-  , GIDToDataMap (GIDToDataMap, _getGIDToDataMap)
+  , GIDToDataMap (GIDToDataMap)
   , GameState (_world)
   , PossibilityGraph (PossibilityGraph, _actionMaps, _entityActionEffects, _worldOutcomeEffects)
   , Scene (_sceneDescription, _title)
   , World (_sceneMap)
   , WorldOutcomeRegistry
   , emptyActionMaps
+  , getGIDToDataMap
   , sceneMap
   )
 import           Model.GID (GID (GID))
@@ -66,7 +67,7 @@ interpretDSL (RegisterScene gid sceneBuilder) = do
   st <- get
   let gs = bsGameState st
       sm = gs ^. world . sceneMap
-      sm' = GIDToDataMap (insert gid scene (_getGIDToDataMap sm))
+      sm' = GIDToDataMap (insert gid scene (sm ^. getGIDToDataMap))
       gs' = gs { _world = (_world gs) { _sceneMap = sm' } }
   put st { bsGameState = gs' }
 
@@ -74,9 +75,8 @@ interpretDSL (Title t scene) = pure scene { _title = t }
 
 interpretDSL (SceneDescription rt scene) = pure scene { _sceneDescription = rt }
 
-interpretDSL FinalizeGameState = do
-  st <- get
-  pure (bsGameState st)
+interpretDSL FinalizeGameState =
+  gets bsGameState
 
 -- Internal accessor
 world :: Lens' GameState World

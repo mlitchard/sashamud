@@ -5,16 +5,16 @@ module Server.Log
 
 import           SashaPrelude
 
-import           API.Types (PlayerName)
 import           Network.Wai.Handler.Warp (Port)
 import           Server.App (GameLog (..))
+import           Server.Validator (PlayerNameVAL)
+import           System.IO (hPrint)
 
 data LogEntry = Heartbeat
-              | PlayerLogin PlayerName
-              | PlayerDisconnect PlayerName
+              | PlayerLogin PlayerNameVAL
+              | PlayerDisconnect PlayerNameVAL
               | ServerStart Port
   deriving stock (Show)
 
 writeLog :: GameLog -> LogEntry -> IO ()
-writeLog gl entry =
-  hPutStrLn (logHandle gl) (show entry)
+writeLog gl = hPrint (logHandle gl)

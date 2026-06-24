@@ -4,7 +4,7 @@ import           Data.Aeson (decode, encode)
 import           Model.Core (Agent, Scene)
 import           Model.GID (GID (..))
 import           SashaPrelude
-import           Test.Hspec
+import           Test.Hspec (Spec, describe, it, shouldBe)
 
 spec :: Spec
 spec = describe "Model.GID" $ do

@@ -1,6 +1,8 @@
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use newtype instead of data" #-}
+
 module API.Types
   ( SessionId (..)
-  , PlayerName (..)
   , GameCommand (..)
   , LoginResponse (..)
   , AuthenticatedUser (..)
@@ -16,11 +18,7 @@ import           Data.Aeson (FromJSON, ToJSON)
 import           Data.Aeson.TypeScript (derivingTypeScriptDefinition)
 import           Model.Core (SessionId (SessionId))
 import           Model.WireProtocol (WireMessage)
-
-newtype PlayerName = PlayerName { pnText :: Text }
-  deriving stock (Generic, Show)
-  deriving newtype (Eq, FromJSON, Ord, ToJSON)
-  deriving anyclass (NFData)
+import           Server.Validator (PlayerNameVAL)
 
 newtype GameCommand = GameCommand { unGameCommand :: Text }
   deriving stock (Generic, Show)
@@ -32,7 +30,6 @@ newtype LoginResponse = LoginResponse { lrSessionId :: SessionId }
   deriving newtype (Eq, FromJSON, ToJSON)
   deriving anyclass (NFData)
 
-derivingTypeScriptDefinition ''PlayerName
 derivingTypeScriptDefinition ''GameCommand
 derivingTypeScriptDefinition ''LoginResponse
 
@@ -44,7 +41,7 @@ data AuthenticatedUser = AuthenticatedUser
 
 data PlayerJoined = PlayerJoined
   { pjSessionId  :: SessionId
-  , pjPlayerName :: PlayerName
+  , pjPlayerName :: PlayerNameVAL
   }
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)

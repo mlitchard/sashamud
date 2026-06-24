@@ -1,3 +1,6 @@
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use newtype instead of data" #-}
+
 module Server.App
   ( AppCtx (..)
   , AppM (..)
@@ -7,13 +10,7 @@ module Server.App
 
 import           SashaPrelude
 
-import           API.Types
-  ( MessageFrom
-  , MessageTo
-  , PlayerJoined
-  , PlayerName
-  , SessionId
-  )
+import           API.Types (MessageFrom, MessageTo, PlayerJoined, SessionId)
 import           Control.Concurrent (MVar, newMVar)
 import           Control.Concurrent.STM (TChan, newTChanIO)
 import           Control.Monad.Except (MonadError)
@@ -24,6 +21,7 @@ import           Model.GID (GID)
 import           Model.WireProtocol (WireMessage)
 import           Servant (Handler)
 import           Servant.Server (ServerError)
+import           Server.Validator (PlayerNameVAL)
 
 data GameLog = GameLog
   { logHandle :: Handle
@@ -45,7 +43,7 @@ data AppCtx = AppCtx
   , acJoinChan     :: TChan PlayerJoined
   , acConnections  :: MVar (Map SessionId ([WireMessage] -> IO ()))
   , acPlayerMap    :: MVar (Map SessionId (GID Agent))
-  , acKnownPlayers :: MVar (Map PlayerName (GID Agent))
+  , acKnownPlayers :: MVar (Map PlayerNameVAL (GID Agent))
   , acGameLog      :: GameLog
   }
 

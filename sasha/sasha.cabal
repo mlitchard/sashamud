@@ -60,6 +60,7 @@ library
     Server.GameWebSocket
     Server.Log
     Server.Server
+    Server.Validator
 
   build-depends:
     , aeson

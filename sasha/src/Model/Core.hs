@@ -66,6 +66,14 @@ import           Data.Map.Strict (Map)
 import           Data.Set (Set)
 import           Lens.Micro.Platform (makeLenses)
 import           Model.Core.Mappings
+  ( ActionManagementFunctions (ActionManagementFunctions)
+  , ActionMaps (ActionMaps)
+  , EntityActionRegistry
+  , GIDToDataMap (GIDToDataMap)
+  , WorldOutcomeRegistry
+  , emptyActionMaps
+  , getGIDToDataMap
+  )
 import           Model.GID (GID)
 import           Model.RichText (RichText)
 

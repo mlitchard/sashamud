@@ -8,28 +8,22 @@ module API.Routes
 
 import           SashaPrelude
 
-import           API.Types (AuthenticatedUser, LoginResponse, PlayerName)
+import           API.Types (AuthenticatedUser, LoginResponse)
 import           Model.WireProtocol (WireMessage)
-import           Servant.API
-  ( AuthProtect
-  , JSON
-  , Post
-  , ReqBody
-  , type (:<|>)
-  , type (:>)
-  )
+import           Servant.API (AuthProtect, JSON, Post, type (:<|>), type (:>))
 import           Servant.API.WebSocket
   ( MsgType (Text)
   , SecWebSocketProtocol
   , TypedWebSocket
   )
 import           Servant.Server.Experimental.Auth (AuthServerData)
+import           Server.Validator (PlayerNameUNV, PlayerNameVAL, ValidatedBody)
 
 type instance AuthServerData (AuthProtect SecWebSocketProtocol) = AuthenticatedUser
 
 type LoginAPI =
   "api" :> "game" :> "login"
-  :> ReqBody '[JSON] PlayerName
+  :> ValidatedBody '[JSON] PlayerNameUNV PlayerNameVAL
   :> Post '[JSON] LoginResponse
 
 type WebSocketAPI =

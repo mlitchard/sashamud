@@ -9,7 +9,7 @@ import           Model.Core
   , world
   )
 import           SashaPrelude
-import           Test.Hspec
+import           Test.Hspec (Spec, describe, it, shouldBe)
 
 spec :: Spec
 spec = describe "Model.Core.GameState" $ do
