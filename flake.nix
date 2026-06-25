@@ -244,11 +244,19 @@
                     ln -sf ${client-ts} ${generated-ts-path}
                   '';
                   npmDeps = webNpmDeps;
-                  npmBuildScript = "build";
+                  dontNpmBuild = true;
+                  buildPhase = ''
+                    cd apps/sasha-web
+                    ../../node_modules/.bin/vite build
+                    cd ../..
+                  '';
+                  installPhase = ''
+                    mkdir -p $out
+                    cp -r apps/sasha-web/dist/* $out/
+                  '';
                 };
               in
-              pkgs.runCommand "sasha-web-frontend" { }
-                "ln -s ${npmBuild}/lib/node_modules/sashamud-web-repo/apps/sasha-web/dist $out";
+              npmBuild;
           };
 
           formatter = pkgs.nixpkgs-fmt;
