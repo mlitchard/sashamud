@@ -3,6 +3,7 @@
 
 module Server.Server
   ( app
+  , deliverOutbound
   , startServer
   ) where
 
@@ -18,6 +19,7 @@ import           API.Types
 import           Control.Concurrent (modifyMVar_, readMVar)
 import           Control.Concurrent.Async (race_)
 import           Control.Concurrent.STM (atomically, readTChan, writeTChan)
+import           Control.Exception (Handler (Handler), SomeException, catches)
 import           Control.Monad (forever)
 import           Control.Monad.Reader (ask, runReaderT)
 import           Data.Aeson (eitherDecode, encode)
@@ -30,7 +32,8 @@ import           Model.WireProtocol (WireMessage)
 import           Network.Wai (Application)
 import           Network.Wai.Handler.Warp (run)
 import           Network.WebSockets
-  ( DataMessage (Binary, Text)
+  ( ConnectionException
+  , DataMessage (Binary, Text)
   , WebSocketsData (fromDataMessage, fromLazyByteString, toLazyByteString)
   )
 import           Servant
@@ -48,7 +51,10 @@ import           Server.App
   )
 import           Server.Authentication (authProxy, sashaContext)
 import           Server.GameWebSocket (gameWebSocket)
-import           Server.Log (LogEntry (PlayerLogin, ServerStart), writeLog)
+import           Server.Log
+  ( LogEntry (PlayerLogin, SendDropped, SendError, SendFailed, ServerStart)
+  , writeLog
+  )
 import           Server.Validator (PlayerNameVAL)
 import           System.Environment (lookupEnv)
 import           Text.Read (readMaybe)
@@ -87,8 +93,17 @@ deliverOutbound ctx = forever $ do
   MessageTo sid wireMsg <- atomically (readTChan (acOutbound ctx))
   conns <- readMVar (acConnections ctx)
   case lookup sid conns of
-    Nothing       -> pure ()
-    Just sendMsgs -> sendMsgs [wireMsg]
+    Nothing ->
+      writeLog (acGameLog ctx) (SendDropped sid)
+    Just sendMsgs ->
+      catches (sendMsgs [wireMsg])
+        [ Handler (\(_ :: ConnectionException) -> do
+            writeLog (acGameLog ctx) (SendFailed sid)
+            modifyMVar_ (acConnections ctx) (pure . delete sid)
+            modifyMVar_ (acPlayerMap ctx) (pure . delete sid))
+        , Handler (\(e :: SomeException) ->
+            writeLog (acGameLog ctx) (SendError sid (pack (show e))))
+        ]
 
 startServer :: GameState -> PossibilityGraph -> IO ()
 startServer initialGS pg = do

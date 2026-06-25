@@ -11,13 +11,22 @@ import           Model.RichText
   , StyledSpan (StyledSpan)
   , TextColor (Red, White)
   , TextStyle (TextStyle)
+  , bold
   , boldColored
   , colored
+  , plain
   , toPlainText
   , tsBold
+  , tsFgColor
   , tsItalic
   )
 import           SashaPrelude
+  ( Bool (False, True)
+  , Maybe (Just, Nothing)
+  , mempty
+  , ($)
+  , (<>)
+  )
 import           Test.Hspec (Spec, describe, expectationFailure, it, shouldBe)
 
 spec :: Spec
@@ -35,6 +44,26 @@ spec = describe "Model.RichText" $ do
           txt `shouldBe` "test"
           rest `shouldBe` []
         RichText [] -> expectationFailure "boldColored produced empty RichText"
+
+    it "plain creates span with no color and no bold" $ do
+      case plain "hello" of
+        RichText (StyledSpan style txt : rest) -> do
+          view tsFgColor style `shouldBe` Nothing
+          view tsBold style `shouldBe` False
+          view tsItalic style `shouldBe` False
+          txt `shouldBe` "hello"
+          rest `shouldBe` []
+        RichText [] -> expectationFailure "plain produced empty RichText"
+
+    it "bold creates bold span with no color" $ do
+      case bold "strong" of
+        RichText (StyledSpan style txt : rest) -> do
+          view tsFgColor style `shouldBe` Nothing
+          view tsBold style `shouldBe` True
+          view tsItalic style `shouldBe` False
+          txt `shouldBe` "strong"
+          rest `shouldBe` []
+        RichText [] -> expectationFailure "bold produced empty RichText"
 
     it "toPlainText strips styling" $ do
       let rt = colored White "one" <> boldColored Red "two"

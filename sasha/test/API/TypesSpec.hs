@@ -5,7 +5,7 @@ import           API.Types
   , SessionId (SessionId)
   )
 import           Data.Aeson (decode, encode)
-import           SashaPrelude
+import           SashaPrelude (Maybe (Just), ($))
 import           Server.Validator (PlayerNameUNV (PlayerNameUNV))
 import           Test.Hspec (Spec, describe, it, shouldBe)
 

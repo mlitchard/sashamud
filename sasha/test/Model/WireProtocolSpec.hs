@@ -9,7 +9,7 @@ import           Model.RichText (TextColor (White), colored)
 import           Model.WireProtocol
   ( WireMessage (AnalysisData, ChatMessage, CommandResponse, GameNarration, SessionAck, SystemMessage)
   )
-import           SashaPrelude
+import           SashaPrelude (Maybe (Just), ($), (.), (<$>))
 import           Test.Hspec (Spec, describe, it, shouldBe)
 
 spec :: Spec
