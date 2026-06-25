@@ -65,8 +65,8 @@
               filter = path: type:
                 let baseName = baseNameOf path;
                 in pkgs.lib.hasSuffix ".hs" baseName
-                || pkgs.lib.hasSuffix ".cabal" baseName
-                || type == "directory";
+                  || pkgs.lib.hasSuffix ".cabal" baseName
+                  || type == "directory";
             };
 
           myOverlay = final: _prev: {
@@ -81,35 +81,42 @@
             monad-schedule = hlib.dontCheck (final.callCabal2nix "monad-schedule" "${rhineSrc}/monad-schedule" { });
             time-domain = hlib.dontCheck (final.callCabal2nix "time-domain" "${rhineSrc}/time-domain" { });
             changeset =
-              let changesetSrc = pkgs.fetchFromGitHub {
-                owner = "turion";
-                repo = "changeset";
-                rev = "v0.1.1";
-                sha256 = "sha256-u0nnibT3iAMhRQrBnioooIyBLlV21Z/9fVvDgt+zUQ8=";
-              };
-              in final.callCabal2nix "changeset" "${changesetSrc}/changeset" { };
+              let
+                changesetSrc = pkgs.fetchFromGitHub {
+                  owner = "turion";
+                  repo = "changeset";
+                  rev = "v0.1.1";
+                  sha256 = "sha256-u0nnibT3iAMhRQrBnioooIyBLlV21Z/9fVvDgt+zUQ8=";
+                };
+              in
+              final.callCabal2nix "changeset" "${changesetSrc}/changeset" { };
             simple-affine-space = hlib.dontCheck (final.callHackage "simple-affine-space" "0.2.1" { });
             selective = final.callHackage "selective" "0.7.0.1" { };
             foldable1-classes-compat = final.callHackage "foldable1-classes-compat" "0.1" { };
             monoid-extras =
-              let src = builtins.fetchTarball {
-                url = "https://hackage.haskell.org/package/monoid-extras-0.7/monoid-extras-0.7.tar.gz";
-                sha256 = "sha256-jXHK6wn8Diel1YPs6hssIRxYU7ceQ9UUdcPjlxj5R7Y=";
-              };
-              in final.callCabal2nix "monoid-extras" src { };
+              let
+                src = builtins.fetchTarball {
+                  url = "https://hackage.haskell.org/package/monoid-extras-0.7/monoid-extras-0.7.tar.gz";
+                  sha256 = "sha256-jXHK6wn8Diel1YPs6hssIRxYU7ceQ9UUdcPjlxj5R7Y=";
+                };
+              in
+              final.callCabal2nix "monoid-extras" src { };
             Earley = final.callHackage "Earley" "0.13.0.1" { };
             # TypeScript codegen
             aeson-typescript = hlib.dontCheck (hlib.doJailbreak
               (final.callCabal2nix "aeson-typescript"
-                inputs.aeson-generics-typescript { }));
+                inputs.aeson-generics-typescript
+                { }));
             servant-aeson-typescript = hlib.setBuildTarget
               (hlib.doJailbreak
                 (final.callCabal2nix "servant-aeson-typescript"
-                  inputs.servant-aeson-generics-typescript { }))
+                  inputs.servant-aeson-generics-typescript
+                  { }))
               "lib:servant-aeson-typescript";
             servant-websockets = hlib.dontCheck
               (final.callCabal2nix "servant-websockets"
-                inputs.servant-websockets { });
+                inputs.servant-websockets
+                { });
           };
 
           legacyPackages =
@@ -217,23 +224,29 @@
 
           packages = {
             sasha-server = (hlib.justStaticExecutables
-              (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sashamud-server "exe:sasha-server")))
-              .overrideAttrs { meta.mainProgram = "sasha-server"; };
+              (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sashamud-server "exe:sasha-server"))).overrideAttrs { meta.mainProgram = "sasha-server"; };
             sasha-client-generator = (hlib.justStaticExecutables
-              (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sasha "exe:sasha-client-generator")))
-              .overrideAttrs { meta.mainProgram = "sasha-client-generator"; };
+              (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sasha "exe:sasha-client-generator"))).overrideAttrs { meta.mainProgram = "sasha-client-generator"; };
             sasha-tests = hlib.justStaticExecutables
               (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sasha "exe:sasha-tests"));
           };
 
+          formatter = pkgs.nixpkgs-fmt;
+
           checks = {
+            nix-formatting = pkgs.runCommand "nix-formatting" { buildInputs = [ pkgs.nixpkgs-fmt ]; } ''
+              nixpkgs-fmt --check ${./flake.nix}
+              echo 0 > $out
+            '';
             cabal-formatting = lu.cabal-fmt {
               src = pkgs.lib.cleanSourceWith {
                 src = projectRoot;
                 filter = path: type:
-                  let baseName = baseNameOf path;
-                      excluded = baseName == "attic" || baseName == "dist-newstyle" || baseName == ".git" || baseName == "result";
-                  in !excluded && (
+                  let
+                    baseName = baseNameOf path;
+                    excluded = baseName == "attic" || baseName == "dist-newstyle" || baseName == ".git" || baseName == "result";
+                  in
+                  !excluded && (
                     lib.hasSuffix ".cabal" baseName
                     || type == "directory"
                   );
@@ -243,9 +256,11 @@
               src = pkgs.lib.cleanSourceWith {
                 src = projectRoot;
                 filter = path: type:
-                  let baseName = baseNameOf path;
-                      excluded = baseName == "attic" || baseName == "dist-newstyle" || baseName == ".git" || baseName == "result";
-                  in !excluded && (
+                  let
+                    baseName = baseNameOf path;
+                    excluded = baseName == "attic" || baseName == "dist-newstyle" || baseName == ".git" || baseName == "result";
+                  in
+                  !excluded && (
                     lib.hasSuffix ".hs" baseName
                     || lib.hasSuffix ".cabal" baseName
                     || baseName == ".stylish-haskell.yaml"
@@ -257,9 +272,11 @@
               src = pkgs.lib.cleanSourceWith {
                 src = projectRoot;
                 filter = path: type:
-                  let baseName = baseNameOf path;
-                      excluded = baseName == "attic" || baseName == "dist-newstyle" || baseName == ".git" || baseName == "result";
-                  in !excluded && (
+                  let
+                    baseName = baseNameOf path;
+                    excluded = baseName == "attic" || baseName == "dist-newstyle" || baseName == ".git" || baseName == "result";
+                  in
+                  !excluded && (
                     lib.hasSuffix ".hs" baseName
                     || baseName == ".hlint.yaml"
                     || type == "directory"
