@@ -1,18 +1,19 @@
-import { API, WireMessage } from '@sasha/type-gen-output/client';
+import { API, MessageFrom, MessageTo } from '@sasha/type-gen-output/client';
 
-export type { WireMessage } from '@sasha/type-gen-output/client';
+export type { MessageFrom } from '@sasha/type-gen-output/client';
 
 type ConnectionStatus = 'disconnected' | 'connecting' | 'connected';
 
 export class GameConnection {
   private ws: WebSocket | null = null;
+  private wsSend: ((input: MessageTo) => void) | null = null;
   private sessionId: string | null = null;
   private status: ConnectionStatus = 'disconnected';
   private reconnectAttempts = 0;
   private maxReconnect = 5;
   private reconnectDelay = 1000;
 
-  private messageCallbacks: Array<(msg: WireMessage) => void> = [];
+  private messageCallbacks: Array<(msg: MessageFrom) => void> = [];
   private statusCallbacks: Array<(status: ConnectionStatus) => void> = [];
 
   connect(sessionId?: string): void {
@@ -21,6 +22,7 @@ export class GameConnection {
     this.setStatus('connecting');
     API["/ws/game{Sec-WebSocket-Protocol}"](this.sessionId).then(({ send, receive, raw }) => {
       this.ws = raw;
+      this.wsSend = send;
 
       raw.onopen = () => {
         this.reconnectAttempts = 0;
@@ -29,7 +31,7 @@ export class GameConnection {
 
       this.updateTestHook('bridge-session', this.sessionId!);
 
-      receive((msg: WireMessage) => {
+      receive((msg: MessageFrom) => {
         for (const cb of this.messageCallbacks) cb(msg);
       });
 
@@ -49,6 +51,7 @@ export class GameConnection {
       this.ws.close();
       this.ws = null;
     }
+    this.wsSend = null;
     this.setStatus('disconnected');
     this.sessionId = null;
   }
@@ -58,11 +61,15 @@ export class GameConnection {
   }
 
   sendCommand(text: string): void {
-    if (!this.ws) return;
-    this.ws.send(JSON.stringify(text));
+    if (!this.wsSend) return;
+    if (text === '/ping') {
+      this.wsSend({ tag: 'Ping' });
+    } else {
+      this.wsSend({ tag: 'GameCommand', contents: text });
+    }
   }
 
-  onMessage(callback: (msg: WireMessage) => void): void {
+  onMessage(callback: (msg: MessageFrom) => void): void {
     this.messageCallbacks.push(callback);
   }
 

@@ -7,11 +7,9 @@ module API.Routes
   , WebSocketAPI
   ) where
 
-import           SashaPrelude
-
-import           API.Types (AuthenticatedUser, LoginResponse)
+import           API.Types (AuthenticatedUser, LoginResponse, MessageTo)
 import           Model.Core (SessionId)
-import           Model.WireProtocol (WireMessage)
+import           Model.WireProtocol (MessageFrom)
 import           Servant.API
   ( AuthProtect
   , DeleteNoContent
@@ -44,7 +42,7 @@ type LogoutAPI =
 type WebSocketAPI =
   "ws" :> "game"
   :> AuthProtect SecWebSocketProtocol
-  :> TypedWebSocket 'Text Text WireMessage
+  :> TypedWebSocket 'Text MessageTo MessageFrom
 
 type SashaAPI =
        LoginAPI

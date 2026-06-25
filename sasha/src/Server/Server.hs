@@ -1,5 +1,4 @@
 {-# LANGUAGE ExplicitNamespaces #-}
-{-# OPTIONS_GHC -Wno-orphans #-}
 
 module Server.Server
   ( app
@@ -12,8 +11,8 @@ import           SashaPrelude
 import           API.Routes (SashaAPI)
 import           API.Types
   ( LoginResponse (LoginResponse)
-  , MessageTo (MessageTo)
   , PlayerJoined (PlayerJoined)
+  , Routed (Routed)
   , SessionId (SessionId)
   )
 import           Control.Concurrent (modifyMVar_, readMVar)
@@ -22,20 +21,14 @@ import           Control.Concurrent.STM (atomically, readTChan, writeTChan)
 import           Control.Exception (Handler (Handler), SomeException, catches)
 import           Control.Monad (forever)
 import           Control.Monad.Reader (ask, runReaderT)
-import           Data.Aeson (eitherDecode, encode)
 import           Data.Map.Strict (delete, lookup)
 import           Data.UUID (toText)
 import           Data.UUID.V4 (nextRandom)
 import           Engine.Simulation.EffectNetwork (gameLoop)
 import           Model.Core (GameState, PossibilityGraph)
-import           Model.WireProtocol (WireMessage)
 import           Network.Wai (Application)
 import           Network.Wai.Handler.Warp (run)
-import           Network.WebSockets
-  ( ConnectionException
-  , DataMessage (Binary, Text)
-  , WebSocketsData (fromDataMessage, fromLazyByteString, toLazyByteString)
-  )
+import           Network.WebSockets (ConnectionException)
 import           Servant
   ( HasServer (hoistServerWithContext)
   , NoContent (NoContent)
@@ -58,14 +51,6 @@ import           Server.Log
 import           Server.Validator (PlayerNameVAL)
 import           System.Environment (lookupEnv)
 import           Text.Read (readMaybe)
-
-instance WebSocketsData WireMessage where
-  toLazyByteString = encode
-  fromLazyByteString lbs = case eitherDecode lbs of
-    Right msg -> msg
-    Left err  -> error $ "WireMessage decode failed: " <> err
-  fromDataMessage (Text lbs _) = fromLazyByteString lbs
-  fromDataMessage (Binary lbs) = fromLazyByteString lbs
 
 app :: AppCtx -> Application
 app ctx = serveWithContext (Proxy @SashaAPI) sashaContext
@@ -90,7 +75,7 @@ logoutHandler sessionId = do
 
 deliverOutbound :: AppCtx -> IO ()
 deliverOutbound ctx = forever $ do
-  MessageTo sid wireMsg <- atomically (readTChan (acOutbound ctx))
+  Routed sid wireMsg <- atomically (readTChan (acOutbound ctx))
   conns <- readMVar (acConnections ctx)
   case lookup sid conns of
     Nothing ->

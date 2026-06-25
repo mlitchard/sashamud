@@ -21,6 +21,7 @@ import           SashaPrelude
 import           API.Routes (LoginAPI, LogoutAPI)
 import           API.Types
   ( LoginResponse (LoginResponse)
+  , MessageTo (Ping)
   , SessionId (SessionId)
   )
 import           Control.Concurrent (readMVar, threadDelay)
@@ -29,7 +30,7 @@ import           Control.Exception (SomeException, finally, try)
 import           Data.Map.Strict (member)
 import           Data.Text.Encoding (encodeUtf8)
 import           Engine.Simulation.EffectNetwork (gameLoop)
-import           Model.WireProtocol (WireMessage (SystemMessage))
+import           Model.WireProtocol (MessageFrom (Pong, SystemMessage))
 import           Network.HTTP.Client (defaultManagerSettings, newManager)
 import           Network.Wai.Handler.Warp (run)
 import           Network.WebSockets
@@ -37,6 +38,7 @@ import           Network.WebSockets
   , defaultConnectionOptions
   , receiveData
   , runClientWith
+  , sendTextData
   )
 import           SashaMudWorld (gameState, possibilityGraph)
 import           Servant
@@ -118,22 +120,26 @@ connectWS (SessionId sid) =
     defaultConnectionOptions
     [("Sec-WebSocket-Protocol", encodeUtf8 sid)]
 
-receiveWireMessage :: Connection -> IO WireMessage
-receiveWireMessage = receiveData
+receiveMessageFrom :: Connection -> IO MessageFrom
+receiveMessageFrom = receiveData
 
 -- | Drain messages until predicate matches or timeout (microseconds)
-receiveUntil :: Connection -> Int -> (WireMessage -> Bool) -> IO (Maybe WireMessage)
+receiveUntil :: Connection -> Int -> (MessageFrom -> Bool) -> IO (Maybe MessageFrom)
 receiveUntil conn timeoutUs predicate = timeout timeoutUs go
   where
     go = do
-      msg <- receiveWireMessage conn
+      msg <- receiveMessageFrom conn
       if predicate msg then pure msg else go
 
-isHeartbeat :: WireMessage -> Bool
+isHeartbeat :: MessageFrom -> Bool
 isHeartbeat (SystemMessage "*** heartbeat") = True
 isHeartbeat _                               = False
 
-isDeparture :: Text -> WireMessage -> Bool
+isPong :: MessageFrom -> Bool
+isPong Pong = True
+isPong _    = False
+
+isDeparture :: Text -> MessageFrom -> Bool
 isDeparture name (SystemMessage msg) = msg == "*** " <> name <> " has departed"
 isDeparture _ _                      = False
 
@@ -290,3 +296,17 @@ spec = describe "Integration" . around withTestServer $ do
                 pMap <- readMVar (acPlayerMap ctx)
                 member sid2 pMap `shouldBe` False
       _ -> expectationFailure "both logins should succeed"
+
+  it "ping: client sends Ping, receives Pong through Rhine network" $ \(_port, _ctx) -> do
+    env <- testClientEnv
+    result <- runClientM (loginClient (PlayerNameUNV "PingTest")) env
+    case result of
+      Left err -> expectationFailure ("login failed: " <> show err)
+      Right (LoginResponse sid) ->
+        connectWS sid $ \conn -> do
+          threadDelay 2000000
+          sendTextData conn Ping
+          pong <- receiveUntil conn 10000000 isPong
+          case pong of
+            Nothing  -> expectationFailure "no Pong received within 10s"
+            Just msg -> msg `shouldBe` Pong

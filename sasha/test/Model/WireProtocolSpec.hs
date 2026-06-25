@@ -7,7 +7,7 @@ import           Data.UUID (toText)
 import           Data.UUID.V4 (nextRandom)
 import           Model.RichText (TextColor (White), colored)
 import           Model.WireProtocol
-  ( WireMessage (AnalysisData, ChatMessage, CommandResponse, GameNarration, SessionAck, SystemMessage)
+  ( MessageFrom (AnalysisData, ChatMessage, CommandResponse, GameNarration, SessionAck, SystemMessage)
   )
 import           SashaPrelude (Maybe (Just), ($), (.), (<$>))
 import           Test.Hspec (Spec, describe, it, shouldBe)
