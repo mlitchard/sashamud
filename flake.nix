@@ -247,7 +247,7 @@
                   dontNpmBuild = true;
                   buildPhase = ''
                     cd apps/sasha-web
-                    ../../node_modules/.bin/vite build
+                    node node_modules/vite/bin/vite.js build
                     cd ../..
                   '';
                   installPhase = ''
