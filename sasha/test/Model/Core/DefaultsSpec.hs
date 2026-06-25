@@ -4,23 +4,25 @@
 
 module Model.Core.DefaultsSpec (spec) where
 
+import           Lens.Micro.Platform (view)
 import           Model.Core
   ( Narration (Narration)
-  , Scene (_sceneAgents, _title)
   , defaultNarration
   , defaultScene
+  , sceneAgents
+  , title
   )
 import           Model.RichText (RichText (RichText))
-import           SashaPrelude
+import           SashaPrelude (mempty, ($), (<>))
 import           Test.Hspec (Spec, describe, it, shouldBe)
 
 spec :: Spec
 spec = describe "Model.Core.Defaults" $ do
   it "defaultScene has empty title" $ do
-    _title defaultScene `shouldBe` ""
+    view title defaultScene `shouldBe` ""
 
   it "defaultScene has empty agents" $ do
-    _sceneAgents defaultScene `shouldBe` mempty
+    view sceneAgents defaultScene `shouldBe` mempty
 
   it "defaultNarration is mempty" $ do
     defaultNarration `shouldBe` mempty

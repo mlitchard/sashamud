@@ -40,7 +40,9 @@ test-suite sashamud-integration-tests
   other-modules:      Integration.LoginLogoutSpec
   build-tool-depends: hspec-discover:hspec-discover
   build-depends:
+    , async
     , base                 >=4.7 && <5
+    , containers
     , hspec
     , http-client
     , sasha
@@ -48,4 +50,6 @@ test-suite sashamud-integration-tests
     , servant-client
     , servant-client-core
     , servant-server
+    , text
     , warp
+    , websockets

@@ -2,12 +2,21 @@ module DSL.BuilderSpec (spec) where
 
 import           Data.Map.Strict (lookup, size)
 import           Lens.Micro.Platform (view)
-import           Model.Core (getGIDToDataMap, sceneDescription, sceneMap, world)
-import qualified Model.Core as Core (title)
+import           Model.Core
+  ( AgentKind (PlayerAgent)
+  , agentCurrentScene
+  , agentKind
+  , agentShortName
+  , getGIDToDataMap
+  , sceneDescription
+  , sceneMap
+  , title
+  , world
+  )
 import           Model.GID (GID (GID))
 import           Model.RichText (toPlainText)
-import           SashaMudWorld (gameState)
-import           SashaPrelude
+import           SashaMudWorld (defaultPlayerAgent, gameState)
+import           SashaPrelude (Maybe (Just, Nothing), ($), (.))
 import           Test.Hspec (Spec, describe, expectationFailure, it, shouldBe)
 
 spec :: Spec
@@ -20,7 +29,7 @@ spec = describe "DSL.Builder" $ do
     let scenes = view (world . sceneMap . getGIDToDataMap) gameState
     case lookup (GID 0) scenes of
       Just lobby ->
-        view Core.title lobby `shouldBe` "the lobby"
+        view title lobby `shouldBe` "the lobby"
       Nothing -> expectationFailure "lobby scene not found at GID 0"
 
   it "lobby scene has description" $ do
@@ -29,3 +38,16 @@ spec = describe "DSL.Builder" $ do
       Just lobby ->
         toPlainText (view sceneDescription lobby) `shouldBe` "A spacious lobby with high ceilings."
       Nothing -> expectationFailure "lobby scene not found at GID 0"
+
+  describe "defaultPlayerAgent" $ do
+    it "creates agent with correct name" $ do
+      let agent = defaultPlayerAgent "TestPlayer" (GID 0)
+      view agentShortName agent `shouldBe` "TestPlayer"
+
+    it "creates agent assigned to given scene" $ do
+      let agent = defaultPlayerAgent "TestPlayer" (GID 7)
+      view agentCurrentScene agent `shouldBe` GID 7
+
+    it "creates PlayerAgent kind" $ do
+      let agent = defaultPlayerAgent "TestPlayer" (GID 0)
+      view agentKind agent `shouldBe` PlayerAgent
