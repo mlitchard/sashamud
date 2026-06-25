@@ -10,8 +10,9 @@ module Engine.Simulation.EffectNetwork
 import           SashaPrelude
 
 import           API.Types
-  ( MessageTo (MessageTo)
+  ( MessageTo (GameCommand, Ping)
   , PlayerJoined (PlayerJoined)
+  , Routed (Routed)
   , SessionId
   )
 import           Control.Concurrent (modifyMVar_, readMVar)
@@ -90,9 +91,11 @@ import           Model.Core
   )
 import           Model.GID (GID (GID))
 import           Model.RichText (TextColor (White), colored)
-import           Model.WireProtocol (WireMessage (ChatMessage, SystemMessage))
+import           Model.WireProtocol
+  ( MessageFrom (ChatMessage, Pong, SystemMessage)
+  )
 import           Server.App
-  ( AppCtx (acJoinChan, acKnownPlayers, acOutbound, acPlayerMap)
+  ( AppCtx (acInbound, acJoinChan, acKnownPlayers, acOutbound, acPlayerMap)
   )
 import           Server.Validator (PlayerNameVAL, unPlayerNameVAL)
 
@@ -150,16 +153,20 @@ gameLoop ctx gs pg =
 rhinePipeline :: Rhine RhineM
   (ParallelClock
     (ParallelClock
-      (IOClock RhineM HeartbeatTick)
+      (ParallelClock
+        (IOClock RhineM HeartbeatTick)
+        (IOClock RhineM PlayerTick))
       (IOClock RhineM PlayerTick))
     (IOClock RhineM PlayerTick)) () ()
 rhinePipeline =
-      (heartbeatSF
-        @@ ioClock (waitClock :: HeartbeatTick)
-  |@| (processJoinsSF >-> executeJoinsSF >-> processLeavesSF)
-        @@ ioClock (waitClock :: PlayerTick))
-  |@| (assembleGameStateSF >-> writeOutSF)
-        @@ ioClock (waitClock :: PlayerTick)
+      ((heartbeatSF
+          @@ ioClock (waitClock :: HeartbeatTick)
+    |@| (processJoinsSF >-> executeJoinsSF >-> processLeavesSF)
+          @@ ioClock (waitClock :: PlayerTick))
+    |@| (gatherInputSF >-> processInputSF)
+          @@ ioClock (waitClock :: PlayerTick))
+    |@| (assembleGameStateSF >-> writeOutSF)
+          @@ ioClock (waitClock :: PlayerTick)
 
 heartbeatSF :: ClSF RhineM (IOClock RhineM HeartbeatTick) () ()
 heartbeatSF = constMCl $ do
@@ -168,7 +175,7 @@ heartbeatSF = constMCl $ do
     pMap <- readMVar (acPlayerMap appCtx)
     let msg = SystemMessage "*** heartbeat"
     atomically $
-      mapM_ (\sid -> writeTChan (acOutbound appCtx) (MessageTo sid msg))
+      mapM_ (\sid -> writeTChan (acOutbound appCtx) (Routed sid msg))
         (keys pMap)
 
 processJoinsSF :: ClSF RhineM (IOClock RhineM PlayerTick) () [JoinResult]
@@ -207,7 +214,7 @@ processLeavesSF = constMCl $ do
             let name = view agentShortName agent
                 msg = SystemMessage ("*** " <> name <> " has departed")
             liftIO . atomically $
-              mapM_ (\sid -> writeTChan (acOutbound appCtx) (MessageTo sid msg))
+              mapM_ (\sid -> writeTChan (acOutbound appCtx) (Routed sid msg))
                 witnessSids
 
 assembleGameStateSF :: ClSF RhineM (IOClock RhineM PlayerTick) () GameState
@@ -279,16 +286,35 @@ executeJoin ctx (NewPlayerJoined sid name gid) = do
   modifyMVar_ (acPlayerMap ctx) (pure . insert sid gid)
   atomically $
     writeTChan (acOutbound ctx)
-      (MessageTo sid (ChatMessage ("Welcome, " <> view unPlayerNameVAL name <> "!")))
+      (Routed sid (ChatMessage ("Welcome, " <> view unPlayerNameVAL name <> "!")))
 executeJoin ctx (ReturningPlayerJoined sid _name gid) = do
   modifyMVar_ (acPlayerMap ctx) (pure . insert sid gid)
   atomically $
     writeTChan (acOutbound ctx)
-      (MessageTo sid (ChatMessage "Welcome back!"))
+      (Routed sid (ChatMessage "Welcome back!"))
+
+gatherInputSF :: ClSF RhineM (IOClock RhineM PlayerTick) () [Routed MessageTo]
+gatherInputSF = constMCl $ do
+  appCtx <- lift (lift ask)
+  liftIO $ drainChan (acInbound appCtx)
+
+processInputSF :: ClSF RhineM (IOClock RhineM PlayerTick) [Routed MessageTo] ()
+processInputSF = arrMCl $ \msgs -> do
+  appCtx <- lift (lift ask)
+  forM_ msgs $ \(Routed sid msgTo) ->
+    case msgTo of
+      Ping ->
+        liftIO . atomically $
+          writeTChan (acOutbound appCtx) (Routed sid Pong)
+      GameCommand _ ->
+        pure ()
+
+drainChan :: TChan a -> IO [a]
+drainChan chan = do
+  mMsg <- atomically (tryReadTChan chan)
+  case mMsg of
+    Nothing -> pure []
+    Just m  -> (m :) <$> drainChan chan
 
 drainJoinChan :: TChan PlayerJoined -> IO [PlayerJoined]
-drainJoinChan chan = do
-  mJoin <- atomically (tryReadTChan chan)
-  case mJoin of
-    Nothing -> pure []
-    Just j  -> (j :) <$> drainJoinChan chan
+drainJoinChan = drainChan

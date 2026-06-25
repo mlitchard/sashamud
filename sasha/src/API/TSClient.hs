@@ -7,10 +7,10 @@ module API.TSClient (client) where
 import           SashaPrelude
 
 import           API.Routes (SashaAPI)
-import           API.Types (GameCommand, LoginResponse, SessionId)
+import           API.Types (LoginResponse, MessageTo, SessionId)
 import           GHC.TypeLits (KnownSymbol)
 import           Model.RichText (RichText, StyledSpan, TextColor, TextStyle)
-import           Model.WireProtocol (WireMessage)
+import           Model.WireProtocol (MessageFrom)
 import           Servant (AuthProtect, Header', JSON, ReqBody, type (:>))
 import           Servant.Client.TypeScript (Fletch (..), TSDef, tsClient)
 import           Server.Validator (PlayerNameUNV, PlayerNameVAL, ValidatedBody)
@@ -28,7 +28,7 @@ instance (Fletch (ReqBody list unv :> xs)) => Fletch (ValidatedBody list unv val
 client :: Text
 client = tsClient
   @'[ TSDef SessionId
-    , TSDef GameCommand
+    , TSDef MessageTo
     , TSDef PlayerNameUNV
     , TSDef PlayerNameVAL
     , TSDef LoginResponse
@@ -36,5 +36,5 @@ client = tsClient
     , TSDef TextStyle
     , TSDef StyledSpan
     , TSDef RichText
-    , TSDef WireMessage
+    , TSDef MessageFrom
     ] @SashaAPI

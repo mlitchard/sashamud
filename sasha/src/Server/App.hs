@@ -10,7 +10,7 @@ module Server.App
 
 import           SashaPrelude
 
-import           API.Types (MessageFrom, MessageTo, PlayerJoined, SessionId)
+import           API.Types (MessageTo, PlayerJoined, Routed, SessionId)
 import           Control.Concurrent (MVar, newMVar)
 import           Control.Concurrent.STM (TChan, newTChanIO)
 import           Control.Monad.Except (MonadError)
@@ -18,7 +18,7 @@ import           Control.Monad.Reader (MonadReader, ReaderT)
 import           Data.Map.Strict (Map)
 import           Model.Core (Agent)
 import           Model.GID (GID)
-import           Model.WireProtocol (WireMessage)
+import           Model.WireProtocol (MessageFrom)
 import           Servant (Handler)
 import           Servant.Server (ServerError)
 import           Server.Validator (PlayerNameVAL)
@@ -38,10 +38,10 @@ newtype AppM a = AppM { unAppM :: ReaderT AppCtx Handler a }
     )
 
 data AppCtx = AppCtx
-  { acInbound      :: TChan MessageFrom
-  , acOutbound     :: TChan MessageTo
+  { acInbound      :: TChan (Routed MessageTo)
+  , acOutbound     :: TChan (Routed MessageFrom)
   , acJoinChan     :: TChan PlayerJoined
-  , acConnections  :: MVar (Map SessionId ([WireMessage] -> IO ()))
+  , acConnections  :: MVar (Map SessionId ([MessageFrom] -> IO ()))
   , acPlayerMap    :: MVar (Map SessionId (GID Agent))
   , acKnownPlayers :: MVar (Map PlayerNameVAL (GID Agent))
   , acGameLog      :: GameLog

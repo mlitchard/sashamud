@@ -1,7 +1,14 @@
 // Defined in API.Types of sasha-0.1.0.0-E52Uz84tstZFiBbuO6Etf7
-export type GameCommand = string;
-// Defined in API.Types of sasha-0.1.0.0-E52Uz84tstZFiBbuO6Etf7
 export type LoginResponse = SessionId;
+// Defined in API.Types of sasha-0.1.0.0-E52Uz84tstZFiBbuO6Etf7
+export type MessageTo = Ping | GameCommand;
+export interface Ping {
+  readonly tag: "Ping";
+}
+export interface GameCommand {
+  readonly tag: "GameCommand";
+  readonly contents: string;
+}
 // Defined in Model.Core of sasha-0.1.0.0-E52Uz84tstZFiBbuO6Etf7
 export type SessionId = string;
 // Defined in Model.RichText of sasha-0.1.0.0-E52Uz84tstZFiBbuO6Etf7
@@ -22,7 +29,7 @@ export type RichText = Array<StyledSpan>;
 // Defined in Model.RichText of sasha-0.1.0.0-E52Uz84tstZFiBbuO6Etf7
 export type TextColor = "Red" | "Green" | "Blue" | "Yellow" | "Cyan" | "Magenta" | "White" | "BrightWhite" | "BrightRed" | "BrightGreen" | "BrightBlue" | "BrightYellow" | "BrightCyan" | "BrightMagenta";
 // Defined in Model.WireProtocol of sasha-0.1.0.0-E52Uz84tstZFiBbuO6Etf7
-export type WireMessage = SessionAck | GameNarration | CommandResponse | ChatMessage | SystemMessage | AnalysisData;
+export type MessageFrom = SessionAck | GameNarration | CommandResponse | ChatMessage | SystemMessage | Pong | AnalysisData;
 export interface SessionAck {
   readonly tag: "SessionAck";
   readonly contents: SessionId;
@@ -42,6 +49,9 @@ export interface ChatMessage {
 export interface SystemMessage {
   readonly tag: "SystemMessage";
   readonly contents: string;
+}
+export interface Pong {
+  readonly tag: "Pong";
 }
 export interface AnalysisData {
   readonly tag: "AnalysisData";
@@ -106,8 +116,8 @@ export const API = {
   f.urlBuilder = urlBuilder;
   return f; })(),
 "/ws/game{Sec-WebSocket-Protocol}": (Sec_WebSocket_Protocol:string):
-    Promise<{ send : (input: string) => void
-            , receive : (cb: (output: WireMessage) => void) => void
+    Promise<{ send : (input: MessageTo) => void
+            , receive : (cb: (output: MessageFrom) => void) => void
             , raw : WebSocket
     }> => {
       if(!API.baseWS){
@@ -118,9 +128,9 @@ export const API = {
       }
       const ws = new WebSocket(`${API.baseWS}/ws/game`, [Sec_WebSocket_Protocol]);
       return Promise.resolve({
-        send: (input: string) => ws.send(JSON.stringify(input)),
-        receive: (cb: ((output: WireMessage) => void)) =>
-          ws.onmessage = (message: MessageEvent<string>) => cb(JSON.parse(message.data) as WireMessage),
+        send: (input: MessageTo) => ws.send(JSON.stringify(input)),
+        receive: (cb: ((output: MessageFrom) => void)) =>
+          ws.onmessage = (message: MessageEvent<string>) => cb(JSON.parse(message.data) as MessageFrom),
         raw: ws
       });
   }

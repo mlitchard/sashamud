@@ -1,5 +1,5 @@
 module Model.WireProtocol
-  ( WireMessage (..)
+  ( MessageFrom (..)
   ) where
 
 import           SashaPrelude
@@ -10,16 +10,21 @@ import           Data.Aeson.TypeScript (derivingTypeScriptDefinition)
 import           Data.Map.Strict (Map)
 import           Model.Core (SessionId)
 import           Model.RichText (RichText)
+import           Network.WebSockets (WebSocketsData)
+import           Servant.API.WebSocket (Aeson (Aeson))
 
 -- | All constructors exist from commit 1. Only SystemMessage carries
 -- content in commit 1 (heartbeats). SessionAck sent on WebSocket connect.
-data WireMessage = SessionAck SessionId
+data MessageFrom = SessionAck SessionId
                  | GameNarration [RichText]
                  | CommandResponse [RichText]
                  | ChatMessage Text
                  | SystemMessage Text
+                 | Pong
                  | AnalysisData (Map Text [RichText])
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (FromJSON, NFData, ToJSON)
+  deriving (WebSocketsData)
+    via Aeson MessageFrom
 
-derivingTypeScriptDefinition ''WireMessage
+derivingTypeScriptDefinition ''MessageFrom

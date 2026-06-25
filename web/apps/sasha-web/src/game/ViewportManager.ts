@@ -1,4 +1,4 @@
-import { GameConnection, WireMessage } from './GameConnection';
+import { GameConnection, MessageFrom } from './GameConnection';
 import { RichText } from '@sasha/type-gen-output/client';
 import { renderRichTextLine, renderPlainLine } from './RichTextRenderer';
 
@@ -27,6 +27,7 @@ export class ViewportManager {
   private systemMessageCount = 0;
   private panels: Map<ViewportId, HTMLElement> = new Map();
   private sideStackWidth = 360;
+  private keydownHandler: ((e: KeyboardEvent) => void) | null = null;
 
   constructor(conn: GameConnection) {
     this.conn = conn;
@@ -38,7 +39,7 @@ export class ViewportManager {
     this.rebuildLayout();
   }
 
-  private handleMessage(msg: WireMessage): void {
+  private handleMessage(msg: MessageFrom): void {
     switch (msg.tag) {
       case 'GameNarration':
       case 'CommandResponse':
@@ -49,6 +50,9 @@ export class ViewportManager {
         break;
       case 'SystemMessage':
         this.appendSystemMessage(msg.contents as string);
+        break;
+      case 'Pong':
+        this.appendPlain('system', '***pong***');
         break;
       case 'AnalysisData':
         for (const [key, lines] of Object.entries(msg.contents as Record<string, RichText[]>)) {
@@ -124,11 +128,20 @@ export class ViewportManager {
     }
   }
 
+  destroy(): void {
+    if (this.keydownHandler) {
+      document.removeEventListener('keydown', this.keydownHandler);
+      this.keydownHandler = null;
+    }
+    const app = document.getElementById('app');
+    if (app) app.remove();
+  }
+
   private setupKeyboard(): void {
     const digitCodes: Record<string, number> = {
       Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, Digit5: 5, Digit6: 6, Digit7: 7,
     };
-    document.addEventListener('keydown', (e) => {
+    this.keydownHandler = (e: KeyboardEvent): void => {
       const cmdInput = document.getElementById('cmd-input') as HTMLInputElement | null;
       if (e.shiftKey && digitCodes[e.code]) {
         const vpId = ALL_VIEWPORTS[digitCodes[e.code] - 1];
@@ -144,7 +157,8 @@ export class ViewportManager {
           && e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
         cmdInput.focus();
       }
-    });
+    };
+    document.addEventListener('keydown', this.keydownHandler);
   }
 
   private buildToolbar(): void {

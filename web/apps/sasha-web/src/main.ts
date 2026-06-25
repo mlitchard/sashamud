@@ -3,7 +3,6 @@ import { createDOM } from './game/createDOM';
 import { GameConnection } from './game/GameConnection';
 import { ViewportManager } from './game/ViewportManager';
 
-createDOM();
 showLogin();
 
 function showLogin(): void {
@@ -61,10 +60,11 @@ function showLogin(): void {
     API["/api/game/login(PlayerNameUNV)"](name)
       .then((sessionId: LoginResponse) => {
         overlay.remove();
+        createDOM();
         const conn = new GameConnection();
-        const _viewports = new ViewportManager(conn);
+        const viewports = new ViewportManager(conn);
         conn.connect(sessionId);
-        addLogoutButton(conn);
+        addLogoutButton(conn, viewports);
       })
       .catch((err: unknown) => {
         button.disabled = false;
@@ -79,7 +79,7 @@ function showLogin(): void {
   });
 }
 
-function addLogoutButton(conn: GameConnection): void {
+function addLogoutButton(conn: GameConnection, viewports: ViewportManager): void {
   const toolbar = document.getElementById('toolbar');
   if (!toolbar) return;
 
@@ -96,12 +96,12 @@ function addLogoutButton(conn: GameConnection): void {
     API["/api/game/logout(SessionId)"](sessionId)
       .then(() => {
         conn.disconnect();
-        btn.remove();
+        viewports.destroy();
         showLogin();
       })
       .catch(() => {
         conn.disconnect();
-        btn.remove();
+        viewports.destroy();
         showLogin();
       });
   });
