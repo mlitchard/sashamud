@@ -1,0 +1,8 @@
+stages:
+  - Lint
+
+Nix Formatting:
+  stage: Lint
+  needs: []
+  script:
+    - nix build .#checks.x86_64-linux.nix-formatting -L --no-link

@@ -1,0 +1,13 @@
+dist-newstyle/
+result
+*.eventlog
+*.hp
+web/node_modules/
+web/apps/*/dist/
+web/apps/*/node_modules/
+web/packages/*/node_modules/
+.direnv/
+*.hi
+*.o
+*.dyn_hi
+*.dyn_o

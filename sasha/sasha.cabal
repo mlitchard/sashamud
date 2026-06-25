@@ -1,0 +1,42 @@
+cabal-version: 3.0
+name:          sasha
+version:       0.1.0.0
+synopsis:      SashaMUD engine, API, and server
+license:       MIT
+author:        Michael Litchard
+build-type:    Simple
+
+common shared
+  default-language:   GHC2021
+  ghc-options:
+    -Wall -Wcompat -fwarn-redundant-constraints
+    -fwarn-incomplete-uni-patterns -fwarn-tabs
+    -fwarn-incomplete-record-updates -fwarn-identities -threaded
+    -fno-warn-missing-home-modules -rtsopts -freduction-depth=1000
+    -Wno-orphans
+
+  default-extensions:
+    BlockArguments
+    DataKinds
+    DeriveAnyClass
+    DerivingStrategies
+    DerivingVia
+    DuplicateRecordFields
+    LambdaCase
+    MultiParamTypeClasses
+    NoImplicitPrelude
+    OverloadedRecordDot
+    OverloadedStrings
+    RecordWildCards
+    RoleAnnotations
+    StrictData
+    TemplateHaskell
+    TypeApplications
+    TypeFamilies
+    TypeOperators
+
+library
+  import:          shared
+  hs-source-dirs:  src
+  exposed-modules: SashaPrelude
+  build-depends:   base >=4.7 && <5
