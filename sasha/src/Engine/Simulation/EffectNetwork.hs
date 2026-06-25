@@ -63,22 +63,17 @@ import           Lens.Micro.Platform (set, view)
 import           Model.Core
   ( Agent (..)
   , AgentKind (PlayerAgent)
-  , AgentMap (AgentMap)
-  , Evaluator (Evaluator)
-  , GIDToDataMap (GIDToDataMap)
-  , GameState (GameState)
+  , GameState
   , Object
   , PerceptionMap (PerceptionMap)
   , PossibilityGraph
   , Scene
   , SpatialRelationshipMap (SpatialRelationshipMap)
-  , World (World)
   , agentCurrentScene
   , agentKind
   , agentMap
   , agentShortName
   , defaultActionManagement
-  , defaultNarration
   , getAgentMap
   , getGIDToDataMap
   , globalSemanticMap
@@ -153,19 +148,15 @@ gameLoop ctx gs pg =
 rhinePipeline :: Rhine RhineM
   (ParallelClock
     (ParallelClock
-      (ParallelClock
-        (IOClock RhineM HeartbeatTick)
-        (IOClock RhineM PlayerTick))
+      (IOClock RhineM HeartbeatTick)
       (IOClock RhineM PlayerTick))
     (IOClock RhineM PlayerTick)) () ()
 rhinePipeline =
-      ((heartbeatSF
+      (heartbeatSF
           @@ ioClock (waitClock :: HeartbeatTick)
     |@| (processJoinsSF >-> executeJoinsSF >-> processLeavesSF)
           @@ ioClock (waitClock :: PlayerTick))
     |@| (gatherInputSF >-> processInputSF)
-          @@ ioClock (waitClock :: PlayerTick))
-    |@| (assembleGameStateSF >-> writeOutSF)
           @@ ioClock (waitClock :: PlayerTick)
 
 heartbeatSF :: ClSF RhineM (IOClock RhineM HeartbeatTick) () ()
@@ -181,7 +172,7 @@ heartbeatSF = constMCl $ do
 processJoinsSF :: ClSF RhineM (IOClock RhineM PlayerTick) () [JoinResult]
 processJoinsSF = constMCl $ do
   appCtx <- lift (lift ask)
-  joins <- liftIO $ drainJoinChan (acJoinChan appCtx)
+  joins <- liftIO $ drainChan (acJoinChan appCtx)
   known <- liftIO $ readMVar (acKnownPlayers appCtx)
   traverse (processOneJoin known) joins
 
@@ -216,23 +207,6 @@ processLeavesSF = constMCl $ do
             liftIO . atomically $
               mapM_ (\sid -> writeTChan (acOutbound appCtx) (Routed sid msg))
                 witnessSids
-
-assembleGameStateSF :: ClSF RhineM (IOClock RhineM PlayerTick) () GameState
-assembleGameStateSF = constMCl $ do
-  wa <- look
-  pure $ GameState
-    (World
-      (GIDToDataMap (waObjectMap wa))
-      (GIDToDataMap (waSceneMap wa))
-      (waSpatialRelationshipMap wa)
-      (waGlobalSemanticMap wa)
-      (waPerceptionMap wa)
-      (AgentMap (waAgentMap wa)))
-    defaultNarration
-    Evaluator
-
-writeOutSF :: ClSF RhineM (IOClock RhineM PlayerTick) GameState ()
-writeOutSF = arrMCl $ \_ -> pure ()
 
 processOneJoin :: Map PlayerNameVAL (GID Agent) -> PlayerJoined -> RhineM JoinResult
 processOneJoin known (PlayerJoined sid name) =
@@ -316,5 +290,3 @@ drainChan chan = do
     Nothing -> pure []
     Just m  -> (m :) <$> drainChan chan
 
-drainJoinChan :: TChan PlayerJoined -> IO [PlayerJoined]
-drainJoinChan = drainChan
