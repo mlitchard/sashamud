@@ -1,4 +1,10 @@
-:8080 {
+{
+  auto_https disable_redirects
+}
+
+localhost:8080 {
+  tls internal
+
   handle /ws/* {
     reverse_proxy localhost:8081
   }
