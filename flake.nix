@@ -229,6 +229,26 @@
               (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sasha "exe:sasha-client-generator"))).overrideAttrs { meta.mainProgram = "sasha-client-generator"; };
             sasha-tests = hlib.justStaticExecutables
               (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sasha "exe:sasha-tests"));
+            web =
+              let
+                generated-ts-path = "packages/type-gen-output/src/client.ts";
+                client-ts = pkgs.runCommand "client.ts" { }
+                  "${legacyPackages.sasha}/bin/sasha-client-generator $out";
+                npmBuild = pkgs.buildNpmPackage {
+                  name = "npm-build-sasha-web";
+                  src = pkgs.runCommand "npm-src" { } ''
+                    mkdir $out; cd $_
+                    cp -r ${./web}/. .
+                    chmod -R +w .
+                    mkdir -p $(dirname ${generated-ts-path})
+                    ln -sf ${client-ts} ${generated-ts-path}
+                  '';
+                  npmDeps = webNpmDeps;
+                  npmBuildScript = "build";
+                };
+              in
+              pkgs.runCommand "sasha-web-frontend" { }
+                "ln -s ${npmBuild}/lib/node_modules/sashamud-web-repo/apps/sasha-web/dist $out";
           };
 
           formatter = pkgs.nixpkgs-fmt;
