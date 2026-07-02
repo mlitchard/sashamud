@@ -34,6 +34,10 @@
       url = "github:ursi/servant-websockets/TypedWebSocket";
       flake = false;
     };
+
+    deploys = {
+      url = "git+https://gitlab.com/nix-infrastructure/deploys.git";
+    };
   };
 
   outputs =
@@ -113,6 +117,7 @@
                   inputs.servant-aeson-generics-typescript
                   { }))
               "lib:servant-aeson-typescript";
+            webdriver = final.callHackage "webdriver" "0.12.0.1" { };
             servant-websockets = hlib.dontCheck
               (final.callCabal2nix "servant-websockets"
                 inputs.servant-websockets
@@ -229,9 +234,18 @@
               (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sasha "exe:sasha-client-generator"))).overrideAttrs { meta.mainProgram = "sasha-client-generator"; };
             sasha-tests = hlib.justStaticExecutables
               (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sasha "exe:sasha-tests"));
+            sasha-e2e-tests = (hlib.justStaticExecutables
+              (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sashamud-server "exe:sasha-e2e-tests"))).overrideAttrs { meta.mainProgram = "sasha-e2e-tests"; };
           };
 
           formatter = pkgs.nixpkgs-fmt;
+
+          apps.fmt = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "fmt" ''
+              find "''${1:-.}" -name '*.nix' -not -path '*/node_modules/*' -exec ${pkgs.nixpkgs-fmt}/bin/nixpkgs-fmt {} +
+            '');
+          };
 
           checks = {
             nix-formatting = pkgs.runCommand "nix-formatting" { buildInputs = [ pkgs.nixpkgs-fmt ]; } ''
@@ -335,6 +349,88 @@
                 machine.succeed("sasha-tests")
               '';
             };
+            run-end-to-end =
+              let
+                sasha-e2e-wrapped = pkgs.writeShellScriptBin "sasha-e2e-wrapped" ''
+                  set -ex
+
+                  echo "Starting Selenium server..."
+                  selenium-server > selenium.log 2>&1 &
+                  PID=$!
+
+                  MAX_RETRIES=120
+                  RETRY_COUNT=0
+
+                  until
+                    curl_output=$(curl -s http://localhost:4444/wd/hub/status)
+                    echo "$curl_output" | grep -q '"ready": true'
+                  do
+                    if [ "$RETRY_COUNT" -ge "$MAX_RETRIES" ]; then
+                      echo "Selenium server failed to become ready after $MAX_RETRIES attempts."
+                      kill $PID
+                      exit 1
+                    fi
+                    echo "Waiting for Selenium server... Attempt $((RETRY_COUNT+1))/$MAX_RETRIES"
+                    sleep 1
+                    RETRY_COUNT=$((RETRY_COUNT+1))
+                  done
+
+                  echo "Selenium server is ready."
+                  echo "Running sasha end-to-end tests..."
+
+                  ${lib.getExe inputs.self.packages.${system}.sasha-e2e-tests} || {
+                    echo "Tests failed with exit code $?"
+                    kill $PID
+                    exit 1
+                  }
+
+                  echo "Tests completed. Shutting down Selenium server..."
+                  kill $PID
+                  exit 0
+                '';
+              in
+              pkgs.testers.runNixOSTest {
+                name = "sasha-end-to-end";
+                nodes.machine = { pkgs, ... }: {
+                  imports = [
+                    inputs.deploys.nixosModules.caddy-proxy-host
+                  ];
+                  services.caddyProxyHost."localhost:4430" = {
+                    routes = [
+                      { match = "/ws/*"; upstream = "localhost:8081"; }
+                      { match = "/api/*"; upstream = "localhost:8081"; }
+                    ];
+                  };
+                  systemd.services.sashamud = {
+                    wantedBy = [ "multi-user.target" ];
+                    after = [ "network.target" "caddy.service" ];
+                    environment.SASHA_WEB_PORT = "8081";
+                    serviceConfig = {
+                      ExecStart = lib.getExe inputs.self.packages.${system}.sasha-server;
+                      Restart = "on-failure";
+                    };
+                  };
+                  environment.systemPackages = [
+                    sasha-e2e-wrapped
+                    pkgs.selenium-server-standalone
+                    pkgs.chromedriver
+                    pkgs.chromium
+                    pkgs.nodejs
+                    pkgs.typescript
+                  ];
+                  virtualisation = {
+                    memorySize = 4096;
+                    cores = 2;
+                  };
+                };
+                testScript = ''
+                  machine.wait_for_unit("caddy.service")
+                  machine.wait_for_unit("sashamud.service")
+                  machine.wait_for_open_port(8081)
+                  machine.wait_for_open_port(4430)
+                  print(machine.succeed("${lib.getExe sasha-e2e-wrapped}"))
+                '';
+              };
             run-integration-tests = legacyPackages.sashamud-server.overrideAttrs (old: {
               doCheck = true;
             });
