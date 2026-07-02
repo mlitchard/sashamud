@@ -236,6 +236,34 @@
               (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sasha "exe:sasha-tests"));
             sasha-e2e-tests = (hlib.justStaticExecutables
               (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sashamud-server "exe:sasha-e2e-tests"))).overrideAttrs { meta.mainProgram = "sasha-e2e-tests"; };
+            web =
+              let
+                generated-ts-path = "packages/type-gen-output/src/client.ts";
+                client-ts = pkgs.runCommand "client.ts" { }
+                  "${legacyPackages.sasha}/bin/sasha-client-generator $out";
+                npmBuild = pkgs.buildNpmPackage {
+                  name = "npm-build-sasha-web";
+                  src = pkgs.runCommand "npm-src" { } ''
+                    mkdir $out; cd $_
+                    cp -r ${./web}/. .
+                    chmod -R +w .
+                    mkdir -p $(dirname ${generated-ts-path})
+                    ln -sf ${client-ts} ${generated-ts-path}
+                  '';
+                  npmDeps = webNpmDeps;
+                  dontNpmBuild = true;
+                  buildPhase = ''
+                    cd apps/sasha-web
+                    node node_modules/vite/bin/vite.js build
+                    cd ../..
+                  '';
+                  installPhase = ''
+                    mkdir -p $out
+                    cp -r apps/sasha-web/dist/* $out/
+                  '';
+                };
+              in
+              npmBuild;
           };
 
           formatter = pkgs.nixpkgs-fmt;
