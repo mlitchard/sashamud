@@ -2,6 +2,7 @@
 
 module Server.Server
   ( app
+  , appWithStaticFiles
   , deliverOutbound
   , startServer
   ) where
@@ -25,6 +26,7 @@ import           Data.Map.Strict (delete, lookup)
 import           Data.UUID (toText)
 import           Data.UUID.V4 (nextRandom)
 import           Engine.Simulation.EffectNetwork (gameLoop)
+import           GHC.IO (FilePath)
 import           Model.Core (GameState, PossibilityGraph)
 import           Network.Wai (Application)
 import           Network.Wai.Handler.Warp (run)
@@ -33,6 +35,8 @@ import           Servant
   ( HasServer (hoistServerWithContext)
   , NoContent (NoContent)
   , Proxy (Proxy)
+  , Raw
+  , serveDirectoryFileServer
   , serveWithContext
   , type (:<|>) ((:<|>))
   )
@@ -56,6 +60,12 @@ app :: AppCtx -> Application
 app ctx = serveWithContext (Proxy @SashaAPI) sashaContext
   $ hoistServerWithContext (Proxy @SashaAPI) authProxy (flip runReaderT ctx . unAppM)
     (loginHandler :<|> logoutHandler :<|> gameWebSocket ctx)
+
+appWithStaticFiles :: AppCtx -> FilePath -> Application
+appWithStaticFiles ctx tmpDir = serveWithContext andRaw sashaContext
+  $ hoistServerWithContext andRaw authProxy (flip runReaderT ctx . unAppM)
+    ((loginHandler :<|> logoutHandler :<|> gameWebSocket ctx) :<|> serveDirectoryFileServer tmpDir)
+  where andRaw = Proxy @(SashaAPI :<|> Raw)
 
 loginHandler :: PlayerNameVAL -> AppM LoginResponse
 loginHandler playerName = do

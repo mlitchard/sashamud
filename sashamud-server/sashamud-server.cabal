@@ -31,6 +31,35 @@ executable sasha-server
     , sasha
     , sashamud-world
 
+executable sasha-e2e-tests
+  import:             shared
+  main-is:            Spec.hs
+  hs-source-dirs:     test-e2e
+  ghc-options:        -threaded -rtsopts
+  other-modules:
+    LoginSpec
+    RoseSpec
+    SeleniumHarness
+
+  build-tool-depends: hspec-discover:hspec-discover
+  build-depends:
+    , async
+    , base                >=4.7 && <5
+    , bytestring
+    , directory
+    , filepath
+    , hspec
+    , http-client
+    , process
+    , random
+    , sasha
+    , sashamud-world
+    , string-interpolate
+    , text
+    , time
+    , warp
+    , webdriver
+
 test-suite sashamud-integration-tests
   import:             shared
   type:               exitcode-stdio-1.0
