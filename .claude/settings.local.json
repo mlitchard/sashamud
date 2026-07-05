@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /home/mlitchard/gitlab/quux -depth -name *redshift* -o -name *Redshift*)",
+      "Bash(cp:*)",
+      "Bash(curl -s https://hackage.haskell.org/package/clay-0.15.0/docs/Clay-Color.html)",
+      "Bash(curl -s https://hackage.haskell.org/package/clay-0.15.0/docs/src/Clay.Color.html)",
+      "Bash(curl -sL https://hackage.haskell.org/package/clay-0.15.0/docs/src/Clay.Color.html)",
+      "Bash(curl -sL https://hackage.haskell.org/package/clay-0.15.0/docs/src/Clay.Property.html)",
+      "Bash(grep -r SecWebSocketProtocol /home/mlitchard/gitlab/sashamud --include=*.hs)",
+      "Bash(grep -r SecWebSocketProtocol /home/mlitchard/gitlab/sashamud --include=*.hs -l)",
+      "Bash(find /home/mlitchard/gitlab/sashamud -path */servant-websockets* -name *.hs)",
+      "Bash(grep -n \"clients srv\\\\|gameStateTVar srv\\\\|clientName c\\\\|clientOutbox\" /home/mlitchard/gitlab/sasha/sasha-server/src/MUD/*.hs)",
+      "Bash(grep -n \"asks conn\" /home/mlitchard/gitlab/quux/server/src/Handlers/*.hs)",
+      "Bash(find /home/mlitchard/gitlab/sashamud/web -type f \\\\\\(-name *.ts -o -name *.tsx -o -name *.js -o -name *.jsx -o -name *.html -o -name *.css -o -name package.json -o -name vite.config.* -o -name tsconfig.json \\\\\\) ! -path */node_modules/*)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:gitlab.com)",
+      "WebFetch(domain:caddyserver.com)",
+      "Bash(wc -l src/Handler/*.hs)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(find /home/mlitchard/gitlab/sashablog/sasha-content -type f \\\\\\(-name *.md -o -name *.yml -o -name *.yaml \\\\\\))"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // .tool_input.filePath' | { read -r f; case \"$f\" in *.hs|*/docs/*.md) echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"STOP. Re-read CLAUDE.md and MEMORY.md Code Rules NOW. Check: explicit imports (no wildcards), no qualified imports (unless name collision — then use module name as qualifier), no direct record field access (use lenses), no partial patterns, no naked types. HASKELL ENGINEER REVIEW: (1) Every type must exist in a standard Haskell library — check Data.Time for Year/MonthOfYear/Day, Network.Wai.Handler.Warp for Port, etc. (2) Library choices must match reference codebases. (3) No redundant abstractions. (4) No reinvented types — check Hackage first. Name the exact package, module, and function.\"}}'; ;; *) echo '{}'; ;; esac; }",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

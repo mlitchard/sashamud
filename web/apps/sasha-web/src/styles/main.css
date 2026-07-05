@@ -180,3 +180,89 @@ body {
   font-family: inherit;
 }
 #logout-btn:hover { background: #933; }
+
+/* ── Mobile / narrow-screen layout ── */
+@media (max-width: 768px) {
+  body { font-size: 16px; }
+
+  #toolbar {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap;
+    gap: 6px;
+    padding: 6px 8px;
+  }
+
+  .vp-btn {
+    min-height: 36px;
+    min-width: 44px;
+    padding: 6px 12px;
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+
+  #viewports {
+    flex-direction: column;
+  }
+
+  .viewport-stack {
+    width: 100% !important;
+    border-left: none;
+    border-top: 1px solid #444;
+  }
+
+  .viewport-main { flex: 1; }
+  .viewport-side { min-height: 120px; }
+
+  #command-bar { padding: 6px 8px; }
+
+  #cmd-input {
+    font-size: 16px;
+    padding: 8px 10px;
+    min-height: 40px;
+  }
+
+  .prompt { font-size: 16px; }
+
+  #status-bar { font-size: 12px; padding: 4px 8px; }
+
+  #login-box {
+    width: 90vw;
+    max-width: 360px;
+    padding: 24px 16px;
+  }
+
+  #login-name {
+    font-size: 16px;
+    padding: 10px;
+  }
+
+  #login-btn {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  #logout-btn {
+    min-height: 36px;
+    padding: 6px 16px;
+    font-size: 13px;
+  }
+}
+
+/* Single-viewport mode (applied via JS class on narrow screens) */
+.mobile-single #viewports {
+  flex-direction: column;
+}
+
+.mobile-single .viewport {
+  display: none;
+  flex: 1;
+}
+
+.mobile-single .viewport.mobile-visible {
+  display: flex;
+}
+
+.mobile-single .viewport-stack {
+  display: none;
+}
