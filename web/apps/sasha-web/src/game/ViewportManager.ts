@@ -28,15 +28,20 @@ export class ViewportManager {
   private panels: Map<ViewportId, HTMLElement> = new Map();
   private sideStackWidth = 360;
   private keydownHandler: ((e: KeyboardEvent) => void) | null = null;
+  private mobileQuery: MediaQueryList;
+  private mobileChangeHandler: () => void;
 
   constructor(conn: GameConnection) {
     this.conn = conn;
+    this.mobileQuery = window.matchMedia('(max-width: 768px)');
+    this.mobileChangeHandler = () => this.rebuildLayout();
     conn.onMessage((msg) => this.handleMessage(msg));
     conn.onStatusChange((status) => this.updateStatusDisplay(status));
     for (const vpId of ALL_VIEWPORTS) this.panels.set(vpId, this.createViewportPanel(vpId));
     this.setupKeyboard();
     this.buildToolbar();
     this.rebuildLayout();
+    this.mobileQuery.addEventListener('change', this.mobileChangeHandler);
   }
 
   private handleMessage(msg: MessageFrom): void {
@@ -109,12 +114,19 @@ export class ViewportManager {
   }
 
   private toggleViewport(vpId: ViewportId): void {
-    if (this.activeViewports.has(vpId)) {
-      this.activeViewports.delete(vpId);
-      if (this.focusedViewport === vpId)
-        this.focusedViewport = this.activeViewports.values().next().value ?? 'scene';
+    if (this.isMobile()) {
+      if (!this.activeViewports.has(vpId)) {
+        this.activeViewports.add(vpId);
+      }
+      this.focusedViewport = vpId;
     } else {
-      this.activeViewports.add(vpId);
+      if (this.activeViewports.has(vpId)) {
+        this.activeViewports.delete(vpId);
+        if (this.focusedViewport === vpId)
+          this.focusedViewport = this.activeViewports.values().next().value ?? 'scene';
+      } else {
+        this.activeViewports.add(vpId);
+      }
     }
     this.rebuildLayout();
     this.updateToolbar();
@@ -124,7 +136,10 @@ export class ViewportManager {
     this.focusedViewport = vpId;
     for (const vp of ALL_VIEWPORTS) {
       const el = document.getElementById(`vp-${vp}`);
-      if (el) el.classList.toggle('focused', vp === vpId);
+      if (el) {
+        el.classList.toggle('focused', vp === vpId);
+        if (this.isMobile()) el.classList.toggle('mobile-visible', vp === vpId);
+      }
     }
   }
 
@@ -133,8 +148,12 @@ export class ViewportManager {
       document.removeEventListener('keydown', this.keydownHandler);
       this.keydownHandler = null;
     }
+    this.mobileQuery.removeEventListener('change', this.mobileChangeHandler);
     const app = document.getElementById('app');
-    if (app) app.remove();
+    if (app) {
+      app.classList.remove('mobile-single');
+      app.remove();
+    }
   }
 
   private setupKeyboard(): void {
@@ -183,29 +202,50 @@ export class ViewportManager {
     }
   }
 
+  private isMobile(): boolean {
+    return this.mobileQuery.matches;
+  }
+
   private rebuildLayout(): void {
     const viewports = document.getElementById('viewports');
     if (!viewports) return;
     viewports.innerHTML = '';
+    const app = document.getElementById('app');
     const active = ALL_VIEWPORTS.filter((vp) => this.activeViewports.has(vp));
     if (active.length === 0) {
       viewports.innerHTML = '<div class="no-viewports">No viewports active</div>';
+      if (app) app.classList.remove('mobile-single');
       return;
     }
-    const mainPanel = this.panels.get(active[0])!;
-    mainPanel.className = 'viewport viewport-main';
-    viewports.appendChild(mainPanel);
-    if (active.length > 1) {
-      const sideStack = document.createElement('div');
-      sideStack.className = 'viewport-stack';
-      sideStack.style.width = `${this.sideStackWidth}px`;
-      for (const vp of active.slice(1)) {
-        const panel = this.panels.get(vp)!;
-        panel.className = 'viewport viewport-side';
-        panel.style.flex = '1';
-        sideStack.appendChild(panel);
+
+    if (this.isMobile()) {
+      if (app) app.classList.add('mobile-single');
+      if (!this.activeViewports.has(this.focusedViewport)) {
+        this.focusedViewport = active[0];
       }
-      viewports.appendChild(sideStack);
+      for (const vp of active) {
+        const panel = this.panels.get(vp)!;
+        panel.className = 'viewport' + (vp === this.focusedViewport ? ' mobile-visible' : '');
+        panel.style.flex = '1';
+        viewports.appendChild(panel);
+      }
+    } else {
+      if (app) app.classList.remove('mobile-single');
+      const mainPanel = this.panels.get(active[0])!;
+      mainPanel.className = 'viewport viewport-main';
+      viewports.appendChild(mainPanel);
+      if (active.length > 1) {
+        const sideStack = document.createElement('div');
+        sideStack.className = 'viewport-stack';
+        sideStack.style.width = `${this.sideStackWidth}px`;
+        for (const vp of active.slice(1)) {
+          const panel = this.panels.get(vp)!;
+          panel.className = 'viewport viewport-side';
+          panel.style.flex = '1';
+          sideStack.appendChild(panel);
+        }
+        viewports.appendChild(sideStack);
+      }
     }
     this.setFocus(this.focusedViewport);
   }
