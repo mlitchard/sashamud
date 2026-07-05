@@ -5,14 +5,14 @@ body {
   color: #eaeaea;
   font-family: 'Courier New', Courier, monospace;
   font-size: 14px;
-  height: 100vh;
   overflow: hidden;
 }
 
 #app {
+  position: fixed;
+  inset: 0;
   display: flex;
   flex-direction: column;
-  height: 100vh;
 }
 
 #toolbar {
@@ -21,7 +21,11 @@ body {
   padding: 4px 8px;
   background: #222;
   border-bottom: 1px solid #444;
+  overflow-x: auto;
+  flex-shrink: 0;
 }
+
+#toolbar .vp-btn { flex-shrink: 0; }
 
 .vp-btn {
   padding: 2px 8px;
