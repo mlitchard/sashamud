@@ -1,0 +1,29 @@
+cradle:
+  cabal:
+    # sasha-grammar
+    - path: "./sasha-grammar/src"
+      component: "lib:sasha-grammar"
+
+    # sasha-vocabulary
+    - path: "./sasha-vocabulary/src"
+      component: "lib:sasha-vocabulary"
+
+    # sasha
+    - path: "./sasha/src"
+      component: "lib:sasha"
+    - path: "./sasha/app"
+      component: "sasha:exe:sasha-client-generator"
+    - path: "./sasha/test"
+      component: "sasha:exe:sasha-tests"
+
+    # sashamud-world
+    - path: "./sashamud-world/src"
+      component: "lib:sashamud-world"
+    - path: "./sashamud-world/test"
+      component: "sashamud-world:exe:sashamud-world-tests"
+
+    # sashamud-server
+    - path: "./sashamud-server/app"
+      component: "sashamud-server:exe:sasha-server"
+    - path: "./sashamud-server/test"
+      component: "sashamud-server:test:sashamud-integration-tests"

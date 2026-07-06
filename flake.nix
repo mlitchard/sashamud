@@ -18,6 +18,8 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    horizon-devtools.url = "git+https://gitlab.horizon-haskell.net/package-sets/horizon-devtools?ref=lts/ghc-9.6.x";
+
     shelpers.url = "gitlab:platonic/shelpers";
 
     aeson-generics-typescript = {
@@ -122,6 +124,7 @@
           legacyPackages =
             inputs.horizon-platform.legacyPackages.${system}.extend myOverlay;
 
+          devtools = inputs.horizon-devtools.packages.${system};
           lu = lint-utils.linters.${system};
           lu-pkgs = lint-utils.packages.${system};
           projectRoot = ./.;
@@ -206,8 +209,16 @@
           inherit legacyPackages;
           shelpers = shelpersConfig.files;
 
-          devShells.default = pkgs.mkShell {
-            buildInputs = [
+          devShells.default = (legacyPackages.shellFor {
+            packages = p: [
+              p.sasha-grammar
+              p.sasha-vocabulary
+              p.sasha
+              p.sashamud-world
+              p.sashamud-server
+            ];
+          }).overrideAttrs (attrs: {
+            buildInputs = attrs.buildInputs ++ [
               pkgs.cabal-install
               lu-pkgs.cabal-fmt
               lu-pkgs.hlint
@@ -215,12 +226,14 @@
               pkgs.caddy
               pkgs.nodejs
               pkgs.typescript
+            ] ++ lib.optionals (system == "x86_64-linux") [
+              devtools.haskell-language-server
             ];
             shellHook = ''
               ${shelpersConfig.functions}
               shelp
             '';
-          };
+          });
 
           packages = {
             sasha-server = (hlib.justStaticExecutables

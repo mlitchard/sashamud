@@ -6,14 +6,28 @@ module Grammar.Lexer
   , tokens
   ) where
 
-import           Control.Applicative (Alternative, many)
+import           Control.Applicative
+  ( Alternative
+  , Applicative
+  , many
+  , (*>)
+  , (<*)
+  )
+import           Control.Category ((.))
+
 import           Control.DeepSeq (NFData)
-import           Control.Monad (MonadPlus, void)
+import           Control.Monad (Monad, MonadPlus, void)
+import           Data.Either (Either (Left, Right))
+import           Data.Eq (Eq)
+import           Data.Functor (Functor, (<$))
 import           Data.Hashable (Hashable)
 import           Data.Kind (Constraint, Type)
+import           Data.Ord (Ord)
 import           Data.Text (Text, pack, toUpper)
 import           Data.Void (Void)
+import           GHC.Enum (Bounded, Enum)
 import           GHC.Generics (Generic)
+import           GHC.Show (Show)
 import           Text.Megaparsec (Parsec, eof, errorBundlePretty, parse)
 import           Text.Megaparsec.Char (spaceChar)
 import           Text.Megaparsec.Char.Lexer

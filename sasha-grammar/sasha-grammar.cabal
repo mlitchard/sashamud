@@ -16,6 +16,7 @@ common shared
   default-extensions:
     DeriveAnyClass
     DerivingStrategies
+    NoImplicitPrelude
     OverloadedStrings
     StrictData
 
@@ -24,11 +25,22 @@ library
   hs-source-dirs:  src
   exposed-modules:
     Grammar.Lexer
+    Grammar.Parser.Atomics.AtomicsTH
+    Grammar.Parser.Atomics.Semantics.Rules.ParseRule
+    Grammar.Parser.Atomics.Semantics.Rules.Verbs
+    Grammar.Parser.Atomics.Semantics.Verbs.ImplicitStimulus
+    Grammar.Parser.Atomics.Verbs
+    Grammar.Parser.Composites.Model
+    Grammar.Parser.Composites.Rules
+    Grammar.Sentence
     SashaGrammar
 
   build-depends:
-    , base        >=4.7 && <5
+    , base                  >=4.7 && <5
     , deepseq
+    , Earley
     , hashable
     , megaparsec
+    , template-haskell
     , text
+    , unordered-containers
