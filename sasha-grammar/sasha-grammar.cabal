@@ -44,3 +44,18 @@ library
     , template-haskell
     , text
     , unordered-containers
+
+executable grammar-tests
+  import:         shared
+  main-is:        Main.hs
+  hs-source-dirs: test
+  ghc-options:    -fno-warn-missing-home-modules
+  build-depends:
+    , base
+    , Earley
+    , hspec
+    , hspec-discover
+    , QuickCheck
+    , sasha-grammar
+    , text
+    , unordered-containers

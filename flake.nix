@@ -242,6 +242,8 @@
               (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sasha "exe:sasha-client-generator"))).overrideAttrs { meta.mainProgram = "sasha-client-generator"; };
             sasha-tests = hlib.justStaticExecutables
               (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sasha "exe:sasha-tests"));
+            grammar-tests = hlib.justStaticExecutables
+              (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sasha-grammar "exe:grammar-tests"));
           };
 
           formatter = pkgs.nixpkgs-fmt;
@@ -336,6 +338,18 @@
                 tsc --lib "ES2021","DOM" ${client-ts} --noEmit --strict
                 echo 0 > $out
               '';
+            run-grammar-tests = pkgs.testers.runNixOSTest {
+              name = "grammar-tests";
+              nodes.machine = { pkgs, ... }: {
+                environment.systemPackages = [
+                  inputs.self.packages.${system}.grammar-tests
+                ];
+              };
+              testScript = ''
+                machine.wait_for_unit("default.target")
+                machine.succeed("grammar-tests")
+              '';
+            };
             run-sasha-tests = pkgs.testers.runNixOSTest {
               name = "sasha-tests";
               nodes.machine = { pkgs, ... }: {

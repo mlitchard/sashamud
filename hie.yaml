@@ -3,6 +3,8 @@ cradle:
     # sasha-grammar
     - path: "./sasha-grammar/src"
       component: "lib:sasha-grammar"
+    - path: "./sasha-grammar/test"
+      component: "sasha-grammar:exe:grammar-tests"
 
     # sasha-vocabulary
     - path: "./sasha-vocabulary/src"
