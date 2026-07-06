@@ -14,6 +14,7 @@ common shared
     -fwarn-incomplete-record-updates -fwarn-identities -Wno-orphans
 
   default-extensions:
+    DeriveAnyClass
     DerivingStrategies
     OverloadedStrings
     StrictData
@@ -21,5 +22,13 @@ common shared
 library
   import:          shared
   hs-source-dirs:  src
-  exposed-modules: SashaGrammar
-  build-depends:   base >=4.7 && <5
+  exposed-modules:
+    Grammar.Lexer
+    SashaGrammar
+
+  build-depends:
+    , base        >=4.7 && <5
+    , deepseq
+    , hashable
+    , megaparsec
+    , text
