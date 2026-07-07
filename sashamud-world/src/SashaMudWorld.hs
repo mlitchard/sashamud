@@ -23,14 +23,16 @@ import           DSL.Model.EDSL.SashaLambdaDSL
   )
 import           DSL.Vocabulary (andThen)
 import           Model.Core
-  ( Agent (Agent, _agentActionManagement, _agentCurrentScene, _agentDescription, _agentKind, _agentShortName, _agentTitle)
+  ( ActionManagementFunctions (ActionManagementFunctions)
+  , Agent (Agent, _agentActionManagement, _agentCurrentScene, _agentDescription, _agentKind, _agentShortName, _agentTitle)
   , AgentKind (PlayerAgent)
-  , GameState
+  , Evaluator (Evaluator)
+  , GameState (GameState, _evaluation, _narration, _world)
   , PossibilityGraph
   , Scene
-  , defaultActionManagement
-  , defaultGameState
+  , defaultNarration
   , defaultScene
+  , defaultWorld
   )
 import           Model.GID (GID)
 import           Model.RichText (TextColor (White), colored)
@@ -52,9 +54,16 @@ defaultPlayerAgent playerName sceneGid = Agent
   { _agentShortName        = playerName
   , _agentDescription      = colored White "A player."
   , _agentTitle            = ""
-  , _agentActionManagement = defaultActionManagement
+  , _agentActionManagement = ActionManagementFunctions mempty
   , _agentCurrentScene     = sceneGid
   , _agentKind             = PlayerAgent
+  }
+
+defaultGameState :: GameState
+defaultGameState = GameState
+  { _world      = defaultWorld
+  , _narration  = defaultNarration
+  , _evaluation = Evaluator (\_ -> pure ())
   }
 
 buildResult :: WorldBuilderResult

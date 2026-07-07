@@ -61,27 +61,23 @@ import           FRP.Rhine
   )
 import           Lens.Micro.Platform (set, view)
 import           Model.Core
-  ( Agent (..)
+  ( ActionManagementFunctions (ActionManagementFunctions)
+  , Agent (..)
   , AgentKind (PlayerAgent)
   , GameState
   , Object
-  , PerceptionMap (PerceptionMap)
   , PossibilityGraph
   , Scene
-  , SpatialRelationshipMap (SpatialRelationshipMap)
   , agentCurrentScene
   , agentKind
   , agentMap
   , agentShortName
-  , defaultActionManagement
   , getAgentMap
   , getGIDToDataMap
   , globalSemanticMap
   , objectMap
-  , perceptionMap
   , sceneAgents
   , sceneMap
-  , spatialRelationshipMap
   , world
   )
 import           Model.GID (GID (GID))
@@ -95,13 +91,11 @@ import           Server.App
 import           Server.Validator (PlayerNameVAL, unPlayerNameVAL)
 
 data WorldAccum = WorldAccum
-  { waAgentMap               :: Map (GID Agent) Agent
-  , waSceneMap               :: Map (GID Scene) Scene
-  , waObjectMap              :: Map (GID Object) Object
-  , waSpatialRelationshipMap :: SpatialRelationshipMap
-  , waGlobalSemanticMap      :: Map Text (Set (GID Object))
-  , waPerceptionMap          :: PerceptionMap
-  , waNextAgentId            :: Int
+  { waAgentMap          :: Map (GID Agent) Agent
+  , waSceneMap          :: Map (GID Scene) Scene
+  , waObjectMap         :: Map (GID Object) Object
+  , waGlobalSemanticMap :: Map Text (Set (GID Object))
+  , waNextAgentId       :: Int
   }
 
 instance Semigroup WorldAccum where
@@ -109,14 +103,12 @@ instance Semigroup WorldAccum where
     { waAgentMap               = waAgentMap wa2 <> waAgentMap wa1
     , waSceneMap               = waSceneMap wa2 <> waSceneMap wa1
     , waObjectMap              = waObjectMap wa2 <> waObjectMap wa1
-    , waSpatialRelationshipMap = waSpatialRelationshipMap wa2
     , waGlobalSemanticMap      = waGlobalSemanticMap wa2 <> waGlobalSemanticMap wa1
-    , waPerceptionMap          = waPerceptionMap wa2
     , waNextAgentId            = max (waNextAgentId wa1) (waNextAgentId wa2)
     }
 
 instance Monoid WorldAccum where
-  mempty = WorldAccum mempty mempty mempty SpatialRelationshipMap mempty PerceptionMap 0
+  mempty = WorldAccum mempty mempty mempty mempty 0
 
 data JoinResult = NewPlayerJoined SessionId PlayerNameVAL (GID Agent)
                 | ReturningPlayerJoined SessionId PlayerNameVAL (GID Agent)
@@ -134,9 +126,7 @@ gameLoop ctx gs pg =
         { waAgentMap               = view (agentMap . getAgentMap) iw
         , waSceneMap               = view (sceneMap . getGIDToDataMap) iw
         , waObjectMap              = view (objectMap . getGIDToDataMap) iw
-        , waSpatialRelationshipMap = view spatialRelationshipMap iw
         , waGlobalSemanticMap      = view globalSemanticMap iw
-        , waPerceptionMap          = view perceptionMap iw
         , waNextAgentId            = 1000
         }
   in void (runReaderT
@@ -237,9 +227,7 @@ processOneJoin known (PlayerJoined sid name) =
         { waAgentMap               = singleton gid agent
         , waSceneMap               = singleton lobbyGid lobby'
         , waObjectMap              = mempty
-        , waSpatialRelationshipMap = SpatialRelationshipMap
         , waGlobalSemanticMap      = mempty
-        , waPerceptionMap          = PerceptionMap
         , waNextAgentId            = nextId + 1
         }
       pure (NewPlayerJoined sid name gid)
@@ -249,7 +237,7 @@ mkPlayerAgent name sceneGid = Agent
   { _agentShortName        = view unPlayerNameVAL name
   , _agentDescription      = colored White "A newly arrived adventurer."
   , _agentTitle            = ""
-  , _agentActionManagement = defaultActionManagement
+  , _agentActionManagement = ActionManagementFunctions mempty
   , _agentCurrentScene     = sceneGid
   , _agentKind             = PlayerAgent
   }

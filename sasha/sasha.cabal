@@ -49,7 +49,6 @@ library
     Engine.Simulation.EffectNetwork
     Error
     Model.Core
-    Model.Core.Mappings
     Model.GID
     Model.RandomPool
     Model.RichText
