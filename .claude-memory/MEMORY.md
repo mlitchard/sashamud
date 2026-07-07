@@ -83,8 +83,9 @@
 - build-0 DONE: minimal dev env as root commit (branch: build-0-orphan)
 - build-1 DONE: all existing code rebased on build-0 (branch: main, build-1)
 - formatter = pkgs.nixpkgs-fmt + nix-formatting check added to flake.nix and .gitlab-ci.yml
-- Commit 2 in progress: grammar done, Steps 0-2a done. Next: Step 2b (DSL GADT constructors)
+- Commit 2 in progress: grammar done, Steps 0-2a done, 3a done (Perception.hs), 3b done (ActionManagement.hs). Next: Step 3c (Evaluator)
 - Implementation plan at /home/mlitchard/.claude/plans/replicated-dreaming-shell.md
+- No standalone `runComputation` function — IX pattern: state lives in reactive framework (AccumT), computation runs within it. Rhine integration (Step 4) handles this in processInputSF.
 
 ## Witness System Design
 - WitnessEffect (WitnessGenerate + WitnessFilter) lives in WitnessMap in ComputationContext (`_ctxWitnessMap`)
@@ -127,6 +128,7 @@
 - Do not pre-debate whether something will compile — make the change, let the compiler decide
 - Use Map.lookup with a specific key, not elems/toList dumping
 - ONLY do what is asked — do not show initiative, do not make extra changes
+- Do not invent names — use old code naming conventions (TopLevel, ActionManagement, etc.)
 - Do not touch files the user did not ask you to touch
 - When editing a file, do NOT reformat surrounding content — preserve the user's formatting exactly
 - Use minimal, targeted Edit calls — only change what was asked, leave everything else untouched

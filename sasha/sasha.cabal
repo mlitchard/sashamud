@@ -47,6 +47,7 @@ library
     DSL.Builder
     DSL.Model.EDSL.SashaLambdaDSL
     DSL.Vocabulary
+    Engine.Resolution.ActionManagement
     Engine.Resolution.Perception
     Engine.Simulation.Clocks
     Engine.Simulation.EffectNetwork
@@ -115,6 +116,7 @@ executable sasha-tests
     DSL.Builder
     DSL.Model.EDSL.SashaLambdaDSL
     DSL.Vocabulary
+    Engine.Resolution.ActionManagement
     Engine.Resolution.Perception
     Engine.Simulation.Clocks
     Engine.Simulation.EffectNetwork
