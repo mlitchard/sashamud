@@ -83,7 +83,7 @@
 - build-0 DONE: minimal dev env as root commit (branch: build-0-orphan)
 - build-1 DONE: all existing code rebased on build-0 (branch: main, build-1)
 - formatter = pkgs.nixpkgs-fmt + nix-formatting check added to flake.nix and .gitlab-ci.yml
-- Commit 2 in progress: grammar done, Steps 0-1 done. Next: Step 2a (Core.hs witness types + NarrationMap)
+- Commit 2 in progress: grammar done, Steps 0-2a done. Next: Step 2b (DSL GADT constructors)
 - Implementation plan at /home/mlitchard/.claude/plans/replicated-dreaming-shell.md
 
 ## Witness System Design

@@ -47,6 +47,7 @@ library
     DSL.Builder
     DSL.Model.EDSL.SashaLambdaDSL
     DSL.Vocabulary
+    Engine.Resolution.Perception
     Engine.Simulation.Clocks
     Engine.Simulation.EffectNetwork
     Error
@@ -114,6 +115,7 @@ executable sasha-tests
     DSL.Builder
     DSL.Model.EDSL.SashaLambdaDSL
     DSL.Vocabulary
+    Engine.Resolution.Perception
     Engine.Simulation.Clocks
     Engine.Simulation.EffectNetwork
     Error
