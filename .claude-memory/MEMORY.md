@@ -11,6 +11,7 @@
 - DSL GADT constructors are small composable pieces from old code — do not invent monolithic constructors
 - Do not add complication the user didn't ask for
 - NEVER use the auto memory directory with `-` prefix — use /home/mlitchard/gitlab/sashamud/.claude-memory/ instead
+- Write what things ARE. No contrastive framing ("not X", "NOT the Y"). State the positive. The negative is noise that carries confusion forward.
 
 ## Rhine Architecture (verified from source + koans)
 - Rhine source: /home/mlitchard/github/rhine
@@ -36,22 +37,16 @@
 - GID assignment is game-layer concern — counter in accumulator, not server
 - Rhine tutorial: /home/mlitchard/github/rhine-tutorial
 
-## IX EventNetwork Pattern
-- GameState is OUTPUT, not input — built by the network from accumulated behaviors
-- gameloop receives InitMaps (seeds), not GameState
-- accumB seeds behaviors, GameState assembled on each tick
-- reactimate sends GameState out after each tick
-- One tick in IX; Rhine supports multiple ticks via |@| with AccumT
-- Effects are part of the building computation — they contribute pieces to GameState
-
-## GameState Lifecycle (from old code TopLevel.hs)
-- GameState PERSISTS across turns — carries world state (agents, scenes, objects)
-- Each turn: existing GameState provides the foundation, effect contributes on top of it
-- New GameState = existing state + contributions from the effect
-- Narration is extracted, delivered, then cleared for next turn (clearNarration)
-- World state (agents, scenes) carries forward — NOT built from scratch each tick
-- Flow: clear previous narration → run computation (contributes) → extract narration → deliver → clear → next turn
+## IX EventNetwork Pattern — GameState Construction
+- GameState is reconstructed each tick from current GameState + player input
+- IX pattern: `updateAMap :: DAgentMap -> AgentMap -> AgentMap` — current state + change description → new state
+- `eGameState = GameState <$> bAgentMap <*> bPlanetMap <@ eTick` — construction from behaviors
+- Effects inhabit GameState via dispatch tables (ActionManagementFunctions) on entities (scenes, agents). The game world carries the effect configuration.
+- Effect functions (ActionEffectKeyF) live in PossibilityGraph (ComputationContext). Dispatch tables live on entities in GameState.
+- Evaluator is the parser/dispatcher: text → scene dispatch table → GID → PossibilityGraph → effect function.
+- Current GameState is input to next tick. Registries and dispatch tables carry forward. Narration is ephemeral — extracted, delivered, cleared.
 - Old code reference: sasha-engine/src/TopLevel.hs runGameWithInput (lines 123-149)
+- IX reference: /home/mlitchard/github/ix/src/IX/Reactive/EventNetwork.hs
 
 ## Package Structure
 - sasha-grammar: language foundation (parser, lexer, verb/noun types)
@@ -88,7 +83,34 @@
 - build-0 DONE: minimal dev env as root commit (branch: build-0-orphan)
 - build-1 DONE: all existing code rebased on build-0 (branch: main, build-1)
 - formatter = pkgs.nixpkgs-fmt + nix-formatting check added to flake.nix and .gitlab-ci.yml
-- Commit 2 in progress: grammar package Step 1 + Step 2 done (Lexer, Atomics, Types)
+- Commit 2 in progress: grammar done, Steps 0-1 done. Next: Step 2a (Core.hs witness types + NarrationMap)
+- Implementation plan at /home/mlitchard/.claude/plans/replicated-dreaming-shell.md
+
+## Witness System Design
+- WitnessEffect (WitnessGenerate + WitnessFilter) lives in WitnessMap in ComputationContext (`_ctxWitnessMap`)
+- WitnessMap keyed by ActionEffectKey directly — single source of truth for which actions have witness effects
+- WorldOutcome does not participate in the witness system. The effect processor checks WitnessMap for each ActionEffectKey it processes.
+- WitnessFilter default: `\rt _witness -> pure rt` — stealth revisited when that system lands
+- WitnessFilter returns RichText — suppression revisited when stealth lands
+
+## NarrationMap Design
+- NarrationMap = Map (GID Agent) Narration — per-player routing
+- Routing (who sees what) is NarrationMap's concern. Content structure (playerAction/consequence/epilogue) is Narration's concern. Orthogonal.
+- GameState holds NarrationMap
+- Narration fields: _playerAction (actor's action "You look around."), _actionConsequence (scene description), _presenceListing ("Also here: ..."), _actionEpilogue
+- Rendering order: playerAction → actionConsequence → presenceListing → actionEpilogue
+
+## Design Decisions
+- Actor GID passed explicitly: pipeline → evaluator → effects
+- ComputationContext gains _ctxWitnessMap :: WitnessMap
+- defaultActionManagement — use ActionManagementFunctions mempty directly
+- defaultPossibilityGraph — builder constructs its own
+- defaultGameState is local to SashaMudWorld
+- Old code defaults in sasha-core/src/Model/Core/Defaults.hs: defaultScene, defaultWorld, defaultNarration, defaultAgent, defaultObject, defaultBatch
+- PerceptionMap and SpatialRelationshipMap removed from World — needed for future verbs
+- WorldAccum removed in Step 4, GameState goes directly in AccumT
+- Types with commit-2-only constructors gain more constructors in future commits
+- TH staging: all makeLenses and derivingTypeScriptDefinition calls at bottom of Core.hs, single TH stage
 
 ## Code Rules (learned the hard way)
 - ALL packages use NoImplicitPrelude — always include it in default-extensions
@@ -108,13 +130,29 @@
 - Do not touch files the user did not ask you to touch
 - When editing a file, do NOT reformat surrounding content — preserve the user's formatting exactly
 - Use minimal, targeted Edit calls — only change what was asked, leave everything else untouched
-- NEVER write stubs, placeholders, or fake implementations
+- NEVER write stubs, placeholders, or fake implementations — if a field requires a stub value, the field should not exist yet
+- If a type/field has no real implementation yet, do not add it to the data type. Add it when the real code arrives.
 - DerivingVia needs the constructor in scope: import Foo (Foo) not just the type
 - Use Data.Time.Calendar for Year (= Integer), MonthOfYear (= Int), Day, toGregorian — NEVER roll custom date types
 - Check Hackage BEFORE inventing any type — if the standard library has it, use it
 - ALL tests use hspec-discover — Main.hs is just `{-# OPTIONS_GHC -F -pgmF hspec-discover #-}`, never manual spec wiring
 - NEVER run builds or tests unless user explicitly requests
 - When user asks for commit message, give the TEXT — do not run git commit
+- GameState is CONSTRUCTED from accumulated pieces. Builder accumulates, then constructs.
+- Before deleting files, confirm with user — destructive operation
+- Test types with real structure. Trivial newtypes over primitives (GID over Int) prove nothing.
+
+## Testing Pattern (from quux/server)
+- JSON roundtrip with QuickCheck: `checkJSON = property $ \(a :: a) -> Just a == decode (encode a)`
+- One JSONSpec.hs with `prop` lines for each JSON type
+- Arbitrary instances via `#ifdef TESTING` in source modules — imports at top, deriving at bottom
+- Test exe uses `hs-source-dirs: test src` + `cpp-options: -DTESTING` to recompile source with flag
+- `CPP` in default-extensions, `generic-arbitrary` + `QuickCheck` + `quickcheck-instances` + `hspec-core` in build-depends
+- `Test.Hspec.QuickCheck (prop)` comes from `hspec-core` — quux uses `hspec-core`
+- GenericArbitrary for sum/product types, `deriving newtype` for newtypes
+- Large enums (many constructors): derive `Bounded, Enum`, use manual `instance Arbitrary Foo where arbitrary = arbitraryBoundedEnum` — GenericArbitrary chokes on the constraint solver (quux FFTSize pattern)
+- Complex sum types with GenericArbitrary need `{-# OPTIONS_GHC -fconstraint-solver-iterations=10 #-}` at top of module (quux pattern: Messages.hs, WebSocket.hs, Authorization.hs)
+- ALWAYS study quux/old code BEFORE writing Arbitrary instances — do not guess the pattern
 
 ## Key Files
 - Architecture doc: /home/mlitchard/gitlab/sashamud/docs/monorepo-redesign.md

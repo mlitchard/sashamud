@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -fconstraint-solver-iterations=10 #-}
+
 module Model.RichText
   ( -- * Core Types
     RichText (RichText)
@@ -28,6 +30,11 @@ import           Control.DeepSeq (NFData)
 import           Data.Aeson (FromJSON, ToJSON)
 import           Data.Aeson.TypeScript (derivingTypeScriptDefinition)
 import           Lens.Micro.Platform (makeLenses, view)
+#ifdef TESTING
+import           Test.QuickCheck (Arbitrary (arbitrary), arbitraryBoundedEnum)
+import           Test.QuickCheck.Arbitrary.Generic (GenericArbitrary (..))
+import           Test.QuickCheck.Instances.Text ()
+#endif
 
 type TextColor :: Type
 data TextColor
@@ -45,7 +52,7 @@ data TextColor
   | BrightYellow
   | BrightCyan
   | BrightMagenta
-  deriving stock (Eq, Generic, Ord, Show)
+  deriving stock (Bounded, Enum, Eq, Generic, Ord, Show)
   deriving anyclass (FromJSON, NFData, ToJSON)
 
 type TextStyle :: Type
@@ -111,3 +118,11 @@ derivingTypeScriptDefinition ''TextColor
 derivingTypeScriptDefinition ''TextStyle
 derivingTypeScriptDefinition ''StyledSpan
 derivingTypeScriptDefinition ''RichText
+
+#ifdef TESTING
+instance Arbitrary TextColor where
+  arbitrary = arbitraryBoundedEnum
+deriving via (GenericArbitrary TextStyle) instance Arbitrary TextStyle
+deriving via (GenericArbitrary StyledSpan) instance Arbitrary StyledSpan
+deriving newtype instance Arbitrary RichText
+#endif

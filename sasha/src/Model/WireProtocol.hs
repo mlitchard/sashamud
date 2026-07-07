@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -fconstraint-solver-iterations=10 #-}
+
 module Model.WireProtocol
   ( MessageFrom (..)
   ) where
@@ -12,6 +14,11 @@ import           Model.Core (SessionId)
 import           Model.RichText (RichText)
 import           Network.WebSockets (WebSocketsData)
 import           Servant.API.WebSocket (Aeson (Aeson))
+#ifdef TESTING
+import           Test.QuickCheck (Arbitrary)
+import           Test.QuickCheck.Arbitrary.Generic (GenericArbitrary (..))
+import           Test.QuickCheck.Instances.Text ()
+#endif
 
 -- | All constructors exist from commit 1. Only SystemMessage carries
 -- content in commit 1 (heartbeats). SessionAck sent on WebSocket connect.
@@ -28,3 +35,7 @@ data MessageFrom = SessionAck SessionId
     via Aeson MessageFrom
 
 derivingTypeScriptDefinition ''MessageFrom
+
+#ifdef TESTING
+deriving via (GenericArbitrary MessageFrom) instance Arbitrary MessageFrom
+#endif

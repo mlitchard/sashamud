@@ -9,6 +9,7 @@ module Model.Core
   , Scene (..)
   , World (..)
   , Narration (..)
+  , NarrationMap (NarrationMap)
   , Object
     -- * Session
   , SessionId (SessionId, unSessionId)
@@ -31,12 +32,18 @@ module Model.Core
   , ActionEffectKeyF
   , ImplicitStimulusF (ImplicitStimulusF, ImplicitNoStimulusF)
   , ImplicitStimulusMap
-  , Evaluator (Evaluator)
-  , evaluator
     -- * World Outcomes
   , NarrationComputation (LookNarration, StaticNarration)
   , WorldOutcome (NarrationEffect)
   , EntityKey (SceneKey')
+    -- * Witness System
+  , WitnessGenerate (WitnessGenerate, runWitnessGenerate)
+  , WitnessFilter (WitnessFilter, runWitnessFilter)
+  , WitnessEffect (WitnessEffect)
+  , WitnessMap (WitnessMap)
+  , getWitnessMap
+  , witnessGenerate
+  , witnessFilter
     -- * Registries
   , ActionMaps (ActionMaps)
   , implicitStimulusMap
@@ -45,7 +52,6 @@ module Model.Core
   , emptyActionMaps
     -- * Defaults
   , defaultScene
-  , defaultNarration
   , defaultWorld
     -- * Lenses
   , agentShortName
@@ -64,15 +70,17 @@ module Model.Core
   , globalSemanticMap
   , playerAction
   , actionConsequence
+  , presenceListing
   , actionEpilogue
+  , unNarrationMap
   , getAgentMap
   , world
-  , narration
-  , evaluation
+  , narrationMap
   , actionMaps
   , entityActionEffects
   , worldOutcomeEffects
   , ctxPossibilityGraph
+  , ctxWitnessMap
   ) where
 
 import           SashaPrelude
@@ -92,6 +100,10 @@ import           Grammar.Parser.Atomics.Verbs (ImplicitStimulusVerb)
 import           Lens.Micro.Platform (makeLenses)
 import           Model.GID (GID)
 import           Model.RichText (RichText)
+#ifdef TESTING
+import           Test.QuickCheck (Arbitrary)
+import           Test.QuickCheck.Instances.Text ()
+#endif
 
 -- Action Management
 
@@ -180,12 +192,18 @@ type Narration :: Type
 data Narration = Narration
   { _playerAction      :: [RichText]
   , _actionConsequence :: [RichText]
+  , _presenceListing   :: [RichText]
   , _actionEpilogue    :: [RichText]
   }
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
   deriving (Monoid, Semigroup)
     via (Generically Narration)
+
+type NarrationMap :: Type
+newtype NarrationMap = NarrationMap { _unNarrationMap :: Map (GID Agent) Narration }
+  deriving stock (Eq, Ord, Show)
+  deriving newtype (NFData)
 
 -- World Outcomes
 
@@ -204,6 +222,23 @@ type EntityKey :: Type
 data EntityKey = SceneKey' (GID Scene)
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
+
+-- Witness System
+
+type WitnessGenerate :: Type
+newtype WitnessGenerate = WitnessGenerate { runWitnessGenerate :: GID Agent -> GameComputation Identity RichText }
+
+type WitnessFilter :: Type
+newtype WitnessFilter = WitnessFilter { runWitnessFilter :: RichText -> GID Agent -> GameComputation Identity RichText }
+
+type WitnessEffect :: Type
+data WitnessEffect = WitnessEffect
+  { _witnessGenerate :: WitnessGenerate
+  , _witnessFilter   :: WitnessFilter
+  }
+
+type WitnessMap :: Type
+newtype WitnessMap = WitnessMap { _getWitnessMap :: Map ActionEffectKey WitnessEffect }
 
 -- Action Effect Types
 
@@ -238,18 +273,12 @@ type EntityActionRegistry = Map ActionEffectKey (Map EntityKey (Set ActionManage
 type WorldOutcomeRegistry :: Type
 type WorldOutcomeRegistry = Map ActionEffectKey (Set WorldOutcome)
 
--- Evaluator
-
-type Evaluator :: Type
-newtype Evaluator = Evaluator { _evaluator :: Text -> GameComputation Identity () }
-
 -- GameState
 
 type GameState :: Type
 data GameState = GameState
-  { _world      :: World
-  , _narration  :: Narration
-  , _evaluation :: Evaluator
+  { _world        :: World
+  , _narrationMap :: NarrationMap
   }
 
 type GameStateT :: (Type -> Type) -> Type -> Type
@@ -271,6 +300,7 @@ instance MonadTrans GameStateT where
 type ComputationContext :: Type
 data ComputationContext = ComputationContext
   { _ctxPossibilityGraph :: PossibilityGraph
+  , _ctxWitnessMap       :: WitnessMap
   }
 
 type GameComputation :: (Type -> Type) -> Type -> Type
@@ -306,9 +336,6 @@ defaultScene = Scene
   , _sceneAgents           = mempty
   }
 
-defaultNarration :: Narration
-defaultNarration = mempty
-
 defaultWorld :: World
 defaultWorld = World
   { _objectMap              = GIDToDataMap mempty
@@ -327,8 +354,14 @@ makeLenses ''AgentMap
 makeLenses ''Scene
 makeLenses ''World
 makeLenses ''Narration
-makeLenses ''Evaluator
+makeLenses ''NarrationMap
+makeLenses ''WitnessEffect
+makeLenses ''WitnessMap
 makeLenses ''GameState
 makeLenses ''ComputationContext
 makeLenses ''ActionMaps
 makeLenses ''PossibilityGraph
+
+#ifdef TESTING
+deriving newtype instance Arbitrary SessionId
+#endif

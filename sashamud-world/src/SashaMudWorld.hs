@@ -26,11 +26,10 @@ import           Model.Core
   ( ActionManagementFunctions (ActionManagementFunctions)
   , Agent (Agent, _agentActionManagement, _agentCurrentScene, _agentDescription, _agentKind, _agentShortName, _agentTitle)
   , AgentKind (PlayerAgent)
-  , Evaluator (Evaluator)
-  , GameState (GameState, _evaluation, _narration, _world)
+  , GameState (GameState, _narrationMap, _world)
+  , NarrationMap (NarrationMap)
   , PossibilityGraph
   , Scene
-  , defaultNarration
   , defaultScene
   , defaultWorld
   )
@@ -61,9 +60,8 @@ defaultPlayerAgent playerName sceneGid = Agent
 
 defaultGameState :: GameState
 defaultGameState = GameState
-  { _world      = defaultWorld
-  , _narration  = defaultNarration
-  , _evaluation = Evaluator (\_ -> pure ())
+  { _world        = defaultWorld
+  , _narrationMap = NarrationMap mempty
   }
 
 buildResult :: WorldBuilderResult

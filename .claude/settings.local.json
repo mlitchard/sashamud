@@ -19,7 +19,8 @@
       "WebFetch(domain:caddyserver.com)",
       "Bash(wc -l src/Handler/*.hs)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "Bash(find /home/mlitchard/gitlab/sashablog/sasha-content -type f \\\\\\(-name *.md -o -name *.yml -o -name *.yaml \\\\\\))"
+      "Bash(find /home/mlitchard/gitlab/sashablog/sasha-content -type f \\\\\\(-name *.md -o -name *.yml -o -name *.yaml \\\\\\))",
+      "Bash(find . -name \"*.hs\" -type f -exec grep -l \"proximityAdjacent\\\\|proximityDistant\" {})"
     ]
   },
   "hooks": {

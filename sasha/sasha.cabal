@@ -16,7 +16,9 @@ common shared
     -Wno-orphans
 
   default-extensions:
+    AllowAmbiguousTypes
     BlockArguments
+    CPP
     DataKinds
     DeriveAnyClass
     DerivingStrategies
@@ -69,10 +71,13 @@ library
     , bytestring
     , containers
     , deepseq
+    , generic-arbitrary
     , hashable
     , microlens-platform
     , mmorph
     , mtl
+    , QuickCheck
+    , quickcheck-instances
     , rhine                     >=1.6
     , sasha-grammar
     , sasha-vocabulary
@@ -100,23 +105,61 @@ executable sasha-client-generator
 executable sasha-tests
   import:         shared
   main-is:        Spec.hs
-  hs-source-dirs: test
+  hs-source-dirs: test src
+  cpp-options:    -DTESTING
   other-modules:
-    API.TypesSpec
-    Model.Core.DefaultsSpec
-    Model.Core.GameStateSpec
-    Model.GIDSpec
-    Model.RichTextSpec
-    Model.WireProtocolSpec
+    API.Routes
+    API.TSClient
+    API.Types
+    DSL.Builder
+    DSL.Model.EDSL.SashaLambdaDSL
+    DSL.Vocabulary
+    Engine.Simulation.Clocks
+    Engine.Simulation.EffectNetwork
+    Error
+    JSONSpec
+    Model.Core
+    Model.GID
+    Model.RandomPool
+    Model.RichText
+    Model.WireProtocol
+    SashaPrelude
+    Server.App
+    Server.Authentication
+    Server.GameWebSocket
+    Server.Log
+    Server.Server
+    Server.Validator
 
   build-depends:
     , aeson
-    , base
+    , aeson-typescript
+    , async
+    , base                      >=4.7 && <5
     , bytestring
     , containers
+    , deepseq
+    , generic-arbitrary
+    , hashable
     , hspec
+    , hspec-core
     , hspec-discover
     , microlens-platform
-    , sasha
+    , mmorph
+    , mtl
+    , QuickCheck
+    , quickcheck-instances
+    , rhine                     >=1.6
+    , sasha-grammar
+    , sasha-vocabulary
+    , servant
+    , servant-aeson-typescript
+    , servant-server
+    , servant-websockets
+    , stm
     , text
+    , transformers
     , uuid
+    , wai
+    , warp
+    , websockets

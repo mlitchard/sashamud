@@ -240,10 +240,10 @@
               (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sashamud-server "exe:sasha-server"))).overrideAttrs { meta.mainProgram = "sasha-server"; };
             sasha-client-generator = (hlib.justStaticExecutables
               (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sasha "exe:sasha-client-generator"))).overrideAttrs { meta.mainProgram = "sasha-client-generator"; };
-            sasha-tests = hlib.justStaticExecutables
-              (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sasha "exe:sasha-tests"));
-            grammar-tests = hlib.justStaticExecutables
-              (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sasha-grammar "exe:grammar-tests"));
+            sasha-tests = (hlib.justStaticExecutables
+              (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sasha "exe:sasha-tests"))).overrideAttrs { meta.mainProgram = "sasha-tests"; };
+            grammar-tests = (hlib.justStaticExecutables
+              (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sasha-grammar "exe:grammar-tests"))).overrideAttrs { meta.mainProgram = "grammar-tests"; };
           };
 
           formatter = pkgs.nixpkgs-fmt;
@@ -347,7 +347,7 @@
               };
               testScript = ''
                 machine.wait_for_unit("default.target")
-                machine.succeed("grammar-tests")
+                print(machine.succeed("grammar-tests"))
               '';
             };
             run-sasha-tests = pkgs.testers.runNixOSTest {
@@ -359,7 +359,7 @@
               };
               testScript = ''
                 machine.wait_for_unit("default.target")
-                machine.succeed("sasha-tests")
+                print(machine.succeed("sasha-tests"))
               '';
             };
             run-integration-tests = legacyPackages.sashamud-server.overrideAttrs (old: {
