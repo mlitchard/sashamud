@@ -22,11 +22,13 @@ import           DSL.Model.EDSL.SashaLambdaDSL
   , title
   )
 import           DSL.Vocabulary (andThen)
+import           Engine.Evaluators.Player.General (eval)
 import           Model.Core
   ( ActionManagementFunctions (ActionManagementFunctions)
   , Agent (Agent, _agentActionManagement, _agentCurrentScene, _agentDescription, _agentKind, _agentShortName, _agentTitle)
   , AgentKind (PlayerAgent)
-  , GameState (GameState, _narrationMap, _world)
+  , Evaluator (Evaluator)
+  , GameState (GameState, _evaluation, _narrationMap, _world)
   , NarrationMap (NarrationMap)
   , PossibilityGraph
   , Scene
@@ -62,6 +64,7 @@ defaultGameState :: GameState
 defaultGameState = GameState
   { _world        = defaultWorld
   , _narrationMap = NarrationMap mempty
+  , _evaluation   = Evaluator eval
   }
 
 buildResult :: WorldBuilderResult

@@ -13,6 +13,9 @@ module Model.Core
   , Object
     -- * Session
   , SessionId (SessionId, unSessionId)
+    -- * Evaluator
+  , Evaluator (Evaluator)
+  , runEvaluator
     -- * GameState
   , GameState (..)
   , GameStateT (GameStateT, runGameStateT)
@@ -76,6 +79,7 @@ module Model.Core
   , getAgentMap
   , world
   , narrationMap
+  , evaluation
   , actionMaps
   , entityActionEffects
   , worldOutcomeEffects
@@ -97,6 +101,7 @@ import           Data.Functor.Identity (Identity)
 import           Data.Map.Strict (Map)
 import           Data.Set (Set)
 import           Grammar.Parser.Atomics.Verbs (ImplicitStimulusVerb)
+import           Grammar.Parser.Composites.Model (Sentence)
 import           Lens.Micro.Platform (makeLenses)
 import           Model.GID (GID)
 import           Model.RichText (RichText)
@@ -248,7 +253,7 @@ data ActionEffectKey = ImplicitStimulusActionKey (GID ImplicitStimulusF)
   deriving anyclass (NFData)
 
 type ActionEffectKeyF :: Type
-type ActionEffectKeyF = ActionEffectKey -> GameComputation Identity ()
+type ActionEffectKeyF = GID Agent -> ActionEffectKey -> GameComputation Identity ()
 
 type ImplicitStimulusF :: Type
 data ImplicitStimulusF = ImplicitStimulusF ActionEffectKeyF
@@ -275,10 +280,16 @@ type WorldOutcomeRegistry = Map ActionEffectKey (Set WorldOutcome)
 
 -- GameState
 
+-- Evaluator
+
+type Evaluator :: Type
+newtype Evaluator = Evaluator { _runEvaluator :: GID Agent -> Sentence -> GameComputation Identity () }
+
 type GameState :: Type
 data GameState = GameState
   { _world        :: World
   , _narrationMap :: NarrationMap
+  , _evaluation   :: Evaluator
   }
 
 type GameStateT :: (Type -> Type) -> Type -> Type
@@ -357,6 +368,7 @@ makeLenses ''Narration
 makeLenses ''NarrationMap
 makeLenses ''WitnessEffect
 makeLenses ''WitnessMap
+makeLenses ''Evaluator
 makeLenses ''GameState
 makeLenses ''ComputationContext
 makeLenses ''ActionMaps

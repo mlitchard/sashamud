@@ -12,6 +12,10 @@
 - Do not add complication the user didn't ask for
 - NEVER use the auto memory directory with `-` prefix — use /home/mlitchard/gitlab/sashamud/.claude-memory/ instead
 - Write what things ARE. No contrastive framing ("not X", "NOT the Y"). State the positive. The negative is noise that carries confusion forward.
+- NEVER invent file names, module names, or function names — find them in old code or ASK
+- NEVER invent helper functions — if old code doesn't have it, you don't need it
+- The evaluator is PURE DISPATCH — pattern match and delegate. Lookup logic belongs elsewhere (old code: ActionDiscovery, ActionManagement)
+- Study old code THOROUGHLY before writing. Read the actual files. Do not summarize from memory and fill gaps with guesses.
 
 ## Rhine Architecture (verified from source + koans)
 - Rhine source: /home/mlitchard/github/rhine
@@ -83,9 +87,27 @@
 - build-0 DONE: minimal dev env as root commit (branch: build-0-orphan)
 - build-1 DONE: all existing code rebased on build-0 (branch: main, build-1)
 - formatter = pkgs.nixpkgs-fmt + nix-formatting check added to flake.nix and .gitlab-ci.yml
-- Commit 2 in progress: grammar done, Steps 0-2a done, 3a done (Perception.hs), 3b done (ActionManagement.hs). Next: Step 3c (Evaluator)
+- Commit 2 in progress: grammar done, Steps 0-2a done, 3a done (Perception.hs), 3b done (ActionManagement.hs). Step 3c IN PROGRESS.
 - Implementation plan at /home/mlitchard/.claude/plans/replicated-dreaming-shell.md
 - No standalone `runComputation` function — IX pattern: state lives in reactive framework (AccumT), computation runs within it. Rhine integration (Step 4) handles this in processInputSF.
+
+## Step 3c State
+- Core.hs changes DONE: Evaluator newtype added (`GID Agent -> Sentence -> GameComputation Identity ()`), `_evaluation :: Evaluator` on GameState, ActionEffectKeyF changed to `GID Agent -> ActionEffectKey -> GameComputation Identity ()`, makeLenses added
+- General.hs DONE: pure dispatch (eval → evalImperative → evalStimulusVerbPhrase → manageImplicitStimulusProcess), imports from Engine.ActionDiscovery.Percieve.Look
+- ActionProtocol refactor DONE (user-approved plan /home/mlitchard/.claude/plans/purrfect-painting-mochi.md):
+  - Engine/ActionDiscovery/Protocol.hs — ActionProtocol class, actor GID explicit (`runActionProtocol :: GID Agent -> ActionInput actionF -> ...`), fetchAction/fetchAgentAction/fetchSceneAction use throwMaybeM (Text errors, no `error`), agent/scene lookups inlined (fetchPlayerAction gone, fetchSceneActions replaced by actor's agentCurrentScene)
+  - Engine/ActionDiscovery/Instances.hs — single ImplicitStimulusF instance, veto chain calls pass actorGid (`ps actorGid playerKey`)
+  - Engine/ActionDiscovery/Percieve/Look.hs — manageImplicitStimulusProcess (keeps old "Percieve" spelling)
+  - lookupImplicitStimulus added to Engine/Resolution/ActionManagement.hs (analog of old GameState/ActionManagement.hs)
+  - sasha.cabal: 4 modules added to both library exposed-modules and sasha-tests other-modules (incl. Engine.Evaluators.Player.General)
+- NO ctxActingAgent — actor GID passed explicitly at every level
+- Evaluator takes Sentence (not Text) — lex/parse belongs in Rhine pipeline (Step 4)
+- NO defaultEvaluator wrapper — evaluator IS eval directly
+
+## Remaining for Step 3c to compile
+- SashaMudWorld.hs: defaultGameState needs `_evaluation` field
+- Cascading: Builder.hs may need updates if GameState construction breaks
+- Not yet compiled — user runs builds
 
 ## Witness System Design
 - WitnessEffect (WitnessGenerate + WitnessFilter) lives in WitnessMap in ComputationContext (`_ctxWitnessMap`)

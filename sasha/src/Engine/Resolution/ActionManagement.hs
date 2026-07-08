@@ -1,5 +1,6 @@
 module Engine.Resolution.ActionManagement
   ( processActionEffects
+  , lookupImplicitStimulus
   ) where
 
 import           SashaPrelude
@@ -7,13 +8,18 @@ import           SashaPrelude
 import           Control.Monad.Reader (asks)
 import           Data.Functor.Identity (Identity)
 import           Data.Map.Strict (lookup)
+import           Data.Maybe (listToMaybe)
 import           Engine.Resolution.Perception (modifyAgentNarration, youSeeM)
+import           Grammar.Parser.Atomics.Verbs (ImplicitStimulusVerb)
 import           Lens.Micro.Platform (over, use, view)
 import           Model.Core
   ( ActionEffectKey
+  , ActionManagement (ISAManagementKey)
+  , ActionManagementFunctions (ActionManagementFunctions)
   , Agent
   , AgentKind (PlayerAgent)
   , GameComputation
+  , ImplicitStimulusF
   , NarrationComputation (LookNarration, StaticNarration)
   , WitnessFilter (runWitnessFilter)
   , WitnessGenerate (runWitnessGenerate)
@@ -87,3 +93,9 @@ getWitnesses actorGid = do
                   , Just agent <- [lookup gid aMap]
                   , view agentKind agent == PlayerAgent
                   ]
+
+lookupImplicitStimulus :: ImplicitStimulusVerb
+                       -> ActionManagementFunctions
+                       -> Maybe (GID ImplicitStimulusF)
+lookupImplicitStimulus verb (ActionManagementFunctions actions) =
+  listToMaybe [gid | ISAManagementKey v gid <- toList actions, v == verb]
