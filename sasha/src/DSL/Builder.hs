@@ -16,7 +16,7 @@ import           DSL.Model.EDSL.SashaLambdaDSL (SashaLambdaDSL (..))
 import           Error (throwMaybeM)
 import           Lens.Micro.Platform (at, non, over, view, (%~), (?~))
 import           Model.Core
-  ( ActionManagement (ISAManagementKey)
+  ( ActionManagement (ISAManagementKey, WitnessManagementKey)
   , ActionMaps
   , Agent
   , EntityActionRegistry
@@ -36,6 +36,7 @@ import           Model.Core
   , sceneActionManagement
   , sceneAgents
   , sceneMap
+  , witnessMap
   , world
   )
 import           Model.GID (GID (GID))
@@ -44,6 +45,7 @@ data BuilderState = BuilderState
   { bsGameState :: GameState
   , bsNextSceneGID :: Int
   , bsNextImplicitStimulusGID :: Int
+  , bsNextWitnessGID :: Int
   , bsActionMaps :: ActionMaps
   , bsEntityActionRegistry :: EntityActionRegistry
   , bsWorldOutcomeRegistry :: WorldOutcomeRegistry
@@ -63,6 +65,7 @@ initialBuilderState gs = BuilderState
   { bsGameState               = gs
   , bsNextSceneGID            = 0
   , bsNextImplicitStimulusGID = 0
+  , bsNextWitnessGID          = 0
   , bsActionMaps              = emptyActionMaps
   , bsEntityActionRegistry    = mempty
   , bsWorldOutcomeRegistry    = mempty
@@ -98,6 +101,16 @@ interpretDSL (DeclareImplicitStimulusGID actionF) = do
   pure gid
 
 interpretDSL (CreateISAManagement verb gid) = pure (ISAManagementKey verb gid)
+
+interpretDSL (DeclareWitnessGID witnessFn) = do
+  st <- get
+  let gid = GID (bsNextWitnessGID st)
+  put st { bsNextWitnessGID = bsNextWitnessGID st + 1
+         , bsActionMaps = over witnessMap (insert gid witnessFn) (bsActionMaps st)
+         }
+  pure gid
+
+interpretDSL (CreateWitnessManagement gid) = pure (WitnessManagementKey gid)
 
 interpretDSL (SceneBehavior scene actionMgmt) =
   pure (scene & sceneActionManagement . actionManagementFunctions %~ Data.Set.insert actionMgmt)

@@ -114,13 +114,14 @@
 - Cascading: Builder.hs may need updates if GameState construction breaks
 - Not yet compiled — user runs builds
 
-## Witness System Design
-- STRIPPED FROM CODE (2026-07-11, user instruction): types gone from Core.hs, `processWitnessEffects`/`getWitnesses` deleted from ActionManagement.hs, `_ctxWitnessMap` not in ComputationContext. Design below retained for when it returns:
-- WitnessEffect (WitnessGenerate + WitnessFilter) lives in WitnessMap in ComputationContext (`_ctxWitnessMap`)
-- WitnessMap keyed by ActionEffectKey directly — single source of truth for which actions have witness effects
-- WorldOutcome does not participate in the witness system. The effect processor checks WitnessMap for each ActionEffectKey it processes.
-- WitnessFilter default: `\rt _witness -> pure rt` — stealth revisited when that system lands
-- WitnessFilter returns RichText — suppression revisited when stealth lands
+## Witness System Design (rebuilt 2026-07-11, user-ruled, supersedes the stripped design)
+- Shape: capability lives ON THE WITNESS AGENT — each Denizen carries `WitnessManagementKey (GID WitnessF)` in its own ActionManagementFunctions. Witnesses perceive; the actor pushes nothing. Concealment later = GID swap — state IS which GIDs are mapped.
+- Registration: `WorldOutcome` gained constructor `WitnessEffect NarrationComputation`, registered in WorldOutcomeRegistry via existing `linkWorldOutcomeEffect` on the same key as the actor narration (sceneLookGID key — playerKey pass no-ops, so witnesses fire exactly once)
+- NarrationComputation is the semantic "what happened" datum: actor-side renders LookNarration as "You look around." (youSeeM); witness-side renders the same datum as "{actor} looks around." (witnessLookM, targets _actionConsequence)
+- Machinery mirrors ImplicitStimulusF: WitnessEffectF (witness→actor→datum), `WitnessF` (ONE constructor now; blocked variant arrives with stealth, commits 10/11), WitnessMap inside ActionMaps, `witnessF = WitnessF processWitnessEffects` in ConstraintRefinement.Actions, `lookupWitness` in ActionManagement.hs
+- Discovery walk in processWitnesses: agentLocationMap → sceneMap → sceneAgents minus actor, Denizen filter — every lookup miss is a silent no-op
+- DSL: DeclareWitnessGID / CreateWitnessManagement (mirrors of the ISA pair); Builder has bsNextWitnessGID counter; attachment reuses playerBehavior; WitnessMap travels inside ActionMaps into PossibilityGraph
+- Plan: /home/mlitchard/.claude/plans/snazzy-whistling-pancake.md — engine test for witness narration (feature-ordering.md:45) deferred, add on user instruction
 
 ## NarrationMap Design
 - NarrationMap = Map (GID Agent) Narration — per-player routing

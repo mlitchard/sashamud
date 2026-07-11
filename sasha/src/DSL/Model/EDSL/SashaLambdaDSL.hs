@@ -6,6 +6,8 @@ module DSL.Model.EDSL.SashaLambdaDSL
   , sceneDescriptionRich
   , declareImplicitStimulusGID
   , createISAManagement
+  , declareWitnessGID
+  , createWitnessManagement
   , sceneBehavior
   , playerBehavior
   , linkWorldOutcomeEffect
@@ -23,6 +25,7 @@ import           Model.Core
   , GameState
   , ImplicitStimulusF
   , Scene
+  , WitnessF
   , WorldOutcome
   )
 import           Model.GID (GID)
@@ -37,6 +40,8 @@ data SashaLambdaDSL a where Pure :: a -> SashaLambdaDSL a
                             SceneDescription :: RichText -> Scene -> SashaLambdaDSL Scene
                             DeclareImplicitStimulusGID :: ImplicitStimulusF -> SashaLambdaDSL (GID ImplicitStimulusF)
                             CreateISAManagement :: ImplicitStimulusVerb -> GID ImplicitStimulusF -> SashaLambdaDSL ActionManagement
+                            DeclareWitnessGID :: WitnessF -> SashaLambdaDSL (GID WitnessF)
+                            CreateWitnessManagement :: GID WitnessF -> SashaLambdaDSL ActionManagement
                             SceneBehavior :: Scene -> ActionManagement -> SashaLambdaDSL Scene
                             PlayerBehavior :: (Text -> Agent) -> ActionManagement -> SashaLambdaDSL (Text -> Agent)
                             LinkWorldOutcomeEffect :: ActionEffectKey -> WorldOutcome -> SashaLambdaDSL ()
@@ -70,6 +75,12 @@ declareImplicitStimulusGID = DeclareImplicitStimulusGID
 
 createISAManagement :: ImplicitStimulusVerb -> GID ImplicitStimulusF -> SashaLambdaDSL ActionManagement
 createISAManagement = CreateISAManagement
+
+declareWitnessGID :: WitnessF -> SashaLambdaDSL (GID WitnessF)
+declareWitnessGID = DeclareWitnessGID
+
+createWitnessManagement :: GID WitnessF -> SashaLambdaDSL ActionManagement
+createWitnessManagement = CreateWitnessManagement
 
 sceneBehavior :: Scene -> ActionManagement -> SashaLambdaDSL Scene
 sceneBehavior = SceneBehavior

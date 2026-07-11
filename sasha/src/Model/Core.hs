@@ -24,7 +24,7 @@ module Model.Core
   , ComputationContext (..)
   , GameComputation (GameComputation, runGameComputation)
     -- * Action Management
-  , ActionManagement (ISAManagementKey)
+  , ActionManagement (ISAManagementKey, WitnessManagementKey)
   , ActionManagementFunctions (ActionManagementFunctions)
   , actionManagementFunctions
   , ActionManagementOperation (AddImplicitStimulus)
@@ -35,13 +35,17 @@ module Model.Core
   , ActionEffectKeyF
   , ImplicitStimulusF (ImplicitStimulusF, ImplicitNoStimulusF)
   , ImplicitStimulusMap
+  , WitnessEffectF
+  , WitnessF (WitnessF)
+  , WitnessMap
     -- * World Outcomes
   , NarrationComputation (LookNarration, StaticNarration)
-  , WorldOutcome (NarrationEffect)
+  , WorldOutcome (NarrationEffect, WitnessEffect)
   , EntityKey (SceneKey')
     -- * Registries
   , ActionMaps (ActionMaps)
   , implicitStimulusMap
+  , witnessMap
   , EntityActionRegistry
   , WorldOutcomeRegistry
   , emptyActionMaps
@@ -108,6 +112,7 @@ import           Test.QuickCheck.Instances.Text ()
 
 type ActionManagement :: Type
 data ActionManagement = ISAManagementKey ImplicitStimulusVerb (GID ImplicitStimulusF)
+                      | WitnessManagementKey (GID WitnessF)
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
@@ -233,6 +238,7 @@ data NarrationComputation = LookNarration
 
 type WorldOutcome :: Type
 data WorldOutcome = NarrationEffect NarrationComputation
+                  | WitnessEffect NarrationComputation
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
@@ -258,15 +264,25 @@ data ImplicitStimulusF = ImplicitStimulusF ActionEffectKeyF
 type ImplicitStimulusMap :: Type
 type ImplicitStimulusMap = Map (GID ImplicitStimulusF) ImplicitStimulusF
 
+type WitnessEffectF :: Type
+type WitnessEffectF = GID Agent -> GID Agent -> NarrationComputation -> GameComputation Identity ()
+
+type WitnessF :: Type
+data WitnessF = WitnessF WitnessEffectF
+
+type WitnessMap :: Type
+type WitnessMap = Map (GID WitnessF) WitnessF
+
 -- Registries
 
 type ActionMaps :: Type
 data ActionMaps = ActionMaps
   { _implicitStimulusMap :: ImplicitStimulusMap
+  , _witnessMap          :: WitnessMap
   }
 
 emptyActionMaps :: ActionMaps
-emptyActionMaps = ActionMaps { _implicitStimulusMap = mempty }
+emptyActionMaps = ActionMaps { _implicitStimulusMap = mempty, _witnessMap = mempty }
 
 type EntityActionRegistry :: Type
 type EntityActionRegistry = Map ActionEffectKey (Map EntityKey (Set ActionManagementOperation))

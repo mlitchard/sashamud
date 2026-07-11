@@ -7,7 +7,7 @@ module SashaMudWorld
 
 import           SashaPrelude
 
-import           ConstraintRefinement.Actions (lookF)
+import           ConstraintRefinement.Actions (lookF, witnessF)
 import           DSL.Builder
   ( WorldBuilderResult (resultGameState, resultPossibilityGraph)
   , initialBuilderState
@@ -17,8 +17,10 @@ import           DSL.Builder
 import           DSL.Model.EDSL.SashaLambdaDSL
   ( SashaLambdaDSL
   , createISAManagement
+  , createWitnessManagement
   , declareImplicitStimulusGID
   , declareSceneGID
+  , declareWitnessGID
   , finalizeGameState
   , linkWorldOutcomeEffect
   , newUser
@@ -43,7 +45,7 @@ import           Model.Core
   , NarrationMap (NarrationMap)
   , PossibilityGraph
   , Scene
-  , WorldOutcome (NarrationEffect)
+  , WorldOutcome (NarrationEffect, WitnessEffect)
   , defaultScene
   , defaultWorld
   )
@@ -63,10 +65,14 @@ sashaMudWorld = do
   playerLookGID <- declareImplicitStimulusGID lookF
   sceneLookKey  <- createISAManagement isaLook sceneLookGID
   playerLookKey <- createISAManagement isaLook playerLookGID
+  witnessGID    <- declareWitnessGID witnessF
+  witnessKey    <- createWitnessManagement witnessGID
   registerScene lobbyGID (buildLobby sceneLookKey)
   denizen       <- playerBehavior defaultDenizen playerLookKey
-  newUser lobbyGID denizen
+  denizen'      <- playerBehavior denizen witnessKey
+  newUser lobbyGID denizen'
   linkWorldOutcomeEffect (ImplicitStimulusActionKey sceneLookGID) (NarrationEffect LookNarration)
+  linkWorldOutcomeEffect (ImplicitStimulusActionKey sceneLookGID) (WitnessEffect LookNarration)
   finalizeGameState
 
 defaultDenizen :: Text -> Agent

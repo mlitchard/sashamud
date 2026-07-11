@@ -1,5 +1,6 @@
 module Engine.Resolution.Perception
   ( youSeeM
+  , witnessLookM
   , modifyAgentNarration
   ) where
 
@@ -37,6 +38,15 @@ import           Model.RichText (TextColor (White), colored, toPlainText)
 modifyAgentNarration :: GID Agent -> (Narration -> Narration) -> GameComputation Identity ()
 modifyAgentNarration agentGid f =
   narrationMap . unNarrationMap . at agentGid . non mempty %= f
+
+witnessLookM :: GID Agent -> GID Agent -> GameComputation Identity ()
+witnessLookM witnessGid actorGid = do
+  aMap <- use (world . agentMap . getAgentMap)
+  case lookup actorGid aMap of
+    Nothing -> pure ()
+    Just actor ->
+      modifyAgentNarration witnessGid
+        (over actionConsequence (colored White (toPlainText (view agentShortName actor) <> " looks around.") :))
 
 youSeeM :: GID Agent -> GameComputation Identity ()
 youSeeM actorGid = do
