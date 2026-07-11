@@ -75,7 +75,9 @@ module Model.Core
   , actionMaps
   , entityActionEffects
   , worldOutcomeEffects
+  , newUserF
   , ctxPossibilityGraph
+  , newUser
   ) where
 
 import           SashaPrelude
@@ -304,6 +306,7 @@ instance MonadTrans GameStateT where
 type ComputationContext :: Type
 data ComputationContext = ComputationContext
   { _ctxPossibilityGraph :: PossibilityGraph
+  , _newUser             :: GameComputation Identity ()
   }
 
 type GameComputation :: (Type -> Type) -> Type -> Type
@@ -327,6 +330,7 @@ data PossibilityGraph = PossibilityGraph
   { _actionMaps          :: ActionMaps
   , _entityActionEffects :: EntityActionRegistry
   , _worldOutcomeEffects :: WorldOutcomeRegistry
+  , _newUserF            :: GID Agent -> Text -> GameComputation Identity ()
   }
 
 -- Defaults

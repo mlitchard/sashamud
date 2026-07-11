@@ -9,30 +9,45 @@ module DSL.Builder
 import           SashaPrelude
 
 import           Control.Monad.State (State, get, gets, put, runState)
-import           Data.Map.Strict (insert)
+import           Data.Functor.Identity (Identity)
+import           Data.Map.Strict (insert, lookup)
+import qualified Data.Set (insert)
 import           DSL.Model.EDSL.SashaLambdaDSL (SashaLambdaDSL (..))
-import           Lens.Micro.Platform (Lens', (^.))
+import           Error (throwMaybeM)
+import           Lens.Micro.Platform (at, non, over, view, (%~), (?~))
 import           Model.Core
-  ( ActionMaps
+  ( ActionManagement (ISAManagementKey)
+  , ActionMaps
+  , Agent
   , EntityActionRegistry
-  , GIDToDataMap (GIDToDataMap)
-  , GameState (_world)
-  , PossibilityGraph (PossibilityGraph, _actionMaps, _entityActionEffects, _worldOutcomeEffects)
+  , GameComputation
+  , GameState
+  , PossibilityGraph (PossibilityGraph, _actionMaps, _entityActionEffects, _newUserF, _worldOutcomeEffects)
   , Scene (_sceneDescription, _title)
-  , World (_sceneMap)
   , WorldOutcomeRegistry
+  , actionManagementFunctions
+  , agentActionManagement
+  , agentLocationMap
+  , agentMap
   , emptyActionMaps
+  , getAgentMap
   , getGIDToDataMap
+  , implicitStimulusMap
+  , sceneActionManagement
+  , sceneAgents
   , sceneMap
+  , world
   )
 import           Model.GID (GID (GID))
 
 data BuilderState = BuilderState
-  { bsGameState            :: GameState
-  , bsNextSceneGID         :: Int
-  , bsActionMaps           :: ActionMaps
+  { bsGameState :: GameState
+  , bsNextSceneGID :: Int
+  , bsNextImplicitStimulusGID :: Int
+  , bsActionMaps :: ActionMaps
   , bsEntityActionRegistry :: EntityActionRegistry
   , bsWorldOutcomeRegistry :: WorldOutcomeRegistry
+  , bsNewUser :: Maybe (GID Agent -> Text -> GameComputation Identity ())
   }
 
 type WorldBuilder = State BuilderState
@@ -45,11 +60,13 @@ data WorldBuilderResult = WorldBuilderResult
 
 initialBuilderState :: GameState -> BuilderState
 initialBuilderState gs = BuilderState
-  { bsGameState            = gs
-  , bsNextSceneGID         = 0
-  , bsActionMaps           = emptyActionMaps
-  , bsEntityActionRegistry = mempty
-  , bsWorldOutcomeRegistry = mempty
+  { bsGameState               = gs
+  , bsNextSceneGID            = 0
+  , bsNextImplicitStimulusGID = 0
+  , bsActionMaps              = emptyActionMaps
+  , bsEntityActionRegistry    = mempty
+  , bsWorldOutcomeRegistry    = mempty
+  , bsNewUser                 = Nothing
   }
 
 interpretDSL :: SashaLambdaDSL a -> WorldBuilder a
@@ -65,22 +82,49 @@ interpretDSL (DeclareSceneGID _name) = do
 interpretDSL (RegisterScene gid sceneBuilder) = do
   scene <- interpretDSL sceneBuilder
   st <- get
-  let gs = bsGameState st
-      sm = gs ^. world . sceneMap
-      sm' = GIDToDataMap (insert gid scene (sm ^. getGIDToDataMap))
-      gs' = gs { _world = (_world gs) { _sceneMap = sm' } }
+  let gs' = bsGameState st & world . sceneMap . getGIDToDataMap %~ insert gid scene
   put st { bsGameState = gs' }
 
 interpretDSL (Title t scene) = pure scene { _title = t }
 
 interpretDSL (SceneDescription rt scene) = pure scene { _sceneDescription = rt }
 
+interpretDSL (DeclareImplicitStimulusGID actionF) = do
+  st <- get
+  let gid = GID (bsNextImplicitStimulusGID st)
+  put st { bsNextImplicitStimulusGID = bsNextImplicitStimulusGID st + 1
+         , bsActionMaps = over implicitStimulusMap (insert gid actionF) (bsActionMaps st)
+         }
+  pure gid
+
+interpretDSL (CreateISAManagement verb gid) = pure (ISAManagementKey verb gid)
+
+interpretDSL (SceneBehavior scene actionMgmt) =
+  pure (scene & sceneActionManagement . actionManagementFunctions %~ Data.Set.insert actionMgmt)
+
+interpretDSL (PlayerBehavior mkAgent actionMgmt) =
+  pure (\name -> mkAgent name & agentActionManagement . actionManagementFunctions %~ Data.Set.insert actionMgmt)
+
+interpretDSL (LinkWorldOutcomeEffect actionKey worldOutcome) = do
+  st <- get
+  put st { bsWorldOutcomeRegistry =
+             bsWorldOutcomeRegistry st & at actionKey . non mempty %~ Data.Set.insert worldOutcome }
+
+interpretDSL (NewUser sceneGid mkAgent) = do
+  st <- get
+  let newUserComputation gid name = do
+        gs <- get
+        scene <- throwMaybeM ("newUser: start scene not found: " <> pack (show sceneGid))
+                   (lookup sceneGid (view (world . sceneMap . getGIDToDataMap) gs))
+        let scene' = over sceneAgents (Data.Set.insert gid) scene
+        put ( gs
+            & world . agentMap . getAgentMap . at gid ?~ mkAgent name
+            & world . sceneMap . getGIDToDataMap . at sceneGid ?~ scene'
+            & agentLocationMap . at gid ?~ sceneGid )
+  put st { bsNewUser = Just newUserComputation }
+
 interpretDSL FinalizeGameState =
   gets bsGameState
-
--- Internal accessor
-world :: Lens' GameState World
-world f gs = (\w -> gs { _world = w }) <$> f (_world gs)
 
 runWorldBuilder :: WorldBuilder GameState -> BuilderState -> WorldBuilderResult
 runWorldBuilder builder initState =
@@ -89,6 +133,9 @@ runWorldBuilder builder initState =
         { _actionMaps          = bsActionMaps finalState
         , _entityActionEffects = bsEntityActionRegistry finalState
         , _worldOutcomeEffects = bsWorldOutcomeRegistry finalState
+        , _newUserF            = fromMaybe
+            (error "runWorldBuilder: world declared no newUser generator")
+            (bsNewUser finalState)
         }
   in WorldBuilderResult
        { resultGameState        = gs

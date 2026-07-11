@@ -44,6 +44,7 @@ library
     API.Routes
     API.TSClient
     API.Types
+    ConstraintRefinement.Actions
     DSL.Builder
     DSL.Model.EDSL.SashaLambdaDSL
     DSL.Vocabulary
@@ -118,6 +119,7 @@ executable sasha-tests
     API.Routes
     API.TSClient
     API.Types
+    ConstraintRefinement.Actions
     DSL.Builder
     DSL.Model.EDSL.SashaLambdaDSL
     DSL.Vocabulary

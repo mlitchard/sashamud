@@ -23,7 +23,7 @@ import           SashaPrelude
 import           API.Routes (LoginAPI, LogoutAPI)
 import           API.Types
   ( LoginResponse (LoginResponse)
-  , MessageTo (Ping)
+  , MessageTo (GameCommand, Ping)
   , SessionId (SessionId)
   )
 import           Control.Concurrent (readMVar, threadDelay)
@@ -33,7 +33,7 @@ import           Data.Map.Strict (member)
 import           Data.Text.Encoding (encodeUtf8)
 import           Engine.Simulation.EffectNetwork (gameLoop)
 import           Lens.Micro.Platform (view)
-import           Model.Core (actionConsequence)
+import           Model.Core (actionConsequence, presenceListing)
 import           Model.RichText (toPlainText)
 import           Model.WireProtocol
   ( MessageFrom (GameNarration, Pong, SystemMessage)
@@ -150,6 +150,16 @@ isDeparture :: Text -> MessageFrom -> Bool
 isDeparture name (GameNarration narr) =
   name <> " has departed." `elem` fmap toPlainText (view actionConsequence narr)
 isDeparture _ _ = False
+
+isLookNarration :: MessageFrom -> Bool
+isLookNarration (GameNarration narr) =
+  "A spacious lobby with high ceilings." `elem` fmap toPlainText (view actionConsequence narr)
+isLookNarration _ = False
+
+hasPresence :: Text -> MessageFrom -> Bool
+hasPresence name (GameNarration narr) =
+  "Also here: " <> name `elem` fmap toPlainText (view presenceListing narr)
+hasPresence _ _ = False
 
 spec :: Spec
 spec = describe "Integration" . around withTestServer $ do
@@ -303,6 +313,51 @@ spec = describe "Integration" . around withTestServer $ do
                 member sid2 conns `shouldBe` False
                 pMap <- readMVar (acPlayerMap ctx)
                 member sid2 pMap `shouldBe` False
+      _ -> expectationFailure "both logins should succeed"
+
+  it "login auto-look delivers the lobby description" $ \(_port, _ctx) -> do
+    env <- testClientEnv
+    result <- runClientM (loginClient (PlayerNameUNV "LookOnLogin")) env
+    case result of
+      Left err -> expectationFailure ("login failed: " <> show err)
+      Right (LoginResponse sid) ->
+        connectWS sid $ \conn -> do
+          narr <- receiveUntil conn 10000000 isLookNarration
+          case narr of
+            Nothing -> expectationFailure "no auto-look narration received on login"
+            Just _  -> pure ()
+
+  it "explicit look command repeats the lobby description" $ \(_port, _ctx) -> do
+    env <- testClientEnv
+    result <- runClientM (loginClient (PlayerNameUNV "LookAgain")) env
+    case result of
+      Left err -> expectationFailure ("login failed: " <> show err)
+      Right (LoginResponse sid) ->
+        connectWS sid $ \conn -> do
+          first <- receiveUntil conn 10000000 isLookNarration
+          case first of
+            Nothing -> expectationFailure "no auto-look narration received on login"
+            Just _  -> do
+              sendTextData conn (GameCommand "look")
+              second <- receiveUntil conn 10000000 isLookNarration
+              case second of
+                Nothing -> expectationFailure "no narration received for explicit look"
+                Just _  -> pure ()
+
+  it "look presence listing names the other player" $ \(_port, _ctx) -> do
+    env <- testClientEnv
+    r1 <- runClientM (loginClient (PlayerNameUNV "Looker")) env
+    r2 <- runClientM (loginClient (PlayerNameUNV "Seen")) env
+    case (r1, r2) of
+      (Right (LoginResponse sid1), Right (LoginResponse sid2)) ->
+        connectWS sid1 $ \conn1 ->
+          connectWS sid2 $ \_ -> do
+            threadDelay 3000000
+            sendTextData conn1 (GameCommand "look")
+            result <- receiveUntil conn1 10000000 (hasPresence "Seen")
+            case result of
+              Nothing -> expectationFailure "presence listing did not name other player"
+              Just _  -> pure ()
       _ -> expectationFailure "both logins should succeed"
 
   it "ping: client sends Ping, receives Pong through Rhine network" $ \(_port, _ctx) -> do
