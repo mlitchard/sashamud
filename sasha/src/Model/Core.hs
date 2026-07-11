@@ -84,7 +84,6 @@ module Model.Core
   , entityActionEffects
   , worldOutcomeEffects
   , ctxPossibilityGraph
-  , ctxWitnessMap
   ) where
 
 import           SashaPrelude
@@ -144,8 +143,8 @@ newtype SessionId = SessionId { unSessionId :: Text }
 
 type AgentKind :: Type
 data AgentKind
-  = PlayerAgent
-  | FixtureAgent
+  = Denizen
+  | Fixture
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
@@ -156,11 +155,10 @@ data Object
 
 type Agent :: Type
 data Agent = Agent
-  { _agentShortName        :: Text
+  { _agentShortName        :: RichText
   , _agentDescription      :: RichText
-  , _agentTitle            :: Text
+  , _agentTitle            :: RichText
   , _agentActionManagement :: ActionManagementFunctions
-  , _agentCurrentScene     :: GID Scene
   , _agentKind             :: AgentKind
   }
   deriving stock (Eq, Generic, Ord, Show)
@@ -181,6 +179,11 @@ data Scene = Scene
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
+type SceneMap :: Type
+newtype SceneMap = SceneMap { _getSceneMap :: Map (GID Scene) Scene }
+  deriving stock (Eq, Ord, Show)
+  deriving newtype (NFData)
+
 type World :: Type
 data World = World
   { _objectMap         :: GIDToDataMap Object Object
@@ -192,6 +195,15 @@ data World = World
 
 instance NFData World where
   rnf (World om sm gs am) = rnf om `seq` rnf sm `seq` rnf gs `seq` rnf am
+
+type Narrative :: Type
+data Narrative
+  = PlayerAction
+  | ActionConsequence
+  | PresenceListing
+  | ActionEpilogue
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 type Narration :: Type
 data Narration = Narration
@@ -228,23 +240,6 @@ data EntityKey = SceneKey' (GID Scene)
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
--- Witness System
-
-type WitnessGenerate :: Type
-newtype WitnessGenerate = WitnessGenerate { runWitnessGenerate :: GID Agent -> GameComputation Identity RichText }
-
-type WitnessFilter :: Type
-newtype WitnessFilter = WitnessFilter { runWitnessFilter :: RichText -> GID Agent -> GameComputation Identity RichText }
-
-type WitnessEffect :: Type
-data WitnessEffect = WitnessEffect
-  { _witnessGenerate :: WitnessGenerate
-  , _witnessFilter   :: WitnessFilter
-  }
-
-type WitnessMap :: Type
-newtype WitnessMap = WitnessMap { _getWitnessMap :: Map ActionEffectKey WitnessEffect }
-
 -- Action Effect Types
 
 type ActionEffectKey :: Type
@@ -278,8 +273,6 @@ type EntityActionRegistry = Map ActionEffectKey (Map EntityKey (Set ActionManage
 type WorldOutcomeRegistry :: Type
 type WorldOutcomeRegistry = Map ActionEffectKey (Set WorldOutcome)
 
--- GameState
-
 -- Evaluator
 
 type Evaluator :: Type
@@ -289,7 +282,7 @@ type GameState :: Type
 data GameState = GameState
   { _world        :: World
   , _narrationMap :: NarrationMap
-  , _evaluation   :: Evaluator
+  , _evaluation   :: Map (GID Agent) Evaluator
   }
 
 type GameStateT :: (Type -> Type) -> Type -> Type
@@ -311,7 +304,6 @@ instance MonadTrans GameStateT where
 type ComputationContext :: Type
 data ComputationContext = ComputationContext
   { _ctxPossibilityGraph :: PossibilityGraph
-  , _ctxWitnessMap       :: WitnessMap
   }
 
 type GameComputation :: (Type -> Type) -> Type -> Type
@@ -366,8 +358,6 @@ makeLenses ''Scene
 makeLenses ''World
 makeLenses ''Narration
 makeLenses ''NarrationMap
-makeLenses ''WitnessEffect
-makeLenses ''WitnessMap
 makeLenses ''Evaluator
 makeLenses ''GameState
 makeLenses ''ComputationContext

@@ -23,4 +23,18 @@ evalImperative actorGid (StimulusVerbPhrase stimulusVerbPhrase) =
 
 evalStimulusVerbPhrase :: GID Agent -> StimulusVerbPhrase -> GameComputation Identity ()
 evalStimulusVerbPhrase actorGid (ImplicitStimulusVerb verb) =
-  manageImplicitStimulusProcess actorGid verb
+  sendMessage actorGid dummyMessage
+  pure ()
+ --  manageImplicitStimulusProcess actorGid verb
+
+sendMessage :: GID Agent -> RichText -> GameComputation Identity ()
+sendMessage actorGid message = do
+  recipients <- getRecipients actorGid
+  pure ()
+
+getRecipients :: GID Agent -> GameComputation Identity (Set (Gid Agent))
+getRecipients = sceneAgents <$> getScene
+
+getWorld :: GameComputation Identity World
+getWorld = 
+

@@ -29,16 +29,17 @@
 - GameState is OUTPUT — built each tick from accumulated behaviors via constructor (IX pattern)
 - Effects CONTRIBUTE to building GameState — they don't modify anything
 - GameComputation is the context in which effects contribute their pieces to the GameState under construction
-- No WorldAccum intermediary needed — build GameState directly like IX
+- GameState lives directly in AccumT — no WorldAccum intermediary
 - IX reference: `eGameState = GameState <$> bAgentMap <*> bPlanetMap <@ eTick` then `reactimate`
-- Signal functions: processJoinsSF >-> executeJoinsSF, gatherInputSF >-> processInputSF
+- Signal functions: deliverNarrationSF >-> processJoinsSF >-> executeJoinsSF >-> gatherInputSF >-> processInputSF (one sequential PlayerTick branch)
+- processInputSF bridge: lexify tokens → parseTokens → eval → unwrap GameComputation (StateT/ExceptT/ReaderT/Identity) → add gs'
 - No TVar for GameState — lives in AccumT
 - No naked types — use newtypes (SessionId, PlayerName, GameCommand)
 - AppM is a newtype over ReaderT AppCtx Handler (like Quux)
 - Server.Session removed — acConnections MVar replaces GameSessionRegistry
 - deliverOutbound thread outside network reads acOutbound, routes via acConnections
 - Login always sends PlayerJoined — network decides new vs returning player
-- GID assignment is game-layer concern — counter in accumulator, not server
+- GID assignment: counter in AppCtx IORef (acNextAgentId), accessed via atomicModifyIORef' in processOneJoin
 - Rhine tutorial: /home/mlitchard/github/rhine-tutorial
 
 ## IX EventNetwork Pattern — GameState Construction
@@ -131,7 +132,19 @@
 - defaultGameState is local to SashaMudWorld
 - Old code defaults in sasha-core/src/Model/Core/Defaults.hs: defaultScene, defaultWorld, defaultNarration, defaultAgent, defaultObject, defaultBatch
 - PerceptionMap and SpatialRelationshipMap removed from World — needed for future verbs
-- WorldAccum removed in Step 4, GameState goes directly in AccumT
+- WorldAccum removal plan approved — see /home/mlitchard/gitlab/sashamud/.claude-plans/remove-worldaccum.md
+- RhineM is a newtype over `AccumT (Last GameState) (ReaderT PossibilityGraph (ReaderT AppCtx IO))`
+- RhineM hides Last/Maybe — signal functions use lookGameState/addGameState/askAppCtx/askPossibilityGraph
+- MonadSchedule for RhineM: manual instance via hoistS (GND doesn't work — Automaton's role for m is nominal)
+- AccumT accumulates `Last GameState` (Data.Monoid.Last wraps Maybe) — lawful Monoid
+- `Last Nothing` = no contribution (lift/liftIO), `Last (Just x) <> Last (Just y) = Last (Just y)` — newer wins
+- GameState has NO Semigroup/Monoid — Last provides it for AccumT
+- Pure replacement Semigroup on GameState fails right identity (`x <> mempty = mempty ≠ x`) — breaks AccumT (look after liftIO returns mempty)
+- Narration accumulates within a tick via StateT, delivers at next tick start, then flushes
+- All state-modifying SFs sequential on one PlayerTick (parallel clock safety)
+- GID counter lives in AppCtx IORef (acNextAgentId), not in the accumulator — single-thread access, atomicModifyIORef'
+- processLeavesSF deleted — unapproved design
+- NarrationMap Semigroup uses `unionWith (<>)` to merge per-player narrations
 - Types with commit-2-only constructors gain more constructors in future commits
 - TH staging: all makeLenses and derivingTypeScriptDefinition calls at bottom of Core.hs, single TH stage
 
