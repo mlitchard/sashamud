@@ -101,11 +101,19 @@ Run Tests:
   script:
     - nix build .#checks.x86_64-linux.run-sasha-tests -L --no-link
 
+End to End:
+  stage: Check
+  needs:
+    - Executable
+  script:
+    - nix build .#checks.x86_64-linux.run-end-to-end -L --no-link
+
 Flake Check:
   needs:
     - Haskell No Warnings
     - Run Grammar Tests
     - Run Tests
+    - End to End
     - Client Check
     - TypeScript Typecheck
   stage: Check
