@@ -39,5 +39,8 @@ executable sashamud-world-tests
     , hspec
     , hspec-discover
     , microlens-platform
+    , mtl
     , sasha
+    , sasha-grammar
     , sashamud-world
+    , transformers

@@ -14,12 +14,48 @@ common shared
     -fwarn-incomplete-record-updates -fwarn-identities -Wno-orphans
 
   default-extensions:
+    DeriveAnyClass
     DerivingStrategies
+    NoImplicitPrelude
     OverloadedStrings
     StrictData
 
 library
   import:          shared
   hs-source-dirs:  src
-  exposed-modules: SashaGrammar
-  build-depends:   base >=4.7 && <5
+  exposed-modules:
+    Grammar.Lexer
+    Grammar.Parser.Atomics.AtomicsTH
+    Grammar.Parser.Atomics.Semantics.Rules.ParseRule
+    Grammar.Parser.Atomics.Semantics.Rules.Verbs
+    Grammar.Parser.Atomics.Semantics.Verbs.ImplicitStimulus
+    Grammar.Parser.Atomics.Verbs
+    Grammar.Parser.Composites.Model
+    Grammar.Parser.Composites.Rules
+    Grammar.Sentence
+    SashaGrammar
+
+  build-depends:
+    , base                  >=4.7 && <5
+    , deepseq
+    , Earley
+    , hashable
+    , megaparsec
+    , template-haskell
+    , text
+    , unordered-containers
+
+executable grammar-tests
+  import:         shared
+  main-is:        Main.hs
+  hs-source-dirs: test
+  ghc-options:    -fno-warn-missing-home-modules
+  build-depends:
+    , base
+    , Earley
+    , hspec
+    , hspec-discover
+    , QuickCheck
+    , sasha-grammar
+    , text
+    , unordered-containers

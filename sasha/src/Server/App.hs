@@ -5,7 +5,11 @@ module Server.App
   ( AppCtx (..)
   , AppM (..)
   , GameLog (..)
+  , PInt
+  , firstPlayerId
   , newAppCtx
+  , succPInt
+  , unPInt
   ) where
 
 import           SashaPrelude
@@ -15,6 +19,7 @@ import           Control.Concurrent (MVar, newMVar)
 import           Control.Concurrent.STM (TChan, newTChanIO)
 import           Control.Monad.Except (MonadError)
 import           Control.Monad.Reader (MonadReader, ReaderT)
+import           Data.IORef (IORef, newIORef)
 import           Data.Map.Strict (Map)
 import           Model.Core (Agent)
 import           Model.GID (GID)
@@ -26,6 +31,18 @@ import           Server.Validator (PlayerNameVAL)
 data GameLog = GameLog
   { logHandle :: Handle
   }
+
+newtype PInt = PInt Int
+  deriving stock (Eq, Ord, Show)
+
+succPInt :: PInt -> PInt
+succPInt (PInt n) = PInt (n + 1)
+
+unPInt :: PInt -> Int
+unPInt (PInt n) = n
+
+firstPlayerId :: PInt
+firstPlayerId = PInt 1000
 
 newtype AppM a = AppM { unAppM :: ReaderT AppCtx Handler a }
   deriving newtype
@@ -44,6 +61,7 @@ data AppCtx = AppCtx
   , acConnections  :: MVar (Map SessionId ([MessageFrom] -> IO ()))
   , acPlayerMap    :: MVar (Map SessionId (GID Agent))
   , acKnownPlayers :: MVar (Map PlayerNameVAL (GID Agent))
+  , acNextAgentId  :: IORef PInt
   , acGameLog      :: GameLog
   }
 
@@ -55,6 +73,7 @@ newAppCtx logCfg = do
   conns    <- newMVar mempty
   pMap     <- newMVar mempty
   known    <- newMVar mempty
+  nextId   <- newIORef firstPlayerId
   pure AppCtx
     { acInbound      = inChan
     , acOutbound     = outChan
@@ -62,5 +81,6 @@ newAppCtx logCfg = do
     , acConnections  = conns
     , acPlayerMap    = pMap
     , acKnownPlayers = known
+    , acNextAgentId  = nextId
     , acGameLog      = logCfg
     }

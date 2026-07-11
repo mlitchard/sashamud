@@ -1,34 +1,62 @@
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use newtype instead of data" #-}
+
 module Model.Core
   ( -- * Entity Types
     Agent (..)
-  , AgentKind (PlayerAgent, FixtureAgent)
+  , AgentKind (Denizen, Fixture)
   , AgentMap (AgentMap)
   , Scene (..)
   , World (..)
   , Narration (..)
-  , Evaluator (Evaluator)
-  , SpatialRelationshipMap (SpatialRelationshipMap)
-  , PerceptionMap (PerceptionMap)
+  , NarrationMap (NarrationMap)
   , Object
     -- * Session
   , SessionId (SessionId, unSessionId)
+    -- * Evaluator
+  , Evaluator (Evaluator)
+  , runEvaluator
     -- * GameState
   , GameState (..)
   , GameStateT (GameStateT, runGameStateT)
   , PossibilityGraph (..)
+    -- * GameComputation
+  , ComputationContext (..)
+  , GameComputation (GameComputation, runGameComputation)
+    -- * Action Management
+  , ActionManagement (ISAManagementKey, WitnessManagementKey)
+  , ActionManagementFunctions (ActionManagementFunctions)
+  , actionManagementFunctions
+  , ActionManagementOperation (AddImplicitStimulus)
+  , GIDToDataMap (GIDToDataMap)
+  , getGIDToDataMap
+    -- * Action Effects
+  , ActionEffectKey (ImplicitStimulusActionKey)
+  , ActionEffectKeyF
+  , ImplicitStimulusF (ImplicitStimulusF, ImplicitNoStimulusF)
+  , ImplicitStimulusMap
+  , WitnessEffectF
+  , WitnessF (WitnessF)
+  , WitnessMap
+    -- * World Outcomes
+  , NarrationComputation (LookNarration, StaticNarration)
+  , WorldOutcome (NarrationEffect, WitnessEffect)
+  , EntityKey (SceneKey')
+    -- * Registries
+  , ActionMaps (ActionMaps)
+  , implicitStimulusMap
+  , witnessMap
+  , EntityActionRegistry
+  , WorldOutcomeRegistry
+  , emptyActionMaps
     -- * Defaults
-  , defaultActionManagement
   , defaultScene
-  , defaultNarration
   , defaultWorld
-  , defaultGameState
-  , defaultPossibilityGraph
     -- * Lenses
   , agentShortName
   , agentDescription
   , agentTitle
   , agentActionManagement
-  , agentCurrentScene
   , agentKind
   , title
   , sceneDescription
@@ -37,45 +65,73 @@ module Model.Core
   , sceneMap
   , agentMap
   , objectMap
-  , spatialRelationshipMap
   , globalSemanticMap
-  , perceptionMap
   , playerAction
   , actionConsequence
+  , presenceListing
   , actionEpilogue
+  , unNarrationMap
   , getAgentMap
   , world
-  , narration
+  , narrationMap
   , evaluation
+  , agentLocationMap
   , actionMaps
   , entityActionEffects
   , worldOutcomeEffects
-    -- * Re-exports from Mappings
-  , module Model.Core.Mappings
+  , newUserF
+  , ctxPossibilityGraph
+  , newUser
   ) where
 
 import           SashaPrelude
 
 import           Control.DeepSeq (NFData (rnf))
+import           Control.Monad.Except (ExceptT, MonadError)
 import           Control.Monad.Morph (MFunctor)
+import           Control.Monad.Reader (MonadReader, ReaderT)
 import           Control.Monad.State (MonadState, StateT)
 import           Control.Monad.Trans (MonadTrans (lift))
 import           Data.Aeson (FromJSON, ToJSON)
 import           Data.Aeson.TypeScript (derivingTypeScriptDefinition)
-import           Data.Map.Strict (Map)
+import           Data.Functor.Identity (Identity)
+import           Data.Map.Strict (Map, unionWith)
 import           Data.Set (Set)
+import           Grammar.Parser.Atomics.Verbs (ImplicitStimulusVerb)
+import           Grammar.Parser.Composites.Model (Sentence)
 import           Lens.Micro.Platform (makeLenses)
-import           Model.Core.Mappings
-  ( ActionManagementFunctions (ActionManagementFunctions)
-  , ActionMaps (ActionMaps)
-  , EntityActionRegistry
-  , GIDToDataMap (GIDToDataMap)
-  , WorldOutcomeRegistry
-  , emptyActionMaps
-  , getGIDToDataMap
-  )
 import           Model.GID (GID)
 import           Model.RichText (RichText)
+#ifdef TESTING
+import           Test.QuickCheck (Arbitrary)
+import           Test.QuickCheck.Arbitrary.Generic (GenericArbitrary (..))
+import           Test.QuickCheck.Instances.Text ()
+#endif
+
+-- Action Management
+
+type ActionManagement :: Type
+data ActionManagement = ISAManagementKey ImplicitStimulusVerb (GID ImplicitStimulusF)
+                      | WitnessManagementKey (GID WitnessF)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
+
+type ActionManagementFunctions :: Type
+newtype ActionManagementFunctions = ActionManagementFunctions { _actionManagementFunctions :: Set ActionManagement }
+  deriving stock (Eq, Ord, Show)
+  deriving newtype (NFData)
+
+type GIDToDataMap :: Type -> Type -> Type
+newtype GIDToDataMap k v = GIDToDataMap { _getGIDToDataMap :: Map (GID k) v }
+  deriving stock (Eq, Ord, Show)
+  deriving newtype (NFData)
+
+-- Action Management Operations
+
+type ActionManagementOperation :: Type
+data ActionManagementOperation = AddImplicitStimulus ImplicitStimulusVerb (GID ImplicitStimulusF)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 -- Session
 
@@ -83,14 +139,12 @@ newtype SessionId = SessionId { unSessionId :: Text }
   deriving stock (Generic, Show)
   deriving newtype (Eq, FromJSON, NFData, Ord, ToJSON)
 
-derivingTypeScriptDefinition ''SessionId
-
 -- Entity Types
 
 type AgentKind :: Type
 data AgentKind
-  = PlayerAgent
-  | FixtureAgent
+  = Denizen
+  | Fixture
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
@@ -101,11 +155,10 @@ data Object
 
 type Agent :: Type
 data Agent = Agent
-  { _agentShortName        :: Text
+  { _agentShortName        :: RichText
   , _agentDescription      :: RichText
-  , _agentTitle            :: Text
+  , _agentTitle            :: RichText
   , _agentActionManagement :: ActionManagementFunctions
-  , _agentCurrentScene     :: GID Scene
   , _agentKind             :: AgentKind
   }
   deriving stock (Eq, Generic, Ord, Show)
@@ -126,56 +179,128 @@ data Scene = Scene
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
-type SpatialRelationshipMap :: Type
-data SpatialRelationshipMap
-  = SpatialRelationshipMap
-  deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
-
-type PerceptionMap :: Type
-data PerceptionMap
-  = PerceptionMap
-  deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
+type SceneMap :: Type
+newtype SceneMap = SceneMap { _getSceneMap :: Map (GID Scene) Scene }
+  deriving stock (Eq, Ord, Show)
+  deriving newtype (NFData)
 
 type World :: Type
 data World = World
-  { _objectMap              :: GIDToDataMap Object Object
-  , _sceneMap               :: GIDToDataMap Scene Scene
-  , _spatialRelationshipMap :: SpatialRelationshipMap
-  , _globalSemanticMap      :: Map Text (Set (GID Object))
-  , _perceptionMap          :: PerceptionMap
-  , _agentMap               :: AgentMap
+  { _objectMap         :: GIDToDataMap Object Object
+  , _sceneMap          :: GIDToDataMap Scene Scene
+  , _globalSemanticMap :: Map Text (Set (GID Object))
+  , _agentMap          :: AgentMap
   }
   deriving stock (Eq, Ord, Show)
 
 instance NFData World where
-  rnf (World om sm sr gs pm am) = rnf om `seq` rnf sm `seq` rnf sr `seq` rnf gs `seq` rnf pm `seq` rnf am
+  rnf (World om sm gs am) = rnf om `seq` rnf sm `seq` rnf gs `seq` rnf am
+
+type Narrative :: Type
+data Narrative
+  = PlayerAction
+  | ActionConsequence
+  | PresenceListing
+  | ActionEpilogue
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 type Narration :: Type
 data Narration = Narration
   { _playerAction      :: [RichText]
   , _actionConsequence :: [RichText]
+  , _presenceListing   :: [RichText]
   , _actionEpilogue    :: [RichText]
   }
   deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
+  deriving anyclass (FromJSON, NFData, ToJSON)
   deriving (Monoid, Semigroup)
     via (Generically Narration)
 
-type Evaluator :: Type
-data Evaluator
-  = Evaluator
+type NarrationMap :: Type
+newtype NarrationMap = NarrationMap { _unNarrationMap :: Map (GID Agent) Narration }
+  deriving stock (Eq, Ord, Show)
+  deriving newtype (NFData)
+
+instance Semigroup NarrationMap where
+  NarrationMap m1 <> NarrationMap m2 = NarrationMap (unionWith (<>) m1 m2)
+
+instance Monoid NarrationMap where
+  mempty = NarrationMap mempty
+
+-- World Outcomes
+
+type NarrationComputation :: Type
+data NarrationComputation = LookNarration
+                          | StaticNarration Text
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
--- GameState
+type WorldOutcome :: Type
+data WorldOutcome = NarrationEffect NarrationComputation
+                  | WitnessEffect NarrationComputation
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
+
+type EntityKey :: Type
+data EntityKey = SceneKey' (GID Scene)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
+
+-- Action Effect Types
+
+type ActionEffectKey :: Type
+data ActionEffectKey = ImplicitStimulusActionKey (GID ImplicitStimulusF)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
+
+type ActionEffectKeyF :: Type
+type ActionEffectKeyF = GID Agent -> ActionEffectKey -> GameComputation Identity ()
+
+type ImplicitStimulusF :: Type
+data ImplicitStimulusF = ImplicitStimulusF ActionEffectKeyF
+                       | ImplicitNoStimulusF ActionEffectKeyF
+
+type ImplicitStimulusMap :: Type
+type ImplicitStimulusMap = Map (GID ImplicitStimulusF) ImplicitStimulusF
+
+type WitnessEffectF :: Type
+type WitnessEffectF = GID Agent -> GID Agent -> NarrationComputation -> GameComputation Identity ()
+
+type WitnessF :: Type
+data WitnessF = WitnessF WitnessEffectF
+
+type WitnessMap :: Type
+type WitnessMap = Map (GID WitnessF) WitnessF
+
+-- Registries
+
+type ActionMaps :: Type
+data ActionMaps = ActionMaps
+  { _implicitStimulusMap :: ImplicitStimulusMap
+  , _witnessMap          :: WitnessMap
+  }
+
+emptyActionMaps :: ActionMaps
+emptyActionMaps = ActionMaps { _implicitStimulusMap = mempty, _witnessMap = mempty }
+
+type EntityActionRegistry :: Type
+type EntityActionRegistry = Map ActionEffectKey (Map EntityKey (Set ActionManagementOperation))
+
+type WorldOutcomeRegistry :: Type
+type WorldOutcomeRegistry = Map ActionEffectKey (Set WorldOutcome)
+
+-- Evaluator
+
+type Evaluator :: Type
+newtype Evaluator = Evaluator { _runEvaluator :: GID Agent -> Sentence -> GameComputation Identity () }
 
 type GameState :: Type
 data GameState = GameState
-  { _world      :: World
-  , _narration  :: Narration
-  , _evaluation :: Evaluator
+  { _world            :: World
+  , _narrationMap     :: NarrationMap
+  , _evaluation       :: Map (GID Agent) Evaluator
+  , _agentLocationMap :: Map (GID Agent) (GID Scene)
   }
 
 type GameStateT :: (Type -> Type) -> Type -> Type
@@ -192,6 +317,28 @@ newtype GameStateT m a = GameStateT { runGameStateT :: StateT GameState m a }
 instance MonadTrans GameStateT where
   lift = GameStateT . lift
 
+-- GameComputation
+
+type ComputationContext :: Type
+data ComputationContext = ComputationContext
+  { _ctxPossibilityGraph :: PossibilityGraph
+  , _newUser             :: GameComputation Identity ()
+  }
+
+type GameComputation :: (Type -> Type) -> Type -> Type
+newtype GameComputation m a = GameComputation { runGameComputation :: ReaderT ComputationContext (ExceptT Text (GameStateT m)) a }
+  deriving newtype
+    ( Applicative
+    , Functor
+    , Monad
+    , MonadError Text
+    , MonadReader ComputationContext
+    , MonadState GameState
+    )
+
+instance MonadTrans GameComputation where
+  lift = GameComputation . lift . lift . lift
+
 -- PossibilityGraph
 
 type PossibilityGraph :: Type
@@ -199,54 +346,46 @@ data PossibilityGraph = PossibilityGraph
   { _actionMaps          :: ActionMaps
   , _entityActionEffects :: EntityActionRegistry
   , _worldOutcomeEffects :: WorldOutcomeRegistry
+  , _newUserF            :: GID Agent -> Text -> GameComputation Identity ()
   }
 
 -- Defaults
 
-defaultActionManagement :: ActionManagementFunctions
-defaultActionManagement = ActionManagementFunctions mempty
-
 defaultScene :: Scene
 defaultScene = Scene
-  { _title                 = ""
+  { _title                 = mempty
   , _sceneDescription      = mempty
-  , _sceneActionManagement = defaultActionManagement
+  , _sceneActionManagement = ActionManagementFunctions mempty
   , _sceneAgents           = mempty
   }
-
-defaultNarration :: Narration
-defaultNarration = Narration [] [] []
 
 defaultWorld :: World
 defaultWorld = World
   { _objectMap              = GIDToDataMap mempty
   , _sceneMap               = GIDToDataMap mempty
-  , _spatialRelationshipMap = SpatialRelationshipMap
   , _globalSemanticMap      = mempty
-  , _perceptionMap          = PerceptionMap
   , _agentMap               = AgentMap mempty
   }
 
-defaultGameState :: GameState
-defaultGameState = GameState
-  { _world      = defaultWorld
-  , _narration  = defaultNarration
-  , _evaluation = Evaluator
-  }
+-- Template Haskell (single stage — all types visible)
 
-defaultPossibilityGraph :: PossibilityGraph
-defaultPossibilityGraph = PossibilityGraph
-  { _actionMaps          = emptyActionMaps
-  , _entityActionEffects = mempty
-  , _worldOutcomeEffects = mempty
-  }
-
--- Lenses
-
+derivingTypeScriptDefinition ''SessionId
+derivingTypeScriptDefinition ''Narration
+makeLenses ''ActionManagementFunctions
+makeLenses ''GIDToDataMap
 makeLenses ''Agent
 makeLenses ''AgentMap
 makeLenses ''Scene
 makeLenses ''World
 makeLenses ''Narration
+makeLenses ''NarrationMap
+makeLenses ''Evaluator
 makeLenses ''GameState
+makeLenses ''ComputationContext
+makeLenses ''ActionMaps
 makeLenses ''PossibilityGraph
+
+#ifdef TESTING
+deriving newtype instance Arbitrary SessionId
+deriving via (GenericArbitrary Narration) instance Arbitrary Narration
+#endif

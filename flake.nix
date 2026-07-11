@@ -18,6 +18,8 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    horizon-devtools.url = "git+https://gitlab.horizon-haskell.net/package-sets/horizon-devtools?ref=lts/ghc-9.6.x";
+
     shelpers.url = "gitlab:platonic/shelpers";
 
     aeson-generics-typescript = {
@@ -127,6 +129,7 @@
           legacyPackages =
             inputs.horizon-platform.legacyPackages.${system}.extend myOverlay;
 
+          devtools = inputs.horizon-devtools.packages.${system};
           lu = lint-utils.linters.${system};
           lu-pkgs = lint-utils.packages.${system};
           projectRoot = ./.;
@@ -211,8 +214,16 @@
           inherit legacyPackages;
           shelpers = shelpersConfig.files;
 
-          devShells.default = pkgs.mkShell {
-            buildInputs = [
+          devShells.default = (legacyPackages.shellFor {
+            packages = p: [
+              p.sasha-grammar
+              p.sasha-vocabulary
+              p.sasha
+              p.sashamud-world
+              p.sashamud-server
+            ];
+          }).overrideAttrs (attrs: {
+            buildInputs = attrs.buildInputs ++ [
               pkgs.cabal-install
               lu-pkgs.cabal-fmt
               lu-pkgs.hlint
@@ -220,20 +231,24 @@
               pkgs.caddy
               pkgs.nodejs
               pkgs.typescript
+            ] ++ lib.optionals (system == "x86_64-linux") [
+              devtools.haskell-language-server
             ];
             shellHook = ''
               ${shelpersConfig.functions}
               shelp
             '';
-          };
+          });
 
           packages = {
             sasha-server = (hlib.justStaticExecutables
               (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sashamud-server "exe:sasha-server"))).overrideAttrs { meta.mainProgram = "sasha-server"; };
             sasha-client-generator = (hlib.justStaticExecutables
               (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sasha "exe:sasha-client-generator"))).overrideAttrs { meta.mainProgram = "sasha-client-generator"; };
-            sasha-tests = hlib.justStaticExecutables
-              (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sasha "exe:sasha-tests"));
+            sasha-tests = (hlib.justStaticExecutables
+              (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sasha "exe:sasha-tests"))).overrideAttrs { meta.mainProgram = "sasha-tests"; };
+            grammar-tests = (hlib.justStaticExecutables
+              (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sasha-grammar "exe:grammar-tests"))).overrideAttrs { meta.mainProgram = "grammar-tests"; };
             sasha-e2e-tests = (hlib.justStaticExecutables
               (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sashamud-server "exe:sasha-e2e-tests"))).overrideAttrs { meta.mainProgram = "sasha-e2e-tests"; };
             web =
@@ -365,6 +380,18 @@
                 tsc --lib "ES2021","DOM" ${client-ts} --noEmit --strict
                 echo 0 > $out
               '';
+            run-grammar-tests = pkgs.testers.runNixOSTest {
+              name = "grammar-tests";
+              nodes.machine = { pkgs, ... }: {
+                environment.systemPackages = [
+                  inputs.self.packages.${system}.grammar-tests
+                ];
+              };
+              testScript = ''
+                machine.wait_for_unit("default.target")
+                print(machine.succeed("grammar-tests"))
+              '';
+            };
             run-sasha-tests = pkgs.testers.runNixOSTest {
               name = "sasha-tests";
               nodes.machine = { pkgs, ... }: {
@@ -374,7 +401,7 @@
               };
               testScript = ''
                 machine.wait_for_unit("default.target")
-                machine.succeed("sasha-tests")
+                print(machine.succeed("sasha-tests"))
               '';
             };
             run-end-to-end =

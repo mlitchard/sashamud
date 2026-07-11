@@ -22,6 +22,10 @@ import           Data.Text (strip)
 import qualified Data.Text
 import           Data.Text.Encoding (encodeUtf8)
 import           Lens.Micro.Platform (makeLenses)
+#ifdef TESTING
+import           Test.QuickCheck (Arbitrary)
+import           Test.QuickCheck.Instances.Text ()
+#endif
 import           Network.Wai (lazyRequestBody)
 import           Servant
   ( HasServer (ServerT, hoistServerWithContext, route)
@@ -95,3 +99,7 @@ instance Validate PlayerNameUNV PlayerNameVAL where
             Left "Player name may only contain letters and numbers"
         | otherwise ->
             Right (PlayerNameVAL trimmed)
+
+#ifdef TESTING
+deriving newtype instance Arbitrary PlayerNameUNV
+#endif

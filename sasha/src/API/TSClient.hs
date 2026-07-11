@@ -9,8 +9,9 @@ import           SashaPrelude
 import           API.Routes (SashaAPI)
 import           API.Types (LoginResponse, MessageTo, SessionId)
 import           GHC.TypeLits (KnownSymbol)
+import           Model.Core (Narration)
 import           Model.RichText (RichText, StyledSpan, TextColor, TextStyle)
-import           Model.WireProtocol (MessageFrom)
+import           Model.WireProtocol (AnalysisViewport, MessageFrom)
 import           Servant (AuthProtect, Header', JSON, ReqBody, type (:>))
 import           Servant.Client.TypeScript (Fletch (..), TSDef, tsClient)
 import           Server.Validator (PlayerNameUNV, PlayerNameVAL, ValidatedBody)
@@ -36,5 +37,7 @@ client = tsClient
     , TSDef TextStyle
     , TSDef StyledSpan
     , TSDef RichText
+    , TSDef Narration
+    , TSDef AnalysisViewport
     , TSDef MessageFrom
     ] @SashaAPI

@@ -19,6 +19,11 @@ import           Model.Core (SessionId (SessionId))
 import           Network.WebSockets (WebSocketsData)
 import           Servant.API.WebSocket (Aeson (Aeson))
 import           Server.Validator (PlayerNameVAL)
+#ifdef TESTING
+import           Test.QuickCheck (Arbitrary)
+import           Test.QuickCheck.Arbitrary.Generic (GenericArbitrary (..))
+import           Test.QuickCheck.Instances.Text ()
+#endif
 
 -- | Client→server wire type.
 data MessageTo = Ping
@@ -53,3 +58,8 @@ data PlayerJoined = PlayerJoined
   }
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
+
+#ifdef TESTING
+deriving via (GenericArbitrary MessageTo) instance Arbitrary MessageTo
+deriving newtype instance Arbitrary LoginResponse
+#endif

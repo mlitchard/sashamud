@@ -87,6 +87,13 @@ Client Check:
   script:
     - nix build .#checks.x86_64-linux.client-check -L --no-link
 
+Run Grammar Tests:
+  stage: Check
+  needs:
+    - Haskell No Warnings
+  script:
+    - nix build .#checks.x86_64-linux.run-grammar-tests -L --no-link
+
 Run Tests:
   stage: Check
   needs:
@@ -104,6 +111,7 @@ End to End:
 Flake Check:
   needs:
     - Haskell No Warnings
+    - Run Grammar Tests
     - Run Tests
     - End to End
     - Client Check
