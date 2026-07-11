@@ -1,6 +1,6 @@
 module SashaMudWorld
   ( sashaMudWorld
-  , defaultPlayerAgent
+  , defaultDenizen
   , gameState
   , possibilityGraph
   ) where
@@ -22,21 +22,18 @@ import           DSL.Model.EDSL.SashaLambdaDSL
   , title
   )
 import           DSL.Vocabulary (andThen)
-import           Engine.Evaluators.Player.General (eval)
 import           Model.Core
   ( ActionManagementFunctions (ActionManagementFunctions)
-  , Agent (Agent, _agentActionManagement, _agentCurrentScene, _agentDescription, _agentKind, _agentShortName, _agentTitle)
-  , AgentKind (PlayerAgent)
-  , Evaluator (Evaluator)
-  , GameState (GameState, _evaluation, _narrationMap, _world)
+  , Agent (Agent, _agentActionManagement, _agentDescription, _agentKind, _agentShortName, _agentTitle)
+  , AgentKind (Denizen)
+  , GameState (GameState, _agentLocationMap, _evaluation, _narrationMap, _world)
   , NarrationMap (NarrationMap)
   , PossibilityGraph
   , Scene
   , defaultScene
   , defaultWorld
   )
-import           Model.GID (GID)
-import           Model.RichText (TextColor (White), colored)
+import           Model.RichText (TextColor (White), colored, plain)
 
 buildLobby :: SashaLambdaDSL Scene
 buildLobby =
@@ -50,21 +47,21 @@ sashaMudWorld = do
   registerScene lobbyGID buildLobby
   finalizeGameState
 
-defaultPlayerAgent :: Text -> GID Scene -> Agent
-defaultPlayerAgent playerName sceneGid = Agent
-  { _agentShortName        = playerName
+defaultDenizen :: Text -> Agent
+defaultDenizen playerName = Agent
+  { _agentShortName        = plain playerName
   , _agentDescription      = colored White "A player."
-  , _agentTitle            = ""
+  , _agentTitle            = mempty
   , _agentActionManagement = ActionManagementFunctions mempty
-  , _agentCurrentScene     = sceneGid
-  , _agentKind             = PlayerAgent
+  , _agentKind             = Denizen
   }
 
 defaultGameState :: GameState
 defaultGameState = GameState
-  { _world        = defaultWorld
-  , _narrationMap = NarrationMap mempty
-  , _evaluation   = Evaluator eval
+  { _world            = defaultWorld
+  , _narrationMap     = NarrationMap mempty
+  , _evaluation       = mempty
+  , _agentLocationMap = mempty
   }
 
 buildResult :: WorldBuilderResult

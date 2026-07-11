@@ -1,5 +1,7 @@
 # Plan: Remove WorldAccum, GameState in AccumT via Last
 
+**STATUS: APPROVED, NOT APPLIED** — WorldAccum is still live in EffectNetwork.hs. Executing this plan is the work.
+
 ## Semantic
 
 - AccumT accumulates `Last GameState` (from Data.Monoid — wraps Maybe)
@@ -11,6 +13,7 @@
 - Narration accumulates within a tick via StateT (GameComputation), not via the Semigroup
 - Narration delivers at tick start, then flushes
 - All state-modifying signal functions run sequentially on one PlayerTick (avoids parallel clock conflicts)
+- One MVar read per tick phase, threaded along `>->`: deliverNarrationSF makes the tick's one pre-join acPlayerMap read and passes the snapshot to processLeavesSF; processLeavesSF makes the one acKnownPlayers read and passes it to processJoinsSF; processInputSF makes the only post-join acPlayerMap read (a new player's first command must route same-tick). No SF re-reads an MVar another SF already read.
 
 ## File 1: Model/Core.hs
 
@@ -28,15 +31,74 @@ instance Monoid NarrationMap where
 
 GameState itself has no Semigroup or Monoid instance. `Data.Monoid.Last` provides the Monoid for AccumT. GameState is just the payload inside the `Last`.
 
+### Narration — add JSON + TypeScript derivation
+
+```haskell
+data Narration = Narration
+  { _playerAction      :: [RichText]
+  , _actionConsequence :: [RichText]
+  , _presenceListing   :: [RichText]
+  , _actionEpilogue    :: [RichText]
+  }
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (FromJSON, NFData, ToJSON)
+  deriving (Monoid, Semigroup)
+    via (Generically Narration)
+```
+
+Add `FromJSON, ToJSON` to the anyclass deriving clause. Add `derivingTypeScriptDefinition ''Narration` in the TH section at the bottom of Core.hs.
+
 ### Import
 
 Add `unionWith` to `Data.Map.Strict` import.
 
-## File 2: Server/App.hs
+## File 2: Model/WireProtocol.hs
 
-Add `acNextAgentId :: IORef Int` to AppCtx. Initialize to 1000 in `newAppCtx` via `newIORef`. Single-thread access (one PlayerTick branch), no contention — IORef is the right primitive. Use `atomicModifyIORef'` to read and increment.
+Change `GameNarration [RichText]` to `GameNarration Narration`. Add `Narration` to the import from `Model.Core`.
 
-## File 3: Engine/Evaluators/Player/General.hs
+Add `AnalysisViewport` — the telemetry viewport keys as a sum type, replacing the raw Text key in AnalysisData (raw Text is a routing identifier here; the client silently drops unknown keys, ViewportManager.ts:65):
+
+```haskell
+data AnalysisViewport = Parser | State | Meta | Graphics | GameMap
+  deriving stock (Bounded, Enum, Eq, Generic, Ord, Show)
+  deriving anyclass (FromJSON, FromJSONKey, NFData, ToJSON, ToJSONKey)
+```
+
+FromJSONKey/ToJSONKey are needed because AnalysisViewport is a Map key. Add `FromJSONKey, ToJSONKey` to the Data.Aeson import. Export `AnalysisViewport (..)`. Add `derivingTypeScriptDefinition ''AnalysisViewport` above MessageFrom's. In the TESTING block, add Arbitrary via GenericArbitrary (same as MessageFrom).
+
+```haskell
+data MessageFrom = SessionAck SessionId
+                 | GameNarration Narration
+                 | CommandResponse [RichText]
+                 | ChatMessage Text
+                 | SystemMessage Text
+                 | Pong
+                 | AnalysisData (Map AnalysisViewport [RichText])
+```
+
+No producer of AnalysisData exists yet — the web client's ANALYSIS_KEY_TO_VIEWPORT mapping (lowercase keys) gets updated to the generated union type when the telemetry producer lands.
+
+## File 3: Server/App.hs
+
+Add the PInt newtype and `acNextAgentId :: IORef PInt` to AppCtx. Initialize in `newAppCtx` via `newIORef firstPlayerId`. Single-thread access (one PlayerTick branch), no contention — IORef is the right primitive. Use `atomicModifyIORef'` with `succPInt` to read and increment.
+
+```haskell
+newtype PInt = PInt Int
+  deriving stock (Eq, Ord, Show)
+
+succPInt :: PInt -> PInt
+succPInt (PInt n) = PInt (n + 1)
+
+unPInt :: PInt -> Int
+unPInt (PInt n) = n
+
+firstPlayerId :: PInt
+firstPlayerId = PInt 1000
+```
+
+Export `PInt` (type only — constructor NOT exported), `succPInt`, `unPInt`, `firstPlayerId`. No typeclasses: `Num` would smuggle in `(-)` and `negate`; the export list is the guarantee that the counter can only go forward. Satisfies the no-naked-types rule for the GID counter.
+
+## File 4: Engine/Evaluators/Player/General.hs
 
 Delete `sendMessage`, `getRecipients`. Fix eval stub:
 
@@ -55,7 +117,7 @@ import           Grammar.Parser.Composites.Model
 import           Lens.Micro.Platform (at, use, view, (.=))
 import           Model.Core
   ( Agent
-  , AgentKind (PlayerAgent)
+  , AgentKind (Denizen)
   , GameComputation
   , Narration (Narration)
   , agentKind
@@ -79,7 +141,7 @@ evalImperative actorGid (StimulusVerbPhrase stimulusVerbPhrase) =
 evalStimulusVerbPhrase :: GID Agent -> StimulusVerbPhrase -> GameComputation Identity ()
 evalStimulusVerbPhrase _actorGid (ImplicitStimulusVerb _verb) = do
   aMap <- use (world . agentMap . getAgentMap)
-  let playerGids = keys (Data.Map.Strict.filter (\agent -> view agentKind agent == PlayerAgent) aMap)
+  let playerGids = keys (Data.Map.Strict.filter (\agent -> view agentKind agent == Denizen) aMap)
       testNarration = Narration
         { _playerAction      = [colored White "the test worked!"]
         , _actionConsequence = []
@@ -90,12 +152,12 @@ evalStimulusVerbPhrase _actorGid (ImplicitStimulusVerb _verb) = do
     narrationMap . unNarrationMap . at gid .= Just testNarration
 ```
 
-## File 4: Engine/Simulation/EffectNetwork.hs
+## File 5: Engine/Simulation/EffectNetwork.hs
 
 ### Delete
 
 - WorldAccum type + Semigroup + Monoid instances + export
-- processLeavesSF function
+- Old processLeavesSF implementation (replaced with new version using RhineM interface)
 
 ### RhineM — newtype hiding Last/Maybe
 
@@ -149,7 +211,7 @@ rhinePipeline :: Rhine RhineM
 rhinePipeline =
     heartbeatSF @@ ioClock (waitClock :: HeartbeatTick)
     |@|
-    (deliverNarrationSF >-> processJoinsSF >-> executeJoinsSF >-> gatherInputSF >-> processInputSF)
+    (deliverNarrationSF >-> processLeavesSF >-> processJoinsSF >-> executeJoinsSF >-> gatherInputSF >-> processInputSF)
       @@ ioClock (waitClock :: PlayerTick)
 ```
 
@@ -167,55 +229,127 @@ heartbeatSF = constMCl $ do
         (keys pMap)
 ```
 
-### deliverNarrationSF — reads narration, sends to players, flushes
+### deliverNarrationSF — reads narration, sends to players, flushes, outputs the tick's acPlayerMap snapshot
 
 ```haskell
-deliverNarrationSF :: ClSF RhineM (IOClock RhineM PlayerTick) () ()
+deliverNarrationSF :: ClSF RhineM (IOClock RhineM PlayerTick) () (Map SessionId (GID Agent))
 deliverNarrationSF = constMCl $ do
   appCtx <- askAppCtx
   gs <- lookGameState
   pMap <- liftIO $ readMVar (acPlayerMap appCtx)
   let nMap = view (narrationMap . unNarrationMap) gs
   forM_ (assocs nMap) $ \(agentGid, narr) -> do
-    let rendered = toPlainText
-                     (mconcat (view playerAction narr)
-                   <> mconcat (view actionConsequence narr)
-                   <> mconcat (view presenceListing narr)
-                   <> mconcat (view actionEpilogue narr))
-        targetSids = [s | (s, g) <- assocs pMap, g == agentGid]
+    let targetSids = [s | (s, g) <- assocs pMap, g == agentGid]
     forM_ targetSids $ \targetSid ->
       liftIO . atomically $
-        writeTChan (acOutbound appCtx) (Routed targetSid (ChatMessage rendered))
+        writeTChan (acOutbound appCtx) (Routed targetSid (GameNarration narr))
   when (not (null nMap)) $
     addGameState (set narrationMap (NarrationMap mempty) gs)
+  pure pMap
 ```
+
+This is the tick's only pre-join read of acPlayerMap. The snapshot flows to processLeavesSF via `>->`.
+
+### processLeavesSF — detects disconnected players, removes from scenes, announces departure
+
+```haskell
+processLeavesSF :: ClSF RhineM (IOClock RhineM PlayerTick) (Map SessionId (GID Agent)) (Map PlayerNameVAL (GID Agent))
+processLeavesSF = arrMCl $ \pMap -> do
+  appCtx <- askAppCtx
+  gs <- lookGameState
+  known <- liftIO $ readMVar (acKnownPlayers appCtx)
+  let activeGids = Set.fromList (elems pMap)
+      knownGids = Set.fromList (elems known)
+      aMap = view (world . agentMap . getAgentMap) gs
+      isDeparted gid = Set.member gid knownGids
+                    && not (Set.member gid activeGids)
+      sceneDepartures =
+        [ (sceneGid, scene, departed)
+        | (sceneGid, scene) <- assocs (view (world . sceneMap . getGIDToDataMap) gs)
+        , let departed = Set.filter isDeparted (view sceneAgents scene)
+        , not (Set.null departed)
+        ]
+  forM_ sceneDepartures $ \(sceneGid, scene, departed) -> do
+    currentGs <- lookGameState
+    let remaining = foldl' (flip Set.delete) (view sceneAgents scene) (toList departed)
+        scene' = set sceneAgents remaining scene
+        recipientGids = [g | g <- Set.toList remaining
+                           , Just a <- [lookup g aMap]
+                           , view agentKind a == Denizen]
+        departNarr = mconcat
+          [ Narration
+              { _playerAction      = []
+              , _actionConsequence = [view agentShortName a <> plain " has departed."]
+              , _presenceListing   = []
+              , _actionEpilogue    = []
+              }
+          | gid <- Set.toList departed
+          , Just a <- [lookup gid aMap]
+          ]
+        narrations = Map.fromList [(r, departNarr) | r <- recipientGids]
+        gs' = currentGs
+          & world . sceneMap . getGIDToDataMap . at sceneGid .~ Just scene'
+          & over (narrationMap . unNarrationMap) (Map.unionWith (<>) narrations)
+    addGameState gs'
+  pure known
+```
+
+Detection is session-based: a GID in acKnownPlayers values (has joined as a player) that is absent from acPlayerMap values has no live session — departed (WebSocket disconnected, session removed). AgentKind plays no role in detection — Denizen includes NPCs, and an NPC is never in acKnownPlayers, so it is never flagged. The acPlayerMap snapshot arrives threaded from deliverNarrationSF — no re-read; a disconnect landing after that read is detected next tick. processLeavesSF makes the tick's one acKnownPlayers read and passes it to processJoinsSF. Runs before joins — if someone disconnects and reconnects in the same tick window, departure processes first, then rejoin. Departure announcements go through NarrationMap, delivered next tick by deliverNarrationSF.
+
+### JoinError type
+
+```haskell
+data JoinFailure = ReturningAgentMissing | ReturningSceneMissing
+
+data JoinError = JoinError SessionId JoinFailure
+
+joinFailureText :: JoinFailure -> Text
+joinFailureText ReturningAgentMissing = "returning player agent not found"
+joinFailureText ReturningSceneMissing = "returning player scene not found"
+```
+
+Failure cases are a sum type — the signal chain routes on values, never on prose. joinFailureText renders at the one display boundary (executeJoinsSF → SystemMessage). JoinFailure gains constructors in future commits as join can fail in new ways.
 
 ### processJoinsSF
 
 ```haskell
-processJoinsSF :: ClSF RhineM (IOClock RhineM PlayerTick) () [JoinResult]
-processJoinsSF = constMCl $ do
+processJoinsSF :: ClSF RhineM (IOClock RhineM PlayerTick) (Map PlayerNameVAL (GID Agent)) [Either JoinError JoinResult]
+processJoinsSF = arrMCl $ \known -> do
   appCtx <- askAppCtx
   joins <- liftIO $ drainChan (acJoinChan appCtx)
-  known <- liftIO $ readMVar (acKnownPlayers appCtx)
   traverse (processOneJoin known) joins
 ```
 
-### executeJoinsSF — unchanged
+Consumes the acKnownPlayers snapshot threaded from processLeavesSF — no re-read. Safe: only executeJoin writes acKnownPlayers, and it runs later in the chain.
+
+### executeJoinsSF
+
+```haskell
+executeJoinsSF :: ClSF RhineM (IOClock RhineM PlayerTick) [Either JoinError JoinResult] ()
+executeJoinsSF = arrMCl $ \results -> do
+  appCtx <- askAppCtx
+  liftIO $ forM_ results $ \result ->
+    case result of
+      Left (JoinError sid failure) ->
+        atomically $ writeTChan (acOutbound appCtx) (Routed sid (SystemMessage (joinFailureText failure)))
+      Right joinResult ->
+        executeJoin appCtx joinResult
+```
 
 ### processOneJoin (returning player)
 
 ```haskell
+processOneJoin :: Map PlayerNameVAL (GID Agent) -> PlayerJoined -> RhineM (Either JoinError JoinResult)
 processOneJoin known (PlayerJoined sid name) =
   case lookup name known of
     Just gid -> do
       gs <- lookGameState
       case lookup gid (view (world . agentMap . getAgentMap) gs) of
-        Nothing -> pure ()
+        Nothing -> pure (Left (JoinError sid ReturningAgentMissing))
         Just agent -> do
           let sceneGid = view agentCurrentScene agent
           case lookup sceneGid (view (world . sceneMap . getGIDToDataMap) gs) of
-            Nothing -> pure ()
+            Nothing -> pure (Left (JoinError sid ReturningSceneMissing))
             Just scene -> do
               let aMap = view (world . agentMap . getAgentMap) gs
                   scene' = set sceneAgents (Set.insert gid (view sceneAgents scene)) scene
@@ -226,14 +360,15 @@ processOneJoin known (PlayerJoined sid name) =
                     , _actionEpilogue    = []
                     }
                   recipientGids = [g | g <- Set.toList (view sceneAgents scene')
+                                     , g /= gid
                                      , Just a <- [lookup g aMap]
-                                     , view agentKind a == PlayerAgent]
+                                     , view agentKind a == Denizen]
                   joinNarrations = Map.fromList [(g, announceNarration) | g <- recipientGids]
                   gs' = gs
                     & world . sceneMap . getGIDToDataMap . at sceneGid .~ Just scene'
                     & over (narrationMap . unNarrationMap) (Map.unionWith (<>) joinNarrations)
               addGameState gs'
-      pure (ReturningPlayerJoined sid name gid)
+              pure (Right (ReturningPlayerJoined sid name gid))
 ```
 
 ### processOneJoin (new player)
@@ -242,10 +377,10 @@ processOneJoin known (PlayerJoined sid name) =
     Nothing -> do
       gs <- lookGameState
       appCtx <- askAppCtx
-      nextId <- liftIO $ atomicModifyIORef' (acNextAgentId appCtx) (\n -> (n + 1, n))
-      let gid = GID nextId
+      nextId <- liftIO $ atomicModifyIORef' (acNextAgentId appCtx) (\p -> (succPInt p, p))
+      let gid = GID (unPInt nextId)
           lobbyGid = GID 0
-          agent = mkPlayerAgent name lobbyGid
+          agent = mkDenizen name lobbyGid
           aMap = view (world . agentMap . getAgentMap) gs
           lobby = fromMaybe
             (error "processOneJoin: lobby scene (GID 0) not found — game state is broken")
@@ -257,17 +392,17 @@ processOneJoin known (PlayerJoined sid name) =
             , _presenceListing   = []
             , _actionEpilogue    = []
             }
-          existingPlayerGids = [g | g <- Set.toList (view sceneAgents lobby)
-                                  , Just a <- [lookup g aMap]
-                                  , view agentKind a == PlayerAgent]
-          recipientGids = gid : existingPlayerGids
+          recipientGids = [g | g <- Set.toList (view sceneAgents lobby)
+                              , Just a <- [lookup g aMap]
+                              , view agentKind a == Denizen]
           joinNarrations = Map.fromList [(g, announceNarration) | g <- recipientGids]
           gs' = gs
             & world . agentMap . getAgentMap . at gid .~ Just agent
             & world . sceneMap . getGIDToDataMap . at lobbyGid .~ Just lobby'
             & over (narrationMap . unNarrationMap) (Map.unionWith (<>) joinNarrations)
+            & evaluation . at gid .~ Just (Evaluator eval)
       addGameState gs'
-      pure (NewPlayerJoined sid name gid)
+      pure (Right (NewPlayerJoined sid name gid))
 ```
 
 ### processInputSF — lex, parse, eval, unwrap GameComputation, add result
@@ -298,26 +433,31 @@ processInputSF = arrMCl $ \msgs -> do
                     liftIO . atomically $
                       writeTChan (acOutbound appCtx) (Routed sid (SystemMessage err))
                   Right sentence -> do
-                    let ctx = ComputationContext { _ctxPossibilityGraph = pg }
-                        comp = eval gid sentence
-                        result = runIdentity
-                               . flip runStateT gs
-                               . runGameStateT
-                               . runExceptT
-                               . flip runReaderT ctx
-                               . runGameComputation
-                               $ comp
-                    case result of
-                      (Left err, _) ->
+                    case lookup gid (view evaluation gs) of
+                      Nothing ->
                         liftIO . atomically $
-                          writeTChan (acOutbound appCtx) (Routed sid (SystemMessage err))
-                      (Right (), gs') ->
-                        addGameState gs'
+                          writeTChan (acOutbound appCtx) (Routed sid (SystemMessage "failure to load evaluator"))
+                      Just evaluator -> do
+                        let ctx = ComputationContext { _ctxPossibilityGraph = pg }
+                            comp = view runEvaluator evaluator gid sentence
+                            result = runIdentity
+                                   . flip runStateT gs
+                                   . runGameStateT
+                                   . runExceptT
+                                   . flip runReaderT ctx
+                                   . runGameComputation
+                                   $ comp
+                        case result of
+                          (Left err, _) ->
+                            liftIO . atomically $
+                              writeTChan (acOutbound appCtx) (Routed sid (SystemMessage err))
+                          (Right (), gs') ->
+                            addGameState gs'
 ```
 
 ### New imports needed
 
-- `Control.Concurrent (modifyMVar_, readMVar)` — remove modifyMVar (no longer needed)
+- `Control.Concurrent (modifyMVar_, readMVar)` — already imported, no change needed
 - `Data.IORef (atomicModifyIORef')` — for GID counter
 - `Data.Monoid (Last (Last))` — for AccumT accumulator
 - `Control.Category ((>>>))` — for MonadSchedule instance
@@ -329,11 +469,12 @@ processInputSF = arrMCl $ \msgs -> do
 - `Data.Automaton (hoistS)` — for MonadSchedule instance
 - `Grammar.Lexer (lexify, tokens)`
 - `Grammar.Sentence (parseTokens)`
-- `Engine.Evaluators.Player.General (eval)`
+- `Engine.Evaluators.Player.General (eval)` — used in processOneJoin to register evaluator via `Evaluator eval`
 - `Lens.Micro.Platform` — add `at`, `over`, `set`, `(&)`, `(.~)`
-- `Model.Core` — add `ComputationContext (ComputationContext)`, `GameComputation (runGameComputation)`, `GameStateT (runGameStateT)`, `Narration (Narration)`, `NarrationMap (NarrationMap)`, `ctxPossibilityGraph`, `narrationMap`, `unNarrationMap`, `evaluation`
-- `Model.RichText` — add `toPlainText`
-- `Server.App` — add `acNextAgentId`
+- `Model.Core` — add `ComputationContext (ComputationContext)`, `Evaluator (Evaluator)`, `GameComputation (runGameComputation)`, `GameStateT (runGameStateT)`, `Narration (Narration)`, `NarrationMap (NarrationMap)`, `ctxPossibilityGraph`, `narrationMap`, `runEvaluator`, `unNarrationMap`, `evaluation`
+- `Model.RichText` — add `plain`
+- `Model.WireProtocol` — add `GameNarration`
+- `Server.App` — add `acNextAgentId`, `succPInt`, `unPInt`
 
 Remove dead imports from WorldAccum and processLeavesSF deletion.
 
@@ -349,13 +490,18 @@ module Engine.Simulation.EffectNetwork
 
 WorldAccum removed from exports.
 
+## File 6: sashamud-world/src/SashaMudWorld.hs
+
+Change `_evaluation = Evaluator eval` to `_evaluation = mempty`. Core.hs declares `_evaluation :: Map (GID Agent) Evaluator` — no players exist at startup; processOneJoin registers each player's evaluator at join. Remove the now-unused `Evaluator`/`eval` imports (verify against the actual file). This closes the Step 3c compile blocker that critique #3 identified but no plan owned.
+
 ## Lifecycle
 
 1. **gameLoop** seeds accumulator with `Last (Just initialGameState)`
 2. **Tick start** — deliverNarrationSF: `lookGameState`, send each player's narration via outbound, flush NarrationMap via `addGameState`
-3. **Joins** — processJoinsSF >-> executeJoinsSF: `lookGameState`, add players to scenes, announce arrival via NarrationMap, `addGameState`
-4. **Input** — gatherInputSF >-> processInputSF: drain inbound, lex/parse text, `lookGameState`, run eval in GameComputation (StateT), `addGameState`
-5. **Next tick** — deliverNarrationSF sends narration to all players who have it, flushes
+3. **Departures** — processLeavesSF: detect disconnected Denizens, remove from scenes, announce departures via NarrationMap, `addGameState`
+4. **Joins** — processJoinsSF >-> executeJoinsSF: `lookGameState`, add players to scenes, announce arrival via NarrationMap, `addGameState`
+5. **Input** — gatherInputSF >-> processInputSF: drain inbound, lex/parse text, `lookGameState`, run eval in GameComputation (StateT), `addGameState`
+6. **Next tick** — deliverNarrationSF sends narration (departures + arrivals + game output) to all players who have it, flushes
 
 ## Why Last (Maybe GameState) + RhineM newtype
 
@@ -371,7 +517,9 @@ MonadSchedule cannot be derived via newtype (Automaton's role for m is nominal).
 
 | File | Change |
 |---|---|
-| Model/Core.hs | Semigroup/Monoid for NarrationMap only; no GameState instances needed |
-| Server/App.hs | acNextAgentId :: IORef Int |
+| Model/Core.hs | Semigroup/Monoid for NarrationMap; FromJSON/ToJSON + TypeScript for Narration |
+| Model/WireProtocol.hs | GameNarration [RichText] → GameNarration Narration; AnalysisViewport sum type replaces Text key in AnalysisData |
+| Server/App.hs | PInt newtype (no constructor export); acNextAgentId :: IORef PInt |
 | Engine/Evaluators/Player/General.hs | Delete sendMessage/getRecipients, fix eval stub |
-| Engine/Simulation/EffectNetwork.hs | Delete WorldAccum + processLeavesSF, RhineM newtype with MonadSchedule + operations, rewrite all signal functions, add deliverNarrationSF + processInputSF bridge |
+| Engine/Simulation/EffectNetwork.hs | Delete WorldAccum, RhineM newtype with MonadSchedule + operations, rewrite all signal functions, add deliverNarrationSF + processLeavesSF + processInputSF bridge |
+| sashamud-world/src/SashaMudWorld.hs | _evaluation = Evaluator eval → mempty (evaluators register per-player at join) |

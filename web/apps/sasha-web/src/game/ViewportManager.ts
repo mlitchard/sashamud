@@ -1,5 +1,5 @@
 import { GameConnection, MessageFrom } from './GameConnection';
-import { RichText } from '@sasha/type-gen-output/client';
+import { AnalysisViewport, Narration, RichText } from '@sasha/type-gen-output/client';
 import { renderRichTextLine, renderPlainLine } from './RichTextRenderer';
 
 type ViewportId = 'scene' | 'system' | 'meta' | 'parser' | 'state' | 'graphics' | 'map';
@@ -16,8 +16,8 @@ const VIEWPORT_LABELS: Record<ViewportId, { num: number; label: string }> = {
   map:      { num: 7, label: 'Map' },
 };
 
-const ANALYSIS_KEY_TO_VIEWPORT: Record<string, ViewportId> = {
-  parser: 'parser', state: 'state', meta: 'meta', graphics: 'graphics', map: 'map',
+const ANALYSIS_KEY_TO_VIEWPORT: Record<AnalysisViewport, ViewportId> = {
+  Parser: 'parser', State: 'state', Meta: 'meta', Graphics: 'graphics', GameMap: 'map',
 };
 
 export class ViewportManager {
@@ -46,7 +46,16 @@ export class ViewportManager {
 
   private handleMessage(msg: MessageFrom): void {
     switch (msg.tag) {
-      case 'GameNarration':
+      case 'GameNarration': {
+        const narration = msg.contents as Narration;
+        this.appendRichText('scene', [
+          ...narration._playerAction,
+          ...narration._actionConsequence,
+          ...narration._presenceListing,
+          ...narration._actionEpilogue,
+        ]);
+        break;
+      }
       case 'CommandResponse':
         this.appendRichText('scene', msg.contents as RichText[]);
         break;
@@ -60,7 +69,7 @@ export class ViewportManager {
         this.appendPlain('system', '***pong***');
         break;
       case 'AnalysisData':
-        for (const [key, lines] of Object.entries(msg.contents as Record<string, RichText[]>)) {
+        for (const [key, lines] of msg.contents as [AnalysisViewport, RichText[]][]) {
           const vpId = ANALYSIS_KEY_TO_VIEWPORT[key];
           if (vpId) this.replaceRichText(vpId, lines);
         }

@@ -4,7 +4,7 @@
 module Model.Core
   ( -- * Entity Types
     Agent (..)
-  , AgentKind (PlayerAgent, FixtureAgent)
+  , AgentKind (Denizen, Fixture)
   , AgentMap (AgentMap)
   , Scene (..)
   , World (..)
@@ -39,14 +39,6 @@ module Model.Core
   , NarrationComputation (LookNarration, StaticNarration)
   , WorldOutcome (NarrationEffect)
   , EntityKey (SceneKey')
-    -- * Witness System
-  , WitnessGenerate (WitnessGenerate, runWitnessGenerate)
-  , WitnessFilter (WitnessFilter, runWitnessFilter)
-  , WitnessEffect (WitnessEffect)
-  , WitnessMap (WitnessMap)
-  , getWitnessMap
-  , witnessGenerate
-  , witnessFilter
     -- * Registries
   , ActionMaps (ActionMaps)
   , implicitStimulusMap
@@ -61,7 +53,6 @@ module Model.Core
   , agentDescription
   , agentTitle
   , agentActionManagement
-  , agentCurrentScene
   , agentKind
   , title
   , sceneDescription
@@ -80,6 +71,7 @@ module Model.Core
   , world
   , narrationMap
   , evaluation
+  , agentLocationMap
   , actionMaps
   , entityActionEffects
   , worldOutcomeEffects
@@ -97,7 +89,7 @@ import           Control.Monad.Trans (MonadTrans (lift))
 import           Data.Aeson (FromJSON, ToJSON)
 import           Data.Aeson.TypeScript (derivingTypeScriptDefinition)
 import           Data.Functor.Identity (Identity)
-import           Data.Map.Strict (Map)
+import           Data.Map.Strict (Map, unionWith)
 import           Data.Set (Set)
 import           Grammar.Parser.Atomics.Verbs (ImplicitStimulusVerb)
 import           Grammar.Parser.Composites.Model (Sentence)
@@ -106,6 +98,7 @@ import           Model.GID (GID)
 import           Model.RichText (RichText)
 #ifdef TESTING
 import           Test.QuickCheck (Arbitrary)
+import           Test.QuickCheck.Arbitrary.Generic (GenericArbitrary (..))
 import           Test.QuickCheck.Instances.Text ()
 #endif
 
@@ -213,7 +206,7 @@ data Narration = Narration
   , _actionEpilogue    :: [RichText]
   }
   deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
+  deriving anyclass (FromJSON, NFData, ToJSON)
   deriving (Monoid, Semigroup)
     via (Generically Narration)
 
@@ -221,6 +214,12 @@ type NarrationMap :: Type
 newtype NarrationMap = NarrationMap { _unNarrationMap :: Map (GID Agent) Narration }
   deriving stock (Eq, Ord, Show)
   deriving newtype (NFData)
+
+instance Semigroup NarrationMap where
+  NarrationMap m1 <> NarrationMap m2 = NarrationMap (unionWith (<>) m1 m2)
+
+instance Monoid NarrationMap where
+  mempty = NarrationMap mempty
 
 -- World Outcomes
 
@@ -280,9 +279,10 @@ newtype Evaluator = Evaluator { _runEvaluator :: GID Agent -> Sentence -> GameCo
 
 type GameState :: Type
 data GameState = GameState
-  { _world        :: World
-  , _narrationMap :: NarrationMap
-  , _evaluation   :: Map (GID Agent) Evaluator
+  { _world            :: World
+  , _narrationMap     :: NarrationMap
+  , _evaluation       :: Map (GID Agent) Evaluator
+  , _agentLocationMap :: Map (GID Agent) (GID Scene)
   }
 
 type GameStateT :: (Type -> Type) -> Type -> Type
@@ -350,6 +350,7 @@ defaultWorld = World
 -- Template Haskell (single stage — all types visible)
 
 derivingTypeScriptDefinition ''SessionId
+derivingTypeScriptDefinition ''Narration
 makeLenses ''ActionManagementFunctions
 makeLenses ''GIDToDataMap
 makeLenses ''Agent
@@ -366,4 +367,5 @@ makeLenses ''PossibilityGraph
 
 #ifdef TESTING
 deriving newtype instance Arbitrary SessionId
+deriving via (GenericArbitrary Narration) instance Arbitrary Narration
 #endif

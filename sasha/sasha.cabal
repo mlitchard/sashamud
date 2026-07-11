@@ -81,6 +81,7 @@ library
     , hashable
     , microlens-platform
     , mmorph
+    , monad-schedule
     , mtl
     , QuickCheck
     , quickcheck-instances
@@ -158,6 +159,7 @@ executable sasha-tests
     , hspec-discover
     , microlens-platform
     , mmorph
+    , monad-schedule
     , mtl
     , QuickCheck
     , quickcheck-instances

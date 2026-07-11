@@ -5,12 +5,14 @@ module Integration.LoginLogoutSpec (spec) where
 import           SashaPrelude
   ( Bool (False, True)
   , Either (Left, Right)
-  , Eq ((/=), (==))
+  , Eq ((/=))
   , IO
   , Int
   , Maybe (Just, Nothing)
   , Show (show)
   , Text
+  , elem
+  , fmap
   , pure
   , stderr
   , ($)
@@ -30,7 +32,12 @@ import           Control.Exception (SomeException, finally, try)
 import           Data.Map.Strict (member)
 import           Data.Text.Encoding (encodeUtf8)
 import           Engine.Simulation.EffectNetwork (gameLoop)
-import           Model.WireProtocol (MessageFrom (Pong, SystemMessage))
+import           Lens.Micro.Platform (view)
+import           Model.Core (actionConsequence)
+import           Model.RichText (toPlainText)
+import           Model.WireProtocol
+  ( MessageFrom (GameNarration, Pong, SystemMessage)
+  )
 import           Network.HTTP.Client (defaultManagerSettings, newManager)
 import           Network.Wai.Handler.Warp (run)
 import           Network.WebSockets
@@ -140,8 +147,9 @@ isPong Pong = True
 isPong _    = False
 
 isDeparture :: Text -> MessageFrom -> Bool
-isDeparture name (SystemMessage msg) = msg == "*** " <> name <> " has departed"
-isDeparture _ _                      = False
+isDeparture name (GameNarration narr) =
+  name <> " has departed." `elem` fmap toPlainText (view actionConsequence narr)
+isDeparture _ _ = False
 
 spec :: Spec
 spec = describe "Integration" . around withTestServer $ do

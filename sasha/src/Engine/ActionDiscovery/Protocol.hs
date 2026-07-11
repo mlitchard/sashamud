@@ -20,7 +20,7 @@ import           Model.Core
   , Agent
   , GameComputation
   , agentActionManagement
-  , agentCurrentScene
+  , agentLocationMap
   , agentMap
   , getAgentMap
   , getGIDToDataMap
@@ -94,9 +94,8 @@ fetchSceneAction :: forall actionF. ActionProtocol actionF
                  -> GID Agent
                  -> GameComputation Identity (GID actionF, actionF)
 fetchSceneAction input actionMap agentGID = do
-  aMap <- use (world . agentMap . getAgentMap)
-  agent <- throwMaybeM ("Agent not found in agent map: " <> pack (show agentGID)) (lookup agentGID aMap)
-  let sceneGID = view agentCurrentScene agent
+  locMap <- use agentLocationMap
+  sceneGID <- throwMaybeM ("Agent location not found: " <> pack (show agentGID)) (lookup agentGID locMap)
   sMap <- use (world . sceneMap . getGIDToDataMap)
   scene <- throwMaybeM ("Scene not found in scene map" <> pack (show sceneGID)) (lookup sceneGID sMap)
   gid <- throwMaybeM ("Scene: " <> noGIDError @actionF)

@@ -45,6 +45,7 @@ test-suite sashamud-integration-tests
     , containers
     , hspec
     , http-client
+    , microlens-platform
     , sasha
     , sashamud-world
     , servant-client

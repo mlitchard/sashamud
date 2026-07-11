@@ -1,6 +1,9 @@
 # SashaMud Project Memory
 
 ## CRITICAL RULES (re-read before every file write/edit)
+- Precedence when rules collide: user instruction > plan/critique resolutions > MEMORY.md > CLAUDE.md — rules constrain Claude's initiative, never the user
+- Workflow: Claude writes, user builds, user either approves or sends the compiler errors as the next prompt
+- The sashamud repo has authority — old code is single-player reference; multiplayer forces fundamental changes; sashamud plans/MEMORY/code win on divergence
 - NEVER invent constructor names, type names, or patterns not in old code
 - Old code constructor: `ImplicitStimulusVerb ImplicitStimulusVerb` in StimulusVerbPhrase — use it exactly
 - When tempted to "improve" a name from old code, STOP and ASK instead
@@ -31,15 +34,15 @@
 - GameComputation is the context in which effects contribute their pieces to the GameState under construction
 - GameState lives directly in AccumT — no WorldAccum intermediary
 - IX reference: `eGameState = GameState <$> bAgentMap <*> bPlanetMap <@ eTick` then `reactimate`
-- Signal functions: deliverNarrationSF >-> processJoinsSF >-> executeJoinsSF >-> gatherInputSF >-> processInputSF (one sequential PlayerTick branch)
+- Signal functions: deliverNarrationSF >-> processLeavesSF >-> processJoinsSF >-> executeJoinsSF >-> gatherInputSF >-> processInputSF (one sequential PlayerTick branch)
 - processInputSF bridge: lexify tokens → parseTokens → eval → unwrap GameComputation (StateT/ExceptT/ReaderT/Identity) → add gs'
 - No TVar for GameState — lives in AccumT
-- No naked types — use newtypes (SessionId, PlayerName, GameCommand)
+- No naked domain identifiers — newtypes (SessionId, PlayerNameVAL). GameCommand carries raw Text on purpose: unparsed input, consumed at exactly one site (processInputSF → lexify). The typed command is Sentence — typing happens by parsing, not by wrapping
 - AppM is a newtype over ReaderT AppCtx Handler (like Quux)
 - Server.Session removed — acConnections MVar replaces GameSessionRegistry
 - deliverOutbound thread outside network reads acOutbound, routes via acConnections
 - Login always sends PlayerJoined — network decides new vs returning player
-- GID assignment: counter in AppCtx IORef (acNextAgentId), accessed via atomicModifyIORef' in processOneJoin
+- GID assignment: counter in AppCtx IORef (acNextAgentId :: IORef PInt), atomicModifyIORef' + succPInt in processOneJoin; PInt is a bare newtype, hidden constructor, only succPInt/unPInt/firstPlayerId exported — no subtraction by construction
 - Rhine tutorial: /home/mlitchard/github/rhine-tutorial
 
 ## IX EventNetwork Pattern — GameState Construction
@@ -91,12 +94,13 @@
 - Commit 2 in progress: grammar done, Steps 0-2a done, 3a done (Perception.hs), 3b done (ActionManagement.hs). Step 3c IN PROGRESS.
 - Implementation plan at /home/mlitchard/.claude/plans/replicated-dreaming-shell.md
 - No standalone `runComputation` function — IX pattern: state lives in reactive framework (AccumT), computation runs within it. Rhine integration (Step 4) handles this in processInputSF.
+- Removed as muddled (2026-07-11): .claude-memory/next-session-prompt.md (stale Step 2b trap — remove-worldaccum-prompt.md is the handoff), docs/memory/MEMORY.md (June copy — this file is the only memory), and SYNTHESIS.md (fleet review from another machine — actionable items executed, path claims wrong here)
 
 ## Step 3c State
 - Core.hs changes DONE: Evaluator newtype added (`GID Agent -> Sentence -> GameComputation Identity ()`), `_evaluation :: Evaluator` on GameState, ActionEffectKeyF changed to `GID Agent -> ActionEffectKey -> GameComputation Identity ()`, makeLenses added
 - General.hs DONE: pure dispatch (eval → evalImperative → evalStimulusVerbPhrase → manageImplicitStimulusProcess), imports from Engine.ActionDiscovery.Percieve.Look
 - ActionProtocol refactor DONE (user-approved plan /home/mlitchard/.claude/plans/purrfect-painting-mochi.md):
-  - Engine/ActionDiscovery/Protocol.hs — ActionProtocol class, actor GID explicit (`runActionProtocol :: GID Agent -> ActionInput actionF -> ...`), fetchAction/fetchAgentAction/fetchSceneAction use throwMaybeM (Text errors, no `error`), agent/scene lookups inlined (fetchPlayerAction gone, fetchSceneActions replaced by actor's agentCurrentScene)
+  - Engine/ActionDiscovery/Protocol.hs — ActionProtocol class, actor GID explicit (`runActionProtocol :: GID Agent -> ActionInput actionF -> ...`), fetchAction/fetchAgentAction/fetchSceneAction use throwMaybeM (Text errors, no `error`), agent/scene lookups inlined (fetchPlayerAction gone; scene resolved via agentLocationMap lookup — agentCurrentScene removed)
   - Engine/ActionDiscovery/Instances.hs — single ImplicitStimulusF instance, veto chain calls pass actorGid (`ps actorGid playerKey`)
   - Engine/ActionDiscovery/Percieve/Look.hs — manageImplicitStimulusProcess (keeps old "Percieve" spelling)
   - lookupImplicitStimulus added to Engine/Resolution/ActionManagement.hs (analog of old GameState/ActionManagement.hs)
@@ -106,11 +110,12 @@
 - NO defaultEvaluator wrapper — evaluator IS eval directly
 
 ## Remaining for Step 3c to compile
-- SashaMudWorld.hs: defaultGameState needs `_evaluation` field
+- SashaMudWorld.hs: `_evaluation = Evaluator eval` is a type mismatch vs `Map (GID Agent) Evaluator` — fix owned by remove-worldaccum plan File 6 (`mempty`)
 - Cascading: Builder.hs may need updates if GameState construction breaks
 - Not yet compiled — user runs builds
 
 ## Witness System Design
+- STRIPPED FROM CODE (2026-07-11, user instruction): types gone from Core.hs, `processWitnessEffects`/`getWitnesses` deleted from ActionManagement.hs, `_ctxWitnessMap` not in ComputationContext. Design below retained for when it returns:
 - WitnessEffect (WitnessGenerate + WitnessFilter) lives in WitnessMap in ComputationContext (`_ctxWitnessMap`)
 - WitnessMap keyed by ActionEffectKey directly — single source of truth for which actions have witness effects
 - WorldOutcome does not participate in the witness system. The effect processor checks WitnessMap for each ActionEffectKey it processes.
@@ -126,24 +131,36 @@
 
 ## Design Decisions
 - Actor GID passed explicitly: pipeline → evaluator → effects
-- ComputationContext gains _ctxWitnessMap :: WitnessMap
+- ComputationContext holds only _ctxPossibilityGraph (witness system stripped 2026-07-11)
+- agentCurrentScene REMOVED (single-player vestige). Where-is-agent authority: `_agentLocationMap :: Map (GID Agent) (GID Scene)` on GameState. Departure leaves entry intact — returning players land where they were; `ReturningLocationMissing` JoinFailure if absent
 - defaultActionManagement — use ActionManagementFunctions mempty directly
 - defaultPossibilityGraph — builder constructs its own
 - defaultGameState is local to SashaMudWorld
 - Old code defaults in sasha-core/src/Model/Core/Defaults.hs: defaultScene, defaultWorld, defaultNarration, defaultAgent, defaultObject, defaultBatch
 - PerceptionMap and SpatialRelationshipMap removed from World — needed for future verbs
-- WorldAccum removal plan approved — see /home/mlitchard/gitlab/sashamud/.claude-plans/remove-worldaccum.md
+- WorldAccum removal plan APPLIED (2026-07-11, all 6 files) — see /home/mlitchard/gitlab/sashamud/.claude-plans/remove-worldaccum.md. Not yet compiled — user builds. Import deviation from plan (critique #11 verification): Narration/ComputationContext record construction needs field names imported (`_playerAction` etc., `_ctxPossibilityGraph`) — plan listed only constructors; fields added to imports in EffectNetwork.hs and General.hs
+- Adversarial critique of that plan (numbered, addressing one at a time): /home/mlitchard/gitlab/sashamud/.claude-plans/remove-worldaccum-critique.md — #1 WITHDRAWN (Narration derives Semigroup/Monoid via Generically, Core.hs:218 — lawful; Semigroup for unionWith merge, Monoid for `non mempty` in modifyAgentNarration Perception.hs:39). #2 RESOLVED: AgentKind is Denizen|Fixture (Denizen = characters incl. players, Fixture = object-agents — old SashaLambdaDSL.hs:710, old Server.hs:218); PlayerAgent was invented, renamed to Denizen everywhere. #3 RESOLVED: processInputSF looks up evaluator per agent, processOneJoin registers Evaluator eval; SashaMudWorld.hs:67 type mismatch (should be mempty) is pre-existing Step 3c issue. #4 RESOLVED: no stale-read — IO MonadSchedule interleaves via MVar (one worker per step), heartbeat contributes Last Nothing, all writers sequential on one PlayerTick chain. #5 RESOLVED: stub is user-approved, no-stubs rule applies to Claude only; this build verifies pipeline, real dispatch is next build. #6 RESOLVED: error inside RhineM newtype, no MonadError in stack. #7 RESOLVED: processLeavesSF rewritten with RhineM interface. #8 RESOLVED: joiner excluded from arrival narration. #9 RESOLVED: GameNarration carries Narration (not [RichText]). #10 RESOLVED: Either JoinError JoinResult prevents ghost sessions. #11 RESOLVED: verify imports against actual file during execution. #12 RESOLVED: SashaMudWorld.hs `_evaluation = mempty` pulled into plan scope as File 6 (was orphaned between #3 and Step 3c). #7 SUPERSEDED DETAIL: departure detection is session-based (gid ∈ acKnownPlayers ∧ gid ∉ acPlayerMap) — the first rewrite used agentKind == Denizen, which would flag NPC Denizens departed every tick. All critiques resolved IN THE PLAN; the plan is now APPLIED in code.
 - RhineM is a newtype over `AccumT (Last GameState) (ReaderT PossibilityGraph (ReaderT AppCtx IO))`
 - RhineM hides Last/Maybe — signal functions use lookGameState/addGameState/askAppCtx/askPossibilityGraph
-- MonadSchedule for RhineM: manual instance via hoistS (GND doesn't work — Automaton's role for m is nominal)
+- MonadSchedule for RhineM: from monad-schedule package (`Control.Monad.Schedule.Class`), NOT `Data.Automaton.Schedule` — that module is automaton 1.8 API, installed set has automaton 1.6.1. Instance follows monad-schedule's IdentityT passthrough (`fmap unRhineM >>> schedule >>> fmap (fmap (fmap RhineM)) >>> RhineM`); no hoistS. `monad-schedule` in sasha.cabal build-depends (library + tests). Local ~/github/rhine checkout is AHEAD of installed versions — check installed version before copying its API
 - AccumT accumulates `Last GameState` (Data.Monoid.Last wraps Maybe) — lawful Monoid
 - `Last Nothing` = no contribution (lift/liftIO), `Last (Just x) <> Last (Just y) = Last (Just y)` — newer wins
 - GameState has NO Semigroup/Monoid — Last provides it for AccumT
 - Pure replacement Semigroup on GameState fails right identity (`x <> mempty = mempty ≠ x`) — breaks AccumT (look after liftIO returns mempty)
 - Narration accumulates within a tick via StateT, delivers at next tick start, then flushes
 - All state-modifying SFs sequential on one PlayerTick (parallel clock safety)
-- GID counter lives in AppCtx IORef (acNextAgentId), not in the accumulator — single-thread access, atomicModifyIORef'
-- processLeavesSF deleted — unapproved design
+- GID counter lives in AppCtx IORef (acNextAgentId :: IORef PInt), not in the accumulator — single-thread access, atomicModifyIORef'
+- processLeavesSF rewritten using RhineM interface — detects departed players session-based (gid ∈ acKnownPlayers ∧ gid ∉ acPlayerMap), removes from scenes, announces via NarrationMap
+- Departure detection NEVER uses AgentKind — Denizen includes NPCs; acKnownPlayers is the "is a player" source of truth
+- Game state vs server state: GameState (AccumT, single writer = PlayerTick chain) holds world truth; AppCtx (MVars/TChans, multi-writer) holds session/socket truth — disconnects are async, never route through the chain
+- One authority per question: is-a-player = acKnownPlayers, is-connected = acPlayerMap, is-in-scene = sceneAgents, character-or-object = AgentKind — never proxy one for another
+- Persistence debt: acKnownPlayers (name→GID) and acNextAgentId (PInt GID counter) are world truth living in AppCtx — when save/load lands, they must be persisted alongside GameState, or a restart loses player identities and reissues colliding GIDs
+- AnalysisViewport = Parser | State | Meta | Graphics | GameMap — sum type keys AnalysisData (was Map Text; raw Text key silently dropped on client, ViewportManager.ts:65). In remove-worldaccum plan File 2. No producer yet; client key mapping updates when telemetry lands
+- Player input growth path (user-approved design): `data PlayerInput = UnVerifiedInput PUVI | VerifiedInput PVI` — PUVI/PVI are newtypes over Text. Wire Text wraps to PUVI at receipt; lexify accepts PVI only — unverified input cannot reach the parser by construction. First verifier is a pass-through (user-sanctioned placeholder); real checks (length cap, rate limit, character policy) replace it later
+- Errors in the signal chain are sum types, rendered to Text only at the display boundary: JoinFailure (ReturningAgentMissing | ReturningSceneMissing) inside JoinError, joinFailureText at executeJoinsSF → SystemMessage. Never naked Text in an Either
+- Future cut (user-approved): lexify/parseTokens return Either Text — sasha-grammar gets error sum types + render functions, same principle as JoinFailure
+- Future cut (user-approved): GameComputation ExceptT Text becomes ExceptT GameError (sum type + renderer) — Core surgery touching every evaluator/effect, own commit
+- One MVar read per tick phase, threaded along >-> (user ruling: no double-reads): deliverNarrationSF reads acPlayerMap once, passes snapshot to processLeavesSF; processLeavesSF reads acKnownPlayers once, passes it to processJoinsSF; processInputSF makes the only post-join acPlayerMap read (required — executeJoinsSF writes pMap mid-tick, new player's first command must route same-tick). No SF re-reads an MVar another SF already read. Dead-session sends are safe: deliverOutbound logs SendDropped (Server.hs:80-82)
 - NarrationMap Semigroup uses `unionWith (<>)` to merge per-player narrations
 - Types with commit-2-only constructors gain more constructors in future commits
 - TH staging: all makeLenses and derivingTypeScriptDefinition calls at bottom of Core.hs, single TH stage

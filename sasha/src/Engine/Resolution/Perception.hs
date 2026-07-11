@@ -12,12 +12,12 @@ import           Error (throwMaybeM)
 import           Lens.Micro.Platform (at, non, over, use, view, (%=))
 import           Model.Core
   ( Agent
-  , AgentKind (PlayerAgent)
+  , AgentKind (Denizen)
   , GameComputation
   , Narration
   , actionConsequence
-  , agentCurrentScene
   , agentKind
+  , agentLocationMap
   , agentMap
   , agentShortName
   , getAgentMap
@@ -32,7 +32,7 @@ import           Model.Core
   , world
   )
 import           Model.GID (GID)
-import           Model.RichText (TextColor (White), colored)
+import           Model.RichText (TextColor (White), colored, toPlainText)
 
 modifyAgentNarration :: GID Agent -> (Narration -> Narration) -> GameComputation Identity ()
 modifyAgentNarration agentGid f =
@@ -41,9 +41,9 @@ modifyAgentNarration agentGid f =
 youSeeM :: GID Agent -> GameComputation Identity ()
 youSeeM actorGid = do
   aMap <- use (world . agentMap . getAgentMap)
-  actor <- throwMaybeM ("Actor not found: " <> pack (show actorGid))
-             (lookup actorGid aMap)
-  let sceneGid = view agentCurrentScene actor
+  locMap <- use agentLocationMap
+  sceneGid <- throwMaybeM ("Agent location not found: " <> pack (show actorGid))
+                (lookup actorGid locMap)
   sMap <- use (world . sceneMap . getGIDToDataMap)
   scene <- throwMaybeM ("Scene not found: " <> pack (show sceneGid))
              (lookup sceneGid sMap)
@@ -52,10 +52,10 @@ youSeeM actorGid = do
   modifyAgentNarration actorGid (over actionConsequence (desc :))
   let otherAgentGids = filter (/= actorGid) (toList (view sceneAgents scene))
       otherPlayerNames =
-        [ view agentShortName agent
+        [ toPlainText (view agentShortName agent)
         | gid <- otherAgentGids
         , Just agent <- [lookup gid aMap]
-        , view agentKind agent == PlayerAgent
+        , view agentKind agent == Denizen
         ]
   when (not (null otherPlayerNames)) $
     modifyAgentNarration actorGid
