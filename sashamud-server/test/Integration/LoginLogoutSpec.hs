@@ -68,7 +68,7 @@ import           Servant.Client.Core
   , RunClient
   )
 import           Server.App
-  ( AppCtx (acConnections, acKnownPlayers, acPlayerMap)
+  ( AppCtx (acKnownPlayers, acSessions)
   , GameLog (GameLog)
   , newAppCtx
   )
@@ -214,12 +214,14 @@ spec = describe "Integration" . around withTestServer $ do
     result <- runClientM (loginClient (PlayerNameUNV "AgentTest")) env
     case result of
       Left err -> expectationFailure ("login failed: " <> show err)
-      Right (LoginResponse sid) -> do
-        threadDelay 2000000
-        pMap <- readMVar (acPlayerMap ctx)
-        member sid pMap `shouldBe` True
-        known <- readMVar (acKnownPlayers ctx)
-        member (PlayerNameVAL "AgentTest") known `shouldBe` True
+      Right (LoginResponse sid) ->
+        connectWS sid $ \conn -> do
+          narr <- receiveUntil conn 10000000 isLookNarration
+          case narr of
+            Nothing -> expectationFailure "no auto-look narration received on login"
+            Just _  -> do
+              known <- readMVar (acKnownPlayers ctx)
+              member (PlayerNameVAL "AgentTest") known `shouldBe` True
 
   it "login assigns agent to lobby scene" $ \(_port, _ctx) -> do
     env <- testClientEnv
@@ -253,11 +255,17 @@ spec = describe "Integration" . around withTestServer $ do
     r1 <- runClientM (loginClient (PlayerNameUNV "Player1")) env
     r2 <- runClientM (loginClient (PlayerNameUNV "Player2")) env
     case (r1, r2) of
-      (Right (LoginResponse sid1), Right (LoginResponse sid2)) -> do
-        threadDelay 2000000
-        pMap <- readMVar (acPlayerMap ctx)
-        member sid1 pMap `shouldBe` True
-        member sid2 pMap `shouldBe` True
+      (Right (LoginResponse sid1), Right (LoginResponse sid2)) ->
+        connectWS sid1 $ \conn1 ->
+          connectWS sid2 $ \conn2 -> do
+            n1 <- receiveUntil conn1 10000000 isLookNarration
+            n2 <- receiveUntil conn2 10000000 isLookNarration
+            case (n1, n2) of
+              (Just _, Just _) -> do
+                known <- readMVar (acKnownPlayers ctx)
+                member (PlayerNameVAL "Player1") known `shouldBe` True
+                member (PlayerNameVAL "Player2") known `shouldBe` True
+              _ -> expectationFailure "both players should receive auto-look narration"
       _ -> expectationFailure "both logins should succeed"
 
   it "multi-player: both clients receive heartbeats" $ \(_port, _ctx) -> do
@@ -309,10 +317,8 @@ spec = describe "Integration" . around withTestServer $ do
               Just _  -> do
                 known <- readMVar (acKnownPlayers ctx)
                 member (PlayerNameVAL "LogoutTarget") known `shouldBe` True
-                conns <- readMVar (acConnections ctx)
-                member sid2 conns `shouldBe` False
-                pMap <- readMVar (acPlayerMap ctx)
-                member sid2 pMap `shouldBe` False
+                sessions <- readMVar (acSessions ctx)
+                member sid2 sessions `shouldBe` False
       _ -> expectationFailure "both logins should succeed"
 
   it "login auto-look delivers the lobby description" $ \(_port, _ctx) -> do
@@ -325,6 +331,19 @@ spec = describe "Integration" . around withTestServer $ do
           narr <- receiveUntil conn 10000000 isLookNarration
           case narr of
             Nothing -> expectationFailure "no auto-look narration received on login"
+            Just _  -> pure ()
+
+  it "auto-look survives a slow websocket connect" $ \(_port, _ctx) -> do
+    env <- testClientEnv
+    result <- runClientM (loginClient (PlayerNameUNV "SlowSocket")) env
+    case result of
+      Left err -> expectationFailure ("login failed: " <> show err)
+      Right (LoginResponse sid) -> do
+        threadDelay 3000000
+        connectWS sid $ \conn -> do
+          narr <- receiveUntil conn 10000000 isLookNarration
+          case narr of
+            Nothing -> expectationFailure "no auto-look narration after slow connect"
             Just _  -> pure ()
 
   it "explicit look command repeats the lobby description" $ \(_port, _ctx) -> do

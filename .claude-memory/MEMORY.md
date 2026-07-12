@@ -34,14 +34,14 @@
 - GameComputation is the context in which effects contribute their pieces to the GameState under construction
 - GameState lives directly in AccumT — no WorldAccum intermediary
 - IX reference: `eGameState = GameState <$> bAgentMap <*> bPlanetMap <@ eTick` then `reactimate`
-- Signal functions: deliverNarrationSF >-> processLeavesSF >-> processJoinsSF >-> executeJoinsSF >-> gatherInputSF >-> processInputSF (one sequential PlayerTick branch)
+- Signal functions: processLeavesSF >-> processJoinsSF >-> executeJoinsSF >-> gatherInputSF >-> processInputSF >-> deliverNarrationSF (one sequential PlayerTick branch — narration delivered at end of tick)
 - processInputSF bridge: lexify tokens → parseTokens → eval → unwrap GameComputation (StateT/ExceptT/ReaderT/Identity) → add gs'
 - No TVar for GameState — lives in AccumT
 - No naked domain identifiers — newtypes (SessionId, PlayerNameVAL). GameCommand carries raw Text on purpose: unparsed input, consumed at exactly one site (processInputSF → lexify). The typed command is Sentence — typing happens by parsing, not by wrapping
 - AppM is a newtype over ReaderT AppCtx Handler (like Quux)
-- Server.Session removed — acConnections MVar replaces GameSessionRegistry
-- deliverOutbound thread outside network reads acOutbound, routes via acConnections
-- Login always sends PlayerJoined — network decides new vs returning player
+- Server.Session removed — acSessions phase map (SessionPhase sum type in Server.App) holds session lifecycle
+- deliverOutbound thread outside network reads acOutbound, routes via acSessions sessionSend
+- PlayerJoined fires at websocket attach (AwaitingSocket → AwaitingJoin promotion in gameWebSocket) — network decides new vs returning player
 - GID assignment: counter in AppCtx IORef (acNextAgentId :: IORef PInt), atomicModifyIORef' + succPInt in processOneJoin; PInt is a bare newtype, hidden constructor, only succPInt/unPInt/firstPlayerId exported — no subtraction by construction
 - Rhine tutorial: /home/mlitchard/github/rhine-tutorial
 
@@ -80,7 +80,7 @@
   - Mappings.hs eliminated — everything in Core.hs
 - Engine/Simulation/ consolidated: RhineM, signal functions, routing all in SignalNetwork.hs
   - Clocks.hs stays separate
-- Session.hs removed: acConnections MVar replaces GameSessionRegistry
+- Session.hs removed: acSessions MVar (Map SessionId SessionPhase) replaces GameSessionRegistry — acConnections and acPlayerMap consolidated into it (SessionPhase in Server.App: AwaitingSocket PlayerNameVAL | AwaitingJoin PlayerNameVAL sendFn | InGame sendFn (GID Agent); projections sessionGid/sessionSend)
   - Authentication.hs handles auth pipeline instead
 - SessionId lives in Model.Core (breaks circular import with WireProtocol)
 - WireMessage.SessionId renamed to SessionAck (avoids name collision with SessionId type)
@@ -91,11 +91,7 @@
 - build-0 DONE: minimal dev env as root commit (branch: build-0-orphan)
 - build-1 DONE: all existing code rebased on build-0 (branch: main, build-1)
 - formatter = pkgs.nixpkgs-fmt + nix-formatting check added to flake.nix and .gitlab-ci.yml
-<<<<<<< Updated upstream
-- Commit 2 in progress: grammar done, Steps 0-2a done, 3a done (Perception.hs), 3b done (ActionManagement.hs). Step 3c IN PROGRESS.
-=======
 - Commit 2 DONE and merged to main (2026-07-11): look end-to-end + witness system, green build, user verified two-client runtime. 2-look merged origin/main (flake.nix union-resolved, flake.lock regenerated), then to main. Deployed via deploys repo (nix flake update sasha, nix run .#arges — nixinate to arges host)
->>>>>>> Stashed changes
 - Implementation plan at /home/mlitchard/.claude/plans/replicated-dreaming-shell.md
 - No standalone `runComputation` function — IX pattern: state lives in reactive framework (AccumT), computation runs within it. Rhine integration (Step 4) handles this in processInputSF.
 - Removed as muddled (2026-07-11): .claude-memory/next-session-prompt.md (stale Step 2b trap — remove-worldaccum-prompt.md is the handoff), docs/memory/MEMORY.md (June copy — this file is the only memory), and SYNTHESIS.md (fleet review from another machine — actionable items executed, path claims wrong here)
@@ -152,21 +148,22 @@
 - `Last Nothing` = no contribution (lift/liftIO), `Last (Just x) <> Last (Just y) = Last (Just y)` — newer wins
 - GameState has NO Semigroup/Monoid — Last provides it for AccumT
 - Pure replacement Semigroup on GameState fails right identity (`x <> mempty = mempty ≠ x`) — breaks AccumT (look after liftIO returns mempty)
-- Narration accumulates within a tick via StateT, delivers at next tick start, then flushes
+- Narration accumulates within a tick via StateT, deliverNarrationSF delivers at end of the same tick, then flushes
 - All state-modifying SFs sequential on one PlayerTick (parallel clock safety)
 - GID counter lives in AppCtx IORef (acNextAgentId :: IORef PInt), not in the accumulator — single-thread access, atomicModifyIORef'
-- processLeavesSF rewritten using RhineM interface — detects departed players session-based (gid ∈ acKnownPlayers ∧ gid ∉ acPlayerMap), removes from scenes, announces via NarrationMap
+- processLeavesSF rewritten using RhineM interface — detects departed players session-based (gid ∈ acKnownPlayers ∧ gid has no InGame session in acSessions), removes from scenes, announces via NarrationMap
 - Departure detection NEVER uses AgentKind — Denizen includes NPCs; acKnownPlayers is the "is a player" source of truth
 - Game state vs server state: GameState (AccumT, single writer = PlayerTick chain) holds world truth; AppCtx (MVars/TChans, multi-writer) holds session/socket truth — disconnects are async, never route through the chain
-- One authority per question: is-a-player = acKnownPlayers, is-connected = acPlayerMap, is-in-scene = sceneAgents, character-or-object = AgentKind — never proxy one for another
+- One authority per question: is-a-player = acKnownPlayers, is-connected = acSessions InGame phase, is-in-scene = sceneAgents, character-or-object = AgentKind — never proxy one for another
 - Persistence debt: acKnownPlayers (name→GID) and acNextAgentId (PInt GID counter) are world truth living in AppCtx — when save/load lands, they must be persisted alongside GameState, or a restart loses player identities and reissues colliding GIDs
 - AnalysisViewport = Parser | State | Meta | Graphics | GameMap — sum type keys AnalysisData (was Map Text; raw Text key silently dropped on client, ViewportManager.ts:65). In remove-worldaccum plan File 2. No producer yet; client key mapping updates when telemetry lands
 - Player input growth path (user-approved design): `data PlayerInput = UnVerifiedInput PUVI | VerifiedInput PVI` — PUVI/PVI are newtypes over Text. Wire Text wraps to PUVI at receipt; lexify accepts PVI only — unverified input cannot reach the parser by construction. First verifier is a pass-through (user-sanctioned placeholder); real checks (length cap, rate limit, character policy) replace it later
 - Errors in the signal chain are sum types, rendered to Text only at the display boundary: JoinFailure (ReturningAgentMissing | ReturningSceneMissing) inside JoinError, joinFailureText at executeJoinsSF → SystemMessage. Never naked Text in an Either
 - Future cut (user-approved): lexify/parseTokens return Either Text — sasha-grammar gets error sum types + render functions, same principle as JoinFailure
 - Future cut (user-approved): GameComputation ExceptT Text becomes ExceptT GameError (sum type + renderer) — Core surgery touching every evaluator/effect, own commit
-- One MVar read per tick phase, threaded along >-> (user ruling: no double-reads): deliverNarrationSF reads acPlayerMap once, passes snapshot to processLeavesSF; processLeavesSF reads acKnownPlayers once, passes it to processJoinsSF; processInputSF makes the only post-join acPlayerMap read (required — executeJoinsSF writes pMap mid-tick, new player's first command must route same-tick). No SF re-reads an MVar another SF already read. Dead-session sends are safe: deliverOutbound logs SendDropped (Server.hs:80-82)
+- MVar reads (supersedes the snapshot-threading ruling, which belonged to the deliver-first ordering): with deliverNarrationSF at the end of the chain, each SF reads the MVars it needs directly — processLeavesSF reads acSessions + acKnownPlayers; processJoinsSF reads acKnownPlayers; processInputSF reads acSessions post-join (executeJoinsSF promotes AwaitingJoin → InGame mid-tick, new player's first command routes same-tick); deliverNarrationSF reads acSessions at tick end; heartbeatSF reads acSessions. SFs project gids via sessionGid. Dead-session sends are safe: deliverOutbound logs SendDropped
 - NarrationMap Semigroup uses `unionWith (<>)` to merge per-player narrations
+- Login race FIXED (2026-07-12, branch 4-login-bug-fix, plan .claude-plans/session-phase.md, executed in 4 gated steps): loginHandler inserts AwaitingSocket at HTTP login (evicting stale same-name AwaitingSocket entries); PlayerJoined fires at websocket attach — a join cannot exist before its send function does, by construction. executeJoin promotes AwaitingJoin → InGame atomically. The race-codifying tests ("login creates agent in agentMap", "multi-player: both in lobby") were rewritten to connect and prove the join via auto-look narration; reproducer test "auto-look survives a slow websocket connect" (login, 3s delay, connect, expect auto-look) guards the regression. Accepted residual leak: a name that logs in and never connects leaves one AwaitingSocket entry, self-healed on next same-name login — noted beside the persistence debt
 - Types with commit-2-only constructors gain more constructors in future commits
 - TH staging: all makeLenses and derivingTypeScriptDefinition calls at bottom of Core.hs, single TH stage
 
