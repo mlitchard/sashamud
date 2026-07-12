@@ -34,7 +34,7 @@
 - GameComputation is the context in which effects contribute their pieces to the GameState under construction
 - GameState lives directly in AccumT — no WorldAccum intermediary
 - IX reference: `eGameState = GameState <$> bAgentMap <*> bPlanetMap <@ eTick` then `reactimate`
-- Signal functions: deliverNarrationSF >-> processLeavesSF >-> processJoinsSF >-> executeJoinsSF >-> gatherInputSF >-> processInputSF (one sequential PlayerTick branch)
+- Signal functions: processLeavesSF >-> processJoinsSF >-> executeJoinsSF >-> gatherInputSF >-> processInputSF >-> deliverNarrationSF (one sequential PlayerTick branch — narration delivered at end of tick)
 - processInputSF bridge: lexify tokens → parseTokens → eval → unwrap GameComputation (StateT/ExceptT/ReaderT/Identity) → add gs'
 - No TVar for GameState — lives in AccumT
 - No naked domain identifiers — newtypes (SessionId, PlayerNameVAL). GameCommand carries raw Text on purpose: unparsed input, consumed at exactly one site (processInputSF → lexify). The typed command is Sentence — typing happens by parsing, not by wrapping
@@ -91,11 +91,7 @@
 - build-0 DONE: minimal dev env as root commit (branch: build-0-orphan)
 - build-1 DONE: all existing code rebased on build-0 (branch: main, build-1)
 - formatter = pkgs.nixpkgs-fmt + nix-formatting check added to flake.nix and .gitlab-ci.yml
-<<<<<<< Updated upstream
-- Commit 2 in progress: grammar done, Steps 0-2a done, 3a done (Perception.hs), 3b done (ActionManagement.hs). Step 3c IN PROGRESS.
-=======
 - Commit 2 DONE and merged to main (2026-07-11): look end-to-end + witness system, green build, user verified two-client runtime. 2-look merged origin/main (flake.nix union-resolved, flake.lock regenerated), then to main. Deployed via deploys repo (nix flake update sasha, nix run .#arges — nixinate to arges host)
->>>>>>> Stashed changes
 - Implementation plan at /home/mlitchard/.claude/plans/replicated-dreaming-shell.md
 - No standalone `runComputation` function — IX pattern: state lives in reactive framework (AccumT), computation runs within it. Rhine integration (Step 4) handles this in processInputSF.
 - Removed as muddled (2026-07-11): .claude-memory/next-session-prompt.md (stale Step 2b trap — remove-worldaccum-prompt.md is the handoff), docs/memory/MEMORY.md (June copy — this file is the only memory), and SYNTHESIS.md (fleet review from another machine — actionable items executed, path claims wrong here)
@@ -152,7 +148,7 @@
 - `Last Nothing` = no contribution (lift/liftIO), `Last (Just x) <> Last (Just y) = Last (Just y)` — newer wins
 - GameState has NO Semigroup/Monoid — Last provides it for AccumT
 - Pure replacement Semigroup on GameState fails right identity (`x <> mempty = mempty ≠ x`) — breaks AccumT (look after liftIO returns mempty)
-- Narration accumulates within a tick via StateT, delivers at next tick start, then flushes
+- Narration accumulates within a tick via StateT, deliverNarrationSF delivers at end of the same tick, then flushes
 - All state-modifying SFs sequential on one PlayerTick (parallel clock safety)
 - GID counter lives in AppCtx IORef (acNextAgentId :: IORef PInt), not in the accumulator — single-thread access, atomicModifyIORef'
 - processLeavesSF rewritten using RhineM interface — detects departed players session-based (gid ∈ acKnownPlayers ∧ gid ∉ acPlayerMap), removes from scenes, announces via NarrationMap
@@ -165,8 +161,9 @@
 - Errors in the signal chain are sum types, rendered to Text only at the display boundary: JoinFailure (ReturningAgentMissing | ReturningSceneMissing) inside JoinError, joinFailureText at executeJoinsSF → SystemMessage. Never naked Text in an Either
 - Future cut (user-approved): lexify/parseTokens return Either Text — sasha-grammar gets error sum types + render functions, same principle as JoinFailure
 - Future cut (user-approved): GameComputation ExceptT Text becomes ExceptT GameError (sum type + renderer) — Core surgery touching every evaluator/effect, own commit
-- One MVar read per tick phase, threaded along >-> (user ruling: no double-reads): deliverNarrationSF reads acPlayerMap once, passes snapshot to processLeavesSF; processLeavesSF reads acKnownPlayers once, passes it to processJoinsSF; processInputSF makes the only post-join acPlayerMap read (required — executeJoinsSF writes pMap mid-tick, new player's first command must route same-tick). No SF re-reads an MVar another SF already read. Dead-session sends are safe: deliverOutbound logs SendDropped (Server.hs:80-82)
+- MVar reads (supersedes the snapshot-threading ruling, which belonged to the deliver-first ordering): with deliverNarrationSF at the end of the chain, each SF reads the MVars it needs directly — processLeavesSF reads acPlayerMap + acKnownPlayers; processJoinsSF reads acKnownPlayers; processInputSF reads acPlayerMap post-join (executeJoinsSF writes pMap mid-tick, new player's first command routes same-tick); deliverNarrationSF reads acPlayerMap at tick end. Dead-session sends are safe: deliverOutbound logs SendDropped (Server.hs:90-92)
 - NarrationMap Semigroup uses `unionWith (<>)` to merge per-player narrations
+- Login race (diagnosed 2026-07-12, branch 3-cleanup): loginHandler queues PlayerJoined at HTTP login (Server.hs:75), but the client's websocket registers in acConnections only after the HTTP response — the join-triggered auto-look narration reaches deliverOutbound first and gets SendDropped, so the joiner misses scene description/presence while already-connected witnesses see "x has arrived."/"x looks around.". sceneAgents insertion verified correct (processOneJoin, both branches). Fix direction: SessionPhase unification — one acSessions map, `AwaitingSocket PlayerNameVAL | AwaitingJoin PlayerNameVAL sendFn | InGame sendFn (GID Agent)`, PlayerJoined fires at socket attach; replaces acConnections + acPlayerMap. Plan pending. Test debt: Integration.LoginLogoutSpec "login creates agent in agentMap" and "multi-player: both in lobby" assert acPlayerMap membership with no websocket — impossible by design under SessionPhase, must be rewritten with it
 - Types with commit-2-only constructors gain more constructors in future commits
 - TH staging: all makeLenses and derivingTypeScriptDefinition calls at bottom of Core.hs, single TH stage
 

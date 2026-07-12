@@ -6,8 +6,11 @@ module Server.App
   , AppM (..)
   , GameLog (..)
   , PInt
+  , SessionPhase (AwaitingSocket, AwaitingJoin, InGame)
   , firstPlayerId
   , newAppCtx
+  , sessionGid
+  , sessionSend
   , succPInt
   , unPInt
   ) where
@@ -44,6 +47,20 @@ unPInt (PInt n) = n
 firstPlayerId :: PInt
 firstPlayerId = PInt 1000
 
+data SessionPhase = AwaitingSocket PlayerNameVAL
+                  | AwaitingJoin PlayerNameVAL ([MessageFrom] -> IO ())
+                  | InGame ([MessageFrom] -> IO ()) (GID Agent)
+
+sessionGid :: SessionPhase -> Maybe (GID Agent)
+sessionGid (AwaitingSocket _) = Nothing
+sessionGid (AwaitingJoin _ _) = Nothing
+sessionGid (InGame _ gid)     = Just gid
+
+sessionSend :: SessionPhase -> Maybe ([MessageFrom] -> IO ())
+sessionSend (AwaitingSocket _)    = Nothing
+sessionSend (AwaitingJoin _ send) = Just send
+sessionSend (InGame send _)       = Just send
+
 newtype AppM a = AppM { unAppM :: ReaderT AppCtx Handler a }
   deriving newtype
     ( Applicative
@@ -58,6 +75,7 @@ data AppCtx = AppCtx
   { acInbound      :: TChan (Routed MessageTo)
   , acOutbound     :: TChan (Routed MessageFrom)
   , acJoinChan     :: TChan PlayerJoined
+  , acSessions     :: MVar (Map SessionId SessionPhase)
   , acConnections  :: MVar (Map SessionId ([MessageFrom] -> IO ()))
   , acPlayerMap    :: MVar (Map SessionId (GID Agent))
   , acKnownPlayers :: MVar (Map PlayerNameVAL (GID Agent))
@@ -70,6 +88,7 @@ newAppCtx logCfg = do
   inChan   <- newTChanIO
   outChan  <- newTChanIO
   joinChan <- newTChanIO
+  sessions <- newMVar mempty
   conns    <- newMVar mempty
   pMap     <- newMVar mempty
   known    <- newMVar mempty
@@ -78,6 +97,7 @@ newAppCtx logCfg = do
     { acInbound      = inChan
     , acOutbound     = outChan
     , acJoinChan     = joinChan
+    , acSessions     = sessions
     , acConnections  = conns
     , acPlayerMap    = pMap
     , acKnownPlayers = known
