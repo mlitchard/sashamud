@@ -67,6 +67,7 @@ import           FRP.Rhine
   , (|@|)
   )
 import           Grammar.Lexer (lexify, tokens)
+import           Grammar.Parser.Composites.Model (Sentence)
 import           Grammar.Sentence (parseTokens)
 import           Lens.Micro.Platform (at, over, set, view, (?~))
 import           Model.Core
@@ -352,27 +353,31 @@ processInputSF = arrMCl $ \msgs -> do
                   Left err ->
                     liftIO . atomically $
                       writeTChan (acOutbound appCtx) (Routed sid (SystemMessage err))
-                  Right sentence -> do
-                    case lookup gid (view evaluation gs) of
-                      Nothing ->
-                        liftIO . atomically $
-                          writeTChan (acOutbound appCtx) (Routed sid (SystemMessage "failure to load evaluator"))
-                      Just evaluator -> do
-                        let ctx = ComputationContext { _ctxPossibilityGraph = pg }
-                            comp = view runEvaluator evaluator gid sentence
-                            result = runIdentity
-                                   . flip runStateT gs
-                                   . runGameStateT
-                                   . runExceptT
-                                   . flip runReaderT ctx
-                                   . runGameComputation
-                                   $ comp
-                        case result of
-                          (Left err, _) ->
-                            liftIO . atomically $
-                              writeTChan (acOutbound appCtx) (Routed sid (SystemMessage err))
-                          (Right (), gs') ->
-                            addGameState gs'
+                  Right sentence ->
+                    runCommand appCtx pg gs sid gid sentence
+
+runCommand :: AppCtx -> PossibilityGraph -> GameState -> SessionId -> GID Agent -> Sentence -> RhineM ()
+runCommand appCtx pg gs sid gid sentence =
+  case lookup gid (view evaluation gs) of
+    Nothing ->
+      liftIO . atomically $
+        writeTChan (acOutbound appCtx) (Routed sid (SystemMessage "failure to load evaluator"))
+    Just evaluator -> do
+      let ctx = ComputationContext { _ctxPossibilityGraph = pg }
+          comp = view runEvaluator evaluator gid sentence
+          result = runIdentity
+                 . flip runStateT gs
+                 . runGameStateT
+                 . runExceptT
+                 . flip runReaderT ctx
+                 . runGameComputation
+                 $ comp
+      case result of
+        (Left err, _) ->
+          liftIO . atomically $
+            writeTChan (acOutbound appCtx) (Routed sid (SystemMessage err))
+        (Right (), gs') ->
+          addGameState gs'
 
 drainChan :: TChan a -> IO [a]
 drainChan chan = do
