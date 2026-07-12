@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -fsimpl-tick-factor=200 #-}
 
-module Engine.Simulation.EffectNetwork
+module Engine.Simulation.SignalNetwork
   ( RhineM
   , JoinResult (..)
   , gameLoop

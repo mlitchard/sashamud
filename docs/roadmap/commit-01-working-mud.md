@@ -68,7 +68,7 @@ sasha/src/
 │
 ├── Engine/                          -- WORLD RUNTIME (basic engine)
 │   └── Simulation/                  -- Rhine FRP network
-│       ├── EffectNetwork.hs         -- rhinePipeline, RhineM, signal functions, routing
+│       ├── SignalNetwork.hs         -- rhinePipeline, RhineM, signal functions, routing
 │       └── Clocks.hs               -- HeartbeatTick, GameClock
 │
 ├── API/                             -- I/O contracts
@@ -89,7 +89,7 @@ sasha/src/
 
 **Model/Core/ consolidated into Core.hs** — GameState, Agent, Scene, World, EntityKey, and Defaults all live in one file rather than separate files per type. The types are small at commit 1 and tightly interdependent. Mappings.hs stays separate because ActionManagement types are a distinct concern.
 
-**Engine/Simulation/ consolidated into EffectNetwork.hs** — RhineM monad, signal functions, and routing all live in one file rather than GameLoop.hs + Monad.hs + Route.hs. At commit 1 the Rhine network is minimal (heartbeat + player tick). Clocks.hs stays separate.
+**Engine/Simulation/ consolidated into SignalNetwork.hs** — RhineM monad, signal functions, and routing all live in one file rather than GameLoop.hs + Monad.hs + Route.hs. At commit 1 the Rhine network is minimal (heartbeat + player tick). Clocks.hs stays separate.
 
 **Session.hs removed** — The old GameSessionRegistry (TVar of Map Text GameSession) is replaced by acConnections MVar in AppCtx. Session lifecycle (create on login, bind on WS connect, cleanup on disconnect) is handled directly in Authentication.hs and GameWebSocket.hs.
 
