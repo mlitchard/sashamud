@@ -1,6 +1,6 @@
 # SessionPhase Unification — Session Lifecycle as a Sum Type
 
-**STATUS: PROPOSED**
+**STATUS: EXECUTED** (2026-07-12, branch 4-login-bug-fix, four gated steps, each green through nix flake check)
 
 ## Why
 

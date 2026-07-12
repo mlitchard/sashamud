@@ -333,6 +333,19 @@ spec = describe "Integration" . around withTestServer $ do
             Nothing -> expectationFailure "no auto-look narration received on login"
             Just _  -> pure ()
 
+  it "auto-look survives a slow websocket connect" $ \(_port, _ctx) -> do
+    env <- testClientEnv
+    result <- runClientM (loginClient (PlayerNameUNV "SlowSocket")) env
+    case result of
+      Left err -> expectationFailure ("login failed: " <> show err)
+      Right (LoginResponse sid) -> do
+        threadDelay 3000000
+        connectWS sid $ \conn -> do
+          narr <- receiveUntil conn 10000000 isLookNarration
+          case narr of
+            Nothing -> expectationFailure "no auto-look narration after slow connect"
+            Just _  -> pure ()
+
   it "explicit look command repeats the lobby description" $ \(_port, _ctx) -> do
     env <- testClientEnv
     result <- runClientM (loginClient (PlayerNameUNV "LookAgain")) env

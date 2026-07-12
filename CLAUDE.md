@@ -23,7 +23,7 @@ NEVER — specific prohibitions:
 - TMChan — use TChan (see old code: sasha-server/src/MUD/GameLoop.hs)
 - Direct record field access — use lenses (view, set, over) from Lens.Micro.Platform
 - Mutate GameState outside the sequential PlayerTick chain — game state (scenes, agents, narration, evaluators) lives in GameState in AccumT with one writer: the chain. Server state (sessions, sockets, channels) lives in AppCtx MVars/TChans and never routes through the chain — disconnects are async
-- Answering a question from the wrong source — is-a-player: acKnownPlayers; is-connected-now: acPlayerMap; who-is-in-scene: sceneAgents; character-or-object: AgentKind. Never proxy one for another
+- Answering a question from the wrong source — is-a-player: acKnownPlayers; is-connected-now: acSessions InGame phase; who-is-in-scene: sceneAgents; character-or-object: AgentKind. Never proxy one for another
 - head, [x] = expr, or any partial pattern match — handle all branches
 - Naked types — use newtypes for all domain values (session IDs, player names, commands), never raw Text/Int/String
 
