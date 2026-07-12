@@ -76,7 +76,6 @@ data AppCtx = AppCtx
   , acOutbound     :: TChan (Routed MessageFrom)
   , acJoinChan     :: TChan PlayerJoined
   , acSessions     :: MVar (Map SessionId SessionPhase)
-  , acConnections  :: MVar (Map SessionId ([MessageFrom] -> IO ()))
   , acPlayerMap    :: MVar (Map SessionId (GID Agent))
   , acKnownPlayers :: MVar (Map PlayerNameVAL (GID Agent))
   , acNextAgentId  :: IORef PInt
@@ -89,7 +88,6 @@ newAppCtx logCfg = do
   outChan  <- newTChanIO
   joinChan <- newTChanIO
   sessions <- newMVar mempty
-  conns    <- newMVar mempty
   pMap     <- newMVar mempty
   known    <- newMVar mempty
   nextId   <- newIORef firstPlayerId
@@ -98,7 +96,6 @@ newAppCtx logCfg = do
     , acOutbound     = outChan
     , acJoinChan     = joinChan
     , acSessions     = sessions
-    , acConnections  = conns
     , acPlayerMap    = pMap
     , acKnownPlayers = known
     , acNextAgentId  = nextId

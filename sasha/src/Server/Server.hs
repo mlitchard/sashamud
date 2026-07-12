@@ -12,17 +12,17 @@ import           SashaPrelude
 import           API.Routes (SashaAPI)
 import           API.Types
   ( LoginResponse (LoginResponse)
-  , PlayerJoined (PlayerJoined)
   , Routed (Routed)
   , SessionId (SessionId)
   )
 import           Control.Concurrent (modifyMVar_, readMVar)
 import           Control.Concurrent.Async (race_)
-import           Control.Concurrent.STM (atomically, readTChan, writeTChan)
+import           Control.Concurrent.STM (atomically, readTChan)
 import           Control.Exception (Handler (Handler), SomeException, catches)
 import           Control.Monad (forever)
 import           Control.Monad.Reader (ask, runReaderT)
-import           Data.Map.Strict (delete, lookup)
+import           Data.Map.Strict (delete, insert, lookup)
+import qualified Data.Map.Strict (filter)
 import           Data.UUID (toText)
 import           Data.UUID.V4 (nextRandom)
 import           Engine.Simulation.SignalNetwork (gameLoop)
@@ -41,10 +41,12 @@ import           Servant
   , type (:<|>) ((:<|>))
   )
 import           Server.App
-  ( AppCtx (acConnections, acGameLog, acJoinChan, acOutbound, acPlayerMap)
+  ( AppCtx (acGameLog, acOutbound, acPlayerMap, acSessions)
   , AppM (..)
   , GameLog (GameLog)
+  , SessionPhase (AwaitingJoin, AwaitingSocket, InGame)
   , newAppCtx
+  , sessionSend
   )
 import           Server.Authentication (authProxy, sashaContext)
 import           Server.GameWebSocket (gameWebSocket)
@@ -71,30 +73,34 @@ loginHandler :: PlayerNameVAL -> AppM LoginResponse
 loginHandler playerName = do
   ctx <- ask
   sessionId <- liftIO (SessionId . toText <$> nextRandom)
-  liftIO . atomically $
-    writeTChan (acJoinChan ctx) (PlayerJoined sessionId playerName)
+  liftIO $ modifyMVar_ (acSessions ctx)
+    (pure . insert sessionId (AwaitingSocket playerName) . Data.Map.Strict.filter keepEntry)
   liftIO $ writeLog (acGameLog ctx) (PlayerLogin playerName)
   pure (LoginResponse sessionId)
+  where
+    keepEntry (AwaitingSocket n) = n /= playerName
+    keepEntry (AwaitingJoin _ _) = True
+    keepEntry (InGame _ _)       = True
 
 logoutHandler :: SessionId -> AppM NoContent
 logoutHandler sessionId = do
   ctx <- ask
   liftIO $ modifyMVar_ (acPlayerMap ctx) (pure . delete sessionId)
-  liftIO $ modifyMVar_ (acConnections ctx) (pure . delete sessionId)
+  liftIO $ modifyMVar_ (acSessions ctx) (pure . delete sessionId)
   pure NoContent
 
 deliverOutbound :: AppCtx -> IO ()
 deliverOutbound ctx = forever $ do
   Routed sid wireMsg <- atomically (readTChan (acOutbound ctx))
-  conns <- readMVar (acConnections ctx)
-  case lookup sid conns of
+  sessions <- readMVar (acSessions ctx)
+  case lookup sid sessions >>= sessionSend of
     Nothing ->
       writeLog (acGameLog ctx) (SendDropped sid)
     Just sendMsgs ->
       catches (sendMsgs [wireMsg])
         [ Handler (\(_ :: ConnectionException) -> do
             writeLog (acGameLog ctx) (SendFailed sid)
-            modifyMVar_ (acConnections ctx) (pure . delete sid)
+            modifyMVar_ (acSessions ctx) (pure . delete sid)
             modifyMVar_ (acPlayerMap ctx) (pure . delete sid))
         , Handler (\(e :: SomeException) ->
             writeLog (acGameLog ctx) (SendError sid (pack (show e))))
