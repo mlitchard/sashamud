@@ -18,7 +18,7 @@ import           Data.String.Interpolate (i)
 import           Data.Text.Encoding (decodeUtf8')
 import qualified Data.Text.IO as TIO
 import           Data.Time.Clock.POSIX (getPOSIXTime)
-import           Engine.Simulation.EffectNetwork (gameLoop)
+import           Engine.Simulation.SignalNetwork (gameLoop)
 import           GHC.IO (FilePath)
 import           Network.HTTP.Client
   ( defaultManagerSettings

@@ -1,7 +1,7 @@
 # Next Session Prompt
 
 Read the plan at `/home/mlitchard/gitlab/sashamud/.claude-plans/remove-worldaccum.md`
-and execute it. This plan removes WorldAccum from EffectNetwork.hs and puts GameState into AccumT via `Data.Monoid.Last`, hidden behind a RhineM newtype.
+and execute it. This plan removes WorldAccum from SignalNetwork.hs and puts GameState into AccumT via `Data.Monoid.Last`, hidden behind a RhineM newtype.
 
 Six files to change, in this order:
 
@@ -22,7 +22,7 @@ anyclass) and change `AnalysisData (Map Text [RichText])` to
 
 4. **Engine/Evaluators/Player/General.hs** — Delete the broken sendMessage/getRecipients stubs. Rewrite evalStimulusVerbPhrase as a working stub that writes "the test worked!" narration to all Denizen GIDs in the NarrationMap.
 
-5. **Engine/Simulation/EffectNetwork.hs** — The big one:
+5. **Engine/Simulation/SignalNetwork.hs** — The big one:
    - Delete WorldAccum type, instances, and export. Replace old processLeavesSF with new implementation.
    - RhineM becomes a newtype over `AccumT (Last GameState) (ReaderT PossibilityGraph (ReaderT AppCtx IO))`.
    - Manual MonadSchedule instance: `schedule = fmap (hoistS unRhineM) >>> schedule >>> hoistS RhineM`.

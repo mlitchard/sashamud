@@ -43,7 +43,7 @@ on `== Denizen` (Server.hs:183).
 
 Fixed (PlayerAgent → Denizen): Core.hs:7 export (also FixtureAgent → Fixture),
 Engine/Resolution/ActionManagement.hs, Engine/Resolution/Perception.hs,
-Engine/Simulation/EffectNetwork.hs, sashamud-world SashaMudWorld.hs and
+Engine/Simulation/SignalNetwork.hs, sashamud-world SashaMudWorld.hs and
 test/DSL/BuilderSpec.hs, and the plan document's code blocks.
 
 Discovered while fixing, moved to #3's scope: SashaMudWorld.hs:67 sets

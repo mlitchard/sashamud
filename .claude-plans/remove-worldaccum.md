@@ -1,6 +1,6 @@
 # Plan: Remove WorldAccum, GameState in AccumT via Last
 
-**STATUS: APPROVED, NOT APPLIED** — WorldAccum is still live in EffectNetwork.hs. Executing this plan is the work.
+**STATUS: APPROVED, NOT APPLIED** — WorldAccum is still live in SignalNetwork.hs. Executing this plan is the work.
 
 ## Semantic
 
@@ -152,7 +152,7 @@ evalStimulusVerbPhrase _actorGid (ImplicitStimulusVerb _verb) = do
     narrationMap . unNarrationMap . at gid .= Just testNarration
 ```
 
-## File 5: Engine/Simulation/EffectNetwork.hs
+## File 5: Engine/Simulation/SignalNetwork.hs
 
 ### Delete
 
@@ -481,7 +481,7 @@ Remove dead imports from WorldAccum and processLeavesSF deletion.
 ### Module exports
 
 ```haskell
-module Engine.Simulation.EffectNetwork
+module Engine.Simulation.SignalNetwork
   ( RhineM
   , JoinResult (..)
   , gameLoop
@@ -521,5 +521,5 @@ MonadSchedule cannot be derived via newtype (Automaton's role for m is nominal).
 | Model/WireProtocol.hs | GameNarration [RichText] → GameNarration Narration; AnalysisViewport sum type replaces Text key in AnalysisData |
 | Server/App.hs | PInt newtype (no constructor export); acNextAgentId :: IORef PInt |
 | Engine/Evaluators/Player/General.hs | Delete sendMessage/getRecipients, fix eval stub |
-| Engine/Simulation/EffectNetwork.hs | Delete WorldAccum, RhineM newtype with MonadSchedule + operations, rewrite all signal functions, add deliverNarrationSF + processLeavesSF + processInputSF bridge |
+| Engine/Simulation/SignalNetwork.hs | Delete WorldAccum, RhineM newtype with MonadSchedule + operations, rewrite all signal functions, add deliverNarrationSF + processLeavesSF + processInputSF bridge |
 | sashamud-world/src/SashaMudWorld.hs | _evaluation = Evaluator eval → mempty (evaluators register per-player at join) |

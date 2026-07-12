@@ -55,7 +55,7 @@ library
     Engine.Resolution.ActionManagement
     Engine.Resolution.Perception
     Engine.Simulation.Clocks
-    Engine.Simulation.EffectNetwork
+    Engine.Simulation.SignalNetwork
     Error
     Model.Core
     Model.GID
@@ -130,7 +130,7 @@ executable sasha-tests
     Engine.Resolution.ActionManagement
     Engine.Resolution.Perception
     Engine.Simulation.Clocks
-    Engine.Simulation.EffectNetwork
+    Engine.Simulation.SignalNetwork
     Error
     JSONSpec
     Model.Core

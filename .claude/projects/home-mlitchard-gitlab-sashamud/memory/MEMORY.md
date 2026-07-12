@@ -37,7 +37,7 @@
 - Rhine runs in RhineM. Signal functions are ClSF RhineM tick () (). GameState in the monad stack via StateT.
 - PossibilityGraph is immutable after DSL construction.
 - AppCtx: server concerns only. No GameState, no PossibilityGraph.
-- EffectNetwork.hs: merged RhineM monad + Rhine pipeline + signal functions (follows IX EventNetwork single-module pattern).
+- SignalNetwork.hs: merged RhineM monad + Rhine pipeline + signal functions (follows IX EventNetwork single-module pattern).
 - devShell uses mkShell + inputsFrom (shellFor with no packages), following quux pattern. Never build the project to enter the shell.
 
 ## Build-1 Status

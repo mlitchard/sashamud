@@ -2,7 +2,7 @@ module Engine.ActionDiscovery.Instances () where
 
 import           SashaPrelude
 
-import           Control.Monad.Reader (asks)
+import           Control.Monad.State (gets)
 import           Engine.ActionDiscovery.Protocol
   ( ActionProtocol (ActionInput, getActionMap, lookupActionGID, mkEffectKey, runActionProtocol)
   , fetchAgentAction
@@ -15,7 +15,6 @@ import           Model.Core
   ( ActionEffectKey (ImplicitStimulusActionKey)
   , ImplicitStimulusF (ImplicitNoStimulusF, ImplicitStimulusF)
   , actionMaps
-  , ctxPossibilityGraph
   , implicitStimulusMap
   )
 
@@ -31,7 +30,7 @@ instance ActionProtocol ImplicitStimulusF where
 
   -- Coordination: Actor + Scene (scene always vetoes)
   runActionProtocol actorGid verb = do
-    actionMap <- asks (getActionMap @ImplicitStimulusF . view (ctxPossibilityGraph . actionMaps))
+    actionMap <- gets (getActionMap @ImplicitStimulusF . view actionMaps)
     (playerGID, playerAction) <- fetchAgentAction @ImplicitStimulusF verb actionMap actorGid
     (sceneGID, sceneAction) <- fetchSceneAction @ImplicitStimulusF verb actionMap actorGid
 

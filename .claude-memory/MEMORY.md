@@ -78,7 +78,7 @@
 ## Consolidation Decisions (intentional, not gaps)
 - Model/Core/ consolidated: GameState, Agent, Scene, World, EntityKey, Defaults all in Core.hs
   - Mappings.hs eliminated — everything in Core.hs
-- Engine/Simulation/ consolidated: RhineM, signal functions, routing all in EffectNetwork.hs
+- Engine/Simulation/ consolidated: RhineM, signal functions, routing all in SignalNetwork.hs
   - Clocks.hs stays separate
 - Session.hs removed: acConnections MVar replaces GameSessionRegistry
   - Authentication.hs handles auth pipeline instead
@@ -91,7 +91,11 @@
 - build-0 DONE: minimal dev env as root commit (branch: build-0-orphan)
 - build-1 DONE: all existing code rebased on build-0 (branch: main, build-1)
 - formatter = pkgs.nixpkgs-fmt + nix-formatting check added to flake.nix and .gitlab-ci.yml
+<<<<<<< Updated upstream
 - Commit 2 in progress: grammar done, Steps 0-2a done, 3a done (Perception.hs), 3b done (ActionManagement.hs). Step 3c IN PROGRESS.
+=======
+- Commit 2 DONE and merged to main (2026-07-11): look end-to-end + witness system, green build, user verified two-client runtime. 2-look merged origin/main (flake.nix union-resolved, flake.lock regenerated), then to main. Deployed via deploys repo (nix flake update sasha, nix run .#arges — nixinate to arges host)
+>>>>>>> Stashed changes
 - Implementation plan at /home/mlitchard/.claude/plans/replicated-dreaming-shell.md
 - No standalone `runComputation` function — IX pattern: state lives in reactive framework (AccumT), computation runs within it. Rhine integration (Step 4) handles this in processInputSF.
 - Removed as muddled (2026-07-11): .claude-memory/next-session-prompt.md (stale Step 2b trap — remove-worldaccum-prompt.md is the handoff), docs/memory/MEMORY.md (June copy — this file is the only memory), and SYNTHESIS.md (fleet review from another machine — actionable items executed, path claims wrong here)
@@ -139,7 +143,7 @@
 - defaultGameState is local to SashaMudWorld
 - Old code defaults in sasha-core/src/Model/Core/Defaults.hs: defaultScene, defaultWorld, defaultNarration, defaultAgent, defaultObject, defaultBatch
 - PerceptionMap and SpatialRelationshipMap removed from World — needed for future verbs
-- WorldAccum removal plan APPLIED (2026-07-11, all 6 files) — see /home/mlitchard/gitlab/sashamud/.claude-plans/remove-worldaccum.md. Not yet compiled — user builds. Import deviation from plan (critique #11 verification): Narration/ComputationContext record construction needs field names imported (`_playerAction` etc., `_ctxPossibilityGraph`) — plan listed only constructors; fields added to imports in EffectNetwork.hs and General.hs
+- WorldAccum removal plan APPLIED (2026-07-11, all 6 files) — see /home/mlitchard/gitlab/sashamud/.claude-plans/remove-worldaccum.md. Not yet compiled — user builds. Import deviation from plan (critique #11 verification): Narration/ComputationContext record construction needs field names imported (`_playerAction` etc., `_ctxPossibilityGraph`) — plan listed only constructors; fields added to imports in SignalNetwork.hs and General.hs
 - Adversarial critique of that plan (numbered, addressing one at a time): /home/mlitchard/gitlab/sashamud/.claude-plans/remove-worldaccum-critique.md — #1 WITHDRAWN (Narration derives Semigroup/Monoid via Generically, Core.hs:218 — lawful; Semigroup for unionWith merge, Monoid for `non mempty` in modifyAgentNarration Perception.hs:39). #2 RESOLVED: AgentKind is Denizen|Fixture (Denizen = characters incl. players, Fixture = object-agents — old SashaLambdaDSL.hs:710, old Server.hs:218); PlayerAgent was invented, renamed to Denizen everywhere. #3 RESOLVED: processInputSF looks up evaluator per agent, processOneJoin registers Evaluator eval; SashaMudWorld.hs:67 type mismatch (should be mempty) is pre-existing Step 3c issue. #4 RESOLVED: no stale-read — IO MonadSchedule interleaves via MVar (one worker per step), heartbeat contributes Last Nothing, all writers sequential on one PlayerTick chain. #5 RESOLVED: stub is user-approved, no-stubs rule applies to Claude only; this build verifies pipeline, real dispatch is next build. #6 RESOLVED: error inside RhineM newtype, no MonadError in stack. #7 RESOLVED: processLeavesSF rewritten with RhineM interface. #8 RESOLVED: joiner excluded from arrival narration. #9 RESOLVED: GameNarration carries Narration (not [RichText]). #10 RESOLVED: Either JoinError JoinResult prevents ghost sessions. #11 RESOLVED: verify imports against actual file during execution. #12 RESOLVED: SashaMudWorld.hs `_evaluation = mempty` pulled into plan scope as File 6 (was orphaned between #3 and Step 3c). #7 SUPERSEDED DETAIL: departure detection is session-based (gid ∈ acKnownPlayers ∧ gid ∉ acPlayerMap) — the first rewrite used agentKind == Denizen, which would flag NPC Denizens departed every tick. All critiques resolved IN THE PLAN; the plan is now APPLIED in code.
 - RhineM is a newtype over `AccumT (Last GameState) (ReaderT PossibilityGraph (ReaderT AppCtx IO))`
 - RhineM hides Last/Maybe — signal functions use lookGameState/addGameState/askAppCtx/askPossibilityGraph
