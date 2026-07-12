@@ -41,7 +41,7 @@ import           Servant
   , type (:<|>) ((:<|>))
   )
 import           Server.App
-  ( AppCtx (acGameLog, acOutbound, acPlayerMap, acSessions)
+  ( AppCtx (acGameLog, acOutbound, acSessions)
   , AppM (..)
   , GameLog (GameLog)
   , SessionPhase (AwaitingJoin, AwaitingSocket, InGame)
@@ -85,7 +85,6 @@ loginHandler playerName = do
 logoutHandler :: SessionId -> AppM NoContent
 logoutHandler sessionId = do
   ctx <- ask
-  liftIO $ modifyMVar_ (acPlayerMap ctx) (pure . delete sessionId)
   liftIO $ modifyMVar_ (acSessions ctx) (pure . delete sessionId)
   pure NoContent
 
@@ -100,8 +99,7 @@ deliverOutbound ctx = forever $ do
       catches (sendMsgs [wireMsg])
         [ Handler (\(_ :: ConnectionException) -> do
             writeLog (acGameLog ctx) (SendFailed sid)
-            modifyMVar_ (acSessions ctx) (pure . delete sid)
-            modifyMVar_ (acPlayerMap ctx) (pure . delete sid))
+            modifyMVar_ (acSessions ctx) (pure . delete sid))
         , Handler (\(e :: SomeException) ->
             writeLog (acGameLog ctx) (SendError sid (pack (show e))))
         ]

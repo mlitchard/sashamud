@@ -36,7 +36,6 @@ import           Data.Map.Strict
   , elems
   , fromList
   , insert
-  , keys
   , lookup
   , unionWith
   )
@@ -103,7 +102,9 @@ import           Model.WireProtocol
   ( MessageFrom (ChatMessage, GameNarration, Pong, SystemMessage)
   )
 import           Server.App
-  ( AppCtx (acInbound, acJoinChan, acKnownPlayers, acNextAgentId, acOutbound, acPlayerMap)
+  ( AppCtx (acInbound, acJoinChan, acKnownPlayers, acNextAgentId, acOutbound, acSessions)
+  , SessionPhase (AwaitingJoin, AwaitingSocket, InGame)
+  , sessionGid
   , succPInt
   , unPInt
   )
@@ -167,20 +168,20 @@ heartbeatSF :: ClSF RhineM (IOClock RhineM HeartbeatTick) () ()
 heartbeatSF = constMCl $ do
   appCtx <- askAppCtx
   liftIO $ do
-    pMap <- readMVar (acPlayerMap appCtx)
+    sessions <- readMVar (acSessions appCtx)
     let msg = SystemMessage "*** heartbeat"
     atomically $
       mapM_ (\sid -> writeTChan (acOutbound appCtx) (Routed sid msg))
-        (keys pMap)
+        [sid | (sid, phase) <- assocs sessions, Just _ <- [sessionGid phase]]
 
 deliverNarrationSF :: ClSF RhineM (IOClock RhineM PlayerTick) () ()
 deliverNarrationSF = constMCl $ do
   appCtx <- askAppCtx
   gs <- lookGameState
-  pMap <- liftIO $ readMVar (acPlayerMap appCtx)
+  sessions <- liftIO $ readMVar (acSessions appCtx)
   let nMap = view (narrationMap . unNarrationMap) gs
   forM_ (assocs nMap) $ \(agentGid, narr) -> do
-    let targetSids = [s | (s, g) <- assocs pMap, g == agentGid]
+    let targetSids = [s | (s, phase) <- assocs sessions, sessionGid phase == Just agentGid]
     forM_ targetSids $ \targetSid ->
       liftIO . atomically $
         writeTChan (acOutbound appCtx) (Routed targetSid (GameNarration narr))
@@ -191,9 +192,9 @@ processLeavesSF :: ClSF RhineM (IOClock RhineM PlayerTick) () ()
 processLeavesSF = constMCl $ do
   appCtx <- askAppCtx
   gs <- lookGameState
-  pMap <- liftIO $ readMVar (acPlayerMap appCtx)
+  sessions <- liftIO $ readMVar (acSessions appCtx)
   known <- liftIO $ readMVar (acKnownPlayers appCtx)
-  let activeGids = Set.fromList (elems pMap)
+  let activeGids = Set.fromList [gid | phase <- elems sessions, Just gid <- [sessionGid phase]]
       knownGids = Set.fromList (elems known)
       aMap = view (world . agentMap . getAgentMap) gs
       isDeparted gid = Set.member gid knownGids
@@ -312,13 +313,23 @@ processOneJoin known (PlayerJoined sid name) =
 executeJoin :: AppCtx -> JoinResult -> IO ()
 executeJoin ctx (NewPlayerJoined sid name gid) = do
   modifyMVar_ (acKnownPlayers ctx) (pure . insert name gid)
-  modifyMVar_ (acPlayerMap ctx) (pure . insert sid gid)
+  modifyMVar_ (acSessions ctx) $ \sessions ->
+    pure $ case lookup sid sessions of
+      Just (AwaitingJoin _ send) -> insert sid (InGame send gid) sessions
+      Just (AwaitingSocket _)    -> sessions
+      Just (InGame _ _)          -> sessions
+      Nothing                    -> sessions
   atomically $
     writeTChan (acOutbound ctx)
       (Routed sid (ChatMessage ("Welcome, " <> view unPlayerNameVAL name <> "!")))
   atomically $ writeTChan (acInbound ctx) (Routed sid (GameCommand "look"))
 executeJoin ctx (ReturningPlayerJoined sid _name gid) = do
-  modifyMVar_ (acPlayerMap ctx) (pure . insert sid gid)
+  modifyMVar_ (acSessions ctx) $ \sessions ->
+    pure $ case lookup sid sessions of
+      Just (AwaitingJoin _ send) -> insert sid (InGame send gid) sessions
+      Just (AwaitingSocket _)    -> sessions
+      Just (InGame _ _)          -> sessions
+      Nothing                    -> sessions
   atomically $
     writeTChan (acOutbound ctx)
       (Routed sid (ChatMessage "Welcome back!"))
@@ -333,7 +344,7 @@ processInputSF :: ClSF RhineM (IOClock RhineM PlayerTick) [Routed MessageTo] ()
 processInputSF = arrMCl $ \msgs -> do
   appCtx <- askAppCtx
   pg     <- askPossibilityGraph
-  pMap   <- liftIO $ readMVar (acPlayerMap appCtx)
+  sessions <- liftIO $ readMVar (acSessions appCtx)
   forM_ msgs $ \(Routed sid msgTo) ->
     case msgTo of
       Ping ->
@@ -341,7 +352,7 @@ processInputSF = arrMCl $ \msgs -> do
           writeTChan (acOutbound appCtx) (Routed sid Pong)
       GameCommand cmdText -> do
         gs <- lookGameState
-        case lookup sid pMap of
+        case lookup sid sessions >>= sessionGid of
           Nothing  -> pure ()
           Just gid ->
             case lexify tokens cmdText of

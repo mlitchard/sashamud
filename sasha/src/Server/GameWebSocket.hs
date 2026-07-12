@@ -16,7 +16,7 @@ import qualified Data.Map.Strict as Map (delete, insert, lookup)
 import           Model.WireProtocol (MessageFrom)
 import           Servant.API.WebSocket (Handler (Handler, handle, recieve))
 import           Server.App
-  ( AppCtx (acInbound, acJoinChan, acPlayerMap, acSessions)
+  ( AppCtx (acInbound, acJoinChan, acSessions)
   , SessionPhase (AwaitingJoin, AwaitingSocket, InGame)
   )
 
@@ -35,7 +35,6 @@ gameWebSocket ctx (AuthenticatedUser sessionId) sendMsgs = do
         pure sessions
   pure Handler
     { recieve = atomically . writeTChan (acInbound ctx) . Routed sessionId
-    , handle = \_ -> do
+    , handle = \_ ->
         modifyMVar_ (acSessions ctx) (pure . Map.delete sessionId)
-        modifyMVar_ (acPlayerMap ctx) (pure . Map.delete sessionId)
     }
