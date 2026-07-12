@@ -34,7 +34,7 @@ no Semigroup/Monoid needed on GameState itself
 - Walk through what happens tick-by-tick when Player A logs in:
   - `processJoinsSF`: reads acKnownPlayers once, detects new name, assigns a GID
   (atomicModifyIORef on acNextAgentId — counter lives in AppCtx, not the accumulator)
-  - `executeJoinsSF`: runs the DSL-built `newUser` computation — places agent in lobby
+  - `executeJoinsSF`: uses the DSL-declared agent template and start scene — places agent in lobby
   scene, announces "Player A has arrived." to everyone in the scene via NarrationMap, enqueues auto-look (`GameCommand "look"`)
   - Next tick: `deliverNarrationSF` drains NarrationMap — each player gets their narration routed by GID, then flushed
 - Repeat for Player B joining — same pipeline, same machinery, now two agents in sceneAgents

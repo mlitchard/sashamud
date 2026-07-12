@@ -31,7 +31,6 @@ import           Model.Core
   , WitnessF (WitnessF)
   , WorldOutcome (NarrationEffect, WitnessEffect)
   , actionConsequence
-  , actionMaps
   , agentActionManagement
   , agentKind
   , agentLocationMap
@@ -80,7 +79,7 @@ processWitnesses actorGid narrationComp = do
         Nothing -> pure ()
         Just scene -> do
           aMap <- use (world . agentMap . getAgentMap)
-          wMap <- asks (view (ctxPossibilityGraph . actionMaps . witnessMap))
+          wMap <- asks (view (ctxPossibilityGraph . witnessMap))
           let witnesses =
                 [ (gid, agent)
                 | gid <- toList (view sceneAgents scene)

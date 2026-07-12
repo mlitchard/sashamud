@@ -1,9 +1,5 @@
 module DSL.BuilderSpec (spec) where
 
-import           Control.Monad.Except (runExceptT)
-import           Control.Monad.State (runStateT)
-import           Control.Monad.Trans.Reader (ReaderT (runReaderT))
-import           Data.Functor.Identity (runIdentity)
 import           Data.Map.Strict (lookup, size)
 import           Data.Set (member)
 import           Grammar.Parser.Atomics.Semantics.Verbs.ImplicitStimulus
@@ -14,24 +10,18 @@ import           Model.Core
   ( ActionEffectKey (ImplicitStimulusActionKey)
   , ActionManagement (ISAManagementKey)
   , AgentKind (Denizen)
-  , ComputationContext (ComputationContext, _ctxPossibilityGraph, _newUser)
-  , GameComputation (runGameComputation)
-  , GameStateT (runGameStateT)
   , NarrationComputation (LookNarration)
   , WorldOutcome (NarrationEffect)
   , actionManagementFunctions
   , actionMaps
   , agentActionManagement
   , agentKind
-  , agentLocationMap
-  , agentMap
   , agentShortName
-  , getAgentMap
   , getGIDToDataMap
   , implicitStimulusMap
-  , newUserF
+  , newUserMkAgent
+  , newUserStartScene
   , sceneActionManagement
-  , sceneAgents
   , sceneDescription
   , sceneMap
   , title
@@ -41,17 +31,7 @@ import           Model.Core
 import           Model.GID (GID (GID))
 import           Model.RichText (toPlainText)
 import           SashaMudWorld (defaultDenizen, gameState, possibilityGraph)
-import           SashaPrelude
-  ( Bool (True)
-  , Either (Left, Right)
-  , Maybe (Just, Nothing)
-  , flip
-  , pure
-  , unpack
-  , ($)
-  , (.)
-  , (<>)
-  )
+import           SashaPrelude (Bool (True), Maybe (Just, Nothing), ($), (.))
 import           Test.Hspec (Spec, describe, expectationFailure, it, shouldBe)
 
 spec :: Spec
@@ -90,37 +70,18 @@ spec = describe "DSL.Builder" $ do
       Nothing -> expectationFailure "no world outcomes registered for scene look key"
 
   it "implicitStimulusMap has two look actions" $ do
-    size (view (actionMaps . implicitStimulusMap) possibilityGraph) `shouldBe` 2
+    size (view (actionMaps . implicitStimulusMap) gameState) `shouldBe` 2
 
-  describe "newUserF" $ do
-    it "creates the agent with look, places it in the lobby" $ do
-      let ctx = ComputationContext
-            { _ctxPossibilityGraph = possibilityGraph
-            , _newUser             = pure ()
-            }
-          comp = view newUserF possibilityGraph (GID 7) "alice"
-          result = runIdentity
-                 . flip runStateT gameState
-                 . runGameStateT
-                 . runExceptT
-                 . flip runReaderT ctx
-                 . runGameComputation
-                 $ comp
-      case result of
-        (Left err, _) ->
-          expectationFailure ("newUser computation failed: " <> unpack err)
-        (Right (), gs') -> do
-          case lookup (GID 7) (view (world . agentMap . getAgentMap) gs') of
-            Just agent ->
-              member (ISAManagementKey isaLook (GID 1))
-                (view (agentActionManagement . actionManagementFunctions) agent)
-                `shouldBe` True
-            Nothing -> expectationFailure "agent not created at GID 7"
-          lookup (GID 7) (view agentLocationMap gs') `shouldBe` Just (GID 0)
-          case lookup (GID 0) (view (world . sceneMap . getGIDToDataMap) gs') of
-            Just lobby ->
-              member (GID 7) (view sceneAgents lobby) `shouldBe` True
-            Nothing -> expectationFailure "lobby scene not found after newUser"
+  describe "newUser template" $ do
+    it "start scene is the lobby" $ do
+      view newUserStartScene possibilityGraph `shouldBe` GID 0
+
+    it "agent template produces agent with look action management" $ do
+      let mkAgent = view newUserMkAgent possibilityGraph
+          agent = mkAgent "alice"
+      member (ISAManagementKey isaLook (GID 1))
+        (view (agentActionManagement . actionManagementFunctions) agent)
+        `shouldBe` True
 
   describe "defaultDenizen" $ do
     it "creates agent with correct name" $ do

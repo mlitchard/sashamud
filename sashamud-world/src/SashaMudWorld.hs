@@ -40,7 +40,7 @@ import           Model.Core
   , ActionManagementFunctions (ActionManagementFunctions)
   , Agent (Agent, _agentActionManagement, _agentDescription, _agentKind, _agentShortName, _agentTitle)
   , AgentKind (Denizen)
-  , GameState (GameState, _agentLocationMap, _evaluation, _narrationMap, _world)
+  , GameState (GameState, _actionMaps, _agentLocationMap, _evaluation, _narrationMap, _world)
   , NarrationComputation (LookNarration)
   , NarrationMap (NarrationMap)
   , PossibilityGraph
@@ -48,6 +48,7 @@ import           Model.Core
   , WorldOutcome (NarrationEffect, WitnessEffect)
   , defaultScene
   , defaultWorld
+  , emptyActionMaps
   )
 import           Model.RichText (TextColor (White), colored, plain)
 
@@ -90,6 +91,7 @@ defaultGameState = GameState
   , _narrationMap     = NarrationMap mempty
   , _evaluation       = mempty
   , _agentLocationMap = mempty
+  , _actionMaps      = emptyActionMaps
   }
 
 buildResult :: WorldBuilderResult

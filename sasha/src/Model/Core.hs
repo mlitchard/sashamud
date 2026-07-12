@@ -79,9 +79,9 @@ module Model.Core
   , actionMaps
   , entityActionEffects
   , worldOutcomeEffects
-  , newUserF
+  , newUserStartScene
+  , newUserMkAgent
   , ctxPossibilityGraph
-  , newUser
   ) where
 
 import           SashaPrelude
@@ -278,11 +278,10 @@ type WitnessMap = Map (GID WitnessF) WitnessF
 type ActionMaps :: Type
 data ActionMaps = ActionMaps
   { _implicitStimulusMap :: ImplicitStimulusMap
-  , _witnessMap          :: WitnessMap
   }
 
 emptyActionMaps :: ActionMaps
-emptyActionMaps = ActionMaps { _implicitStimulusMap = mempty, _witnessMap = mempty }
+emptyActionMaps = ActionMaps { _implicitStimulusMap = mempty }
 
 type EntityActionRegistry :: Type
 type EntityActionRegistry = Map ActionEffectKey (Map EntityKey (Set ActionManagementOperation))
@@ -301,6 +300,7 @@ data GameState = GameState
   , _narrationMap     :: NarrationMap
   , _evaluation       :: Map (GID Agent) Evaluator
   , _agentLocationMap :: Map (GID Agent) (GID Scene)
+  , _actionMaps       :: ActionMaps
   }
 
 type GameStateT :: (Type -> Type) -> Type -> Type
@@ -322,7 +322,6 @@ instance MonadTrans GameStateT where
 type ComputationContext :: Type
 data ComputationContext = ComputationContext
   { _ctxPossibilityGraph :: PossibilityGraph
-  , _newUser             :: GameComputation Identity ()
   }
 
 type GameComputation :: (Type -> Type) -> Type -> Type
@@ -343,10 +342,11 @@ instance MonadTrans GameComputation where
 
 type PossibilityGraph :: Type
 data PossibilityGraph = PossibilityGraph
-  { _actionMaps          :: ActionMaps
-  , _entityActionEffects :: EntityActionRegistry
+  { _entityActionEffects :: EntityActionRegistry
   , _worldOutcomeEffects :: WorldOutcomeRegistry
-  , _newUserF            :: GID Agent -> Text -> GameComputation Identity ()
+  , _witnessMap          :: WitnessMap
+  , _newUserStartScene   :: GID Scene
+  , _newUserMkAgent      :: Text -> Agent
   }
 
 -- Defaults
