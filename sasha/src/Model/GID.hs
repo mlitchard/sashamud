@@ -7,6 +7,9 @@ import           SashaPrelude
 import           Control.DeepSeq (NFData (..))
 import           Data.Aeson (FromJSON, ToJSON)
 import           Data.Hashable (Hashable)
+#ifdef TESTING
+import           Test.QuickCheck (Arbitrary)
+#endif
 
 type role GID phantom
 type GID :: Type -> Type
@@ -15,3 +18,7 @@ newtype GID a = GID { unGID :: Int }
 
 instance NFData (GID a) where
   rnf (GID i) = rnf i
+
+#ifdef TESTING
+deriving newtype instance Arbitrary (GID a)
+#endif

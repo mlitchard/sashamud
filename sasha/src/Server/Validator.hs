@@ -80,7 +80,7 @@ derivingTypeScriptDefinition ''PlayerNameUNV
 
 newtype PlayerNameVAL = PlayerNameVAL { _unPlayerNameVAL :: Text }
   deriving stock (Generic, Show)
-  deriving newtype (Eq, Ord, ToJSON)
+  deriving newtype (Eq, FromJSON, Ord, ToJSON)
   deriving anyclass (NFData)
 
 makeLenses ''PlayerNameVAL
@@ -102,4 +102,5 @@ instance Validate PlayerNameUNV PlayerNameVAL where
 
 #ifdef TESTING
 deriving newtype instance Arbitrary PlayerNameUNV
+deriving newtype instance Arbitrary PlayerNameVAL
 #endif

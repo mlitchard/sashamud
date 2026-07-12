@@ -5,10 +5,11 @@ import           Data.Kind (Type)
 import           SashaPrelude (Eq, Maybe (Just), Show, ($), (==))
 
 import           API.Types (LoginResponse, MessageTo)
-import           Model.Core (SessionId)
+import           Model.Core (Narration, SessionId)
+import           Model.GID (GID)
 import           Model.RichText (RichText, StyledSpan, TextColor, TextStyle)
-import           Model.WireProtocol (MessageFrom)
-import           Server.Validator (PlayerNameUNV)
+import           Model.WireProtocol (AnalysisViewport, MessageFrom)
+import           Server.Validator (PlayerNameUNV, PlayerNameVAL)
 import           Test.Hspec (Spec, describe)
 import           Test.Hspec.QuickCheck (prop)
 import           Test.QuickCheck (Arbitrary, Property, property)
@@ -35,3 +36,7 @@ spec = describe "JSON round trip" $ do
     prop "MessageTo" $ checkJSON @MessageTo
     prop "LoginResponse" $ checkJSON @LoginResponse
     prop "PlayerNameUNV" $ checkJSON @PlayerNameUNV
+    prop "PlayerNameVAL" $ checkJSON @PlayerNameVAL
+    prop "Narration" $ checkJSON @Narration
+    prop "GID" $ checkJSON @(GID ())
+    prop "AnalysisViewport" $ checkJSON @AnalysisViewport
