@@ -159,7 +159,7 @@ rhinePipeline :: Rhine RhineM
 rhinePipeline =
     heartbeatSF @@ ioClock (waitClock :: HeartbeatTick)
     |@|
-    (deliverNarrationSF >-> processLeavesSF >-> processJoinsSF >-> executeJoinsSF >-> gatherInputSF >-> processInputSF)
+    (processLeavesSF >-> processJoinsSF >-> executeJoinsSF >-> gatherInputSF >-> processInputSF >-> deliverNarrationSF)
       @@ ioClock (waitClock :: PlayerTick)
 
 heartbeatSF :: ClSF RhineM (IOClock RhineM HeartbeatTick) () ()
@@ -172,7 +172,7 @@ heartbeatSF = constMCl $ do
       mapM_ (\sid -> writeTChan (acOutbound appCtx) (Routed sid msg))
         (keys pMap)
 
-deliverNarrationSF :: ClSF RhineM (IOClock RhineM PlayerTick) () (Map SessionId (GID Agent))
+deliverNarrationSF :: ClSF RhineM (IOClock RhineM PlayerTick) () ()
 deliverNarrationSF = constMCl $ do
   appCtx <- askAppCtx
   gs <- lookGameState
@@ -185,12 +185,12 @@ deliverNarrationSF = constMCl $ do
         writeTChan (acOutbound appCtx) (Routed targetSid (GameNarration narr))
   when (not (null nMap)) $
     addGameState (set narrationMap (NarrationMap mempty) gs)
-  pure pMap
 
-processLeavesSF :: ClSF RhineM (IOClock RhineM PlayerTick) (Map SessionId (GID Agent)) (Map PlayerNameVAL (GID Agent))
-processLeavesSF = arrMCl $ \pMap -> do
+processLeavesSF :: ClSF RhineM (IOClock RhineM PlayerTick) () ()
+processLeavesSF = constMCl $ do
   appCtx <- askAppCtx
   gs <- lookGameState
+  pMap <- liftIO $ readMVar (acPlayerMap appCtx)
   known <- liftIO $ readMVar (acKnownPlayers appCtx)
   let activeGids = Set.fromList (elems pMap)
       knownGids = Set.fromList (elems known)
@@ -225,11 +225,11 @@ processLeavesSF = arrMCl $ \pMap -> do
           & world . sceneMap . getGIDToDataMap . at sceneGid ?~ scene'
           & over (narrationMap . unNarrationMap) (unionWith (<>) narrations)
     addGameState gs'
-  pure known
 
-processJoinsSF :: ClSF RhineM (IOClock RhineM PlayerTick) (Map PlayerNameVAL (GID Agent)) [Either JoinError JoinResult]
-processJoinsSF = arrMCl $ \known -> do
+processJoinsSF :: ClSF RhineM (IOClock RhineM PlayerTick) () [Either JoinError JoinResult]
+processJoinsSF = constMCl $ do
   appCtx <- askAppCtx
+  known <- liftIO $ readMVar (acKnownPlayers appCtx)
   joins <- liftIO $ drainChan (acJoinChan appCtx)
   traverse (processOneJoin known) joins
 
