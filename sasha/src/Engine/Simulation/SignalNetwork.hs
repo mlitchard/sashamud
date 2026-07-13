@@ -2,7 +2,6 @@
 
 module Engine.Simulation.SignalNetwork
   ( RhineM
-  , JoinResult (..)
   , gameLoop
   ) where
 
@@ -22,13 +21,13 @@ import           Control.Concurrent.STM
   , tryReadTChan
   , writeTChan
   )
-import           Control.Monad.Except (runExceptT)
+import           Control.Monad.Except (runExceptT, throwError)
 import           Control.Monad.Schedule.Class (MonadSchedule (schedule))
-import           Control.Monad.State (runStateT)
+import           Control.Monad.State (get, put, runStateT)
 import           Control.Monad.Trans.Accum (AccumT, add, look, runAccumT)
 import           Control.Monad.Trans.Class (lift)
 import           Control.Monad.Trans.Reader (ReaderT (runReaderT), ask)
-import           Data.Functor.Identity (runIdentity)
+import           Data.Functor.Identity (Identity, runIdentity)
 import           Data.IORef (atomicModifyIORef')
 import           Data.Map.Strict
   ( Map
@@ -56,19 +55,16 @@ import           FRP.Rhine
   , IOClock
   , ParallelClock
   , Rhine
-  , arrMCl
   , constMCl
   , flow
   , ioClock
   , waitClock
-  , (>->)
   , (@@)
   , (|@|)
   )
 import           Grammar.Lexer (lexify, tokens)
-import           Grammar.Parser.Composites.Model (Sentence)
 import           Grammar.Sentence (parseTokens)
-import           Lens.Micro.Platform (at, over, set, view, (?~))
+import           Lens.Micro.Platform (at, over, set, use, view, (.=), (?~))
 import           Model.Core
   ( Agent
   , AgentKind (Denizen)
@@ -84,6 +80,7 @@ import           Model.Core
   , agentLocationMap
   , agentMap
   , agentShortName
+  , ctxPossibilityGraph
   , evaluation
   , getAgentMap
   , getGIDToDataMap
@@ -97,7 +94,13 @@ import           Model.Core
   , world
   )
 import           Model.GID (GID (GID))
-import           Model.RichText (TextColor (White), colored, plain, toPlainText)
+import           Model.RichText
+  ( RichText
+  , TextColor (White)
+  , colored
+  , plain
+  , toPlainText
+  )
 import           Model.WireProtocol
   ( MessageFrom (ChatMessage, GameNarration, Pong, SystemMessage)
   )
@@ -112,21 +115,7 @@ import           Server.App
 import           Server.Validator (PlayerNameVAL, unPlayerNameVAL)
 
 data JoinResult = NewPlayerJoined SessionId PlayerNameVAL (GID Agent)
-                | ReturningPlayerJoined SessionId PlayerNameVAL (GID Agent)
-
-data JoinFailure
-  = ReturningAgentMissing
-  | ReturningLocationMissing
-  | ReturningSceneMissing
-  | NewUserSceneMissing
-
-data JoinError = JoinError SessionId JoinFailure
-
-joinFailureText :: JoinFailure -> Text
-joinFailureText ReturningAgentMissing    = "returning player agent not found"
-joinFailureText ReturningLocationMissing = "returning player location not found"
-joinFailureText ReturningSceneMissing    = "returning player scene not found"
-joinFailureText NewUserSceneMissing      = "new player start scene not found"
+                | ReturningPlayerJoined SessionId (GID Agent)
 
 type RhineM :: Type -> Type
 newtype RhineM a = RhineM { unRhineM :: AccumT (Last GameState) (ReaderT PossibilityGraph (ReaderT AppCtx IO)) a }
@@ -162,8 +151,7 @@ rhinePipeline :: Rhine RhineM
 rhinePipeline =
     heartbeatSF @@ ioClock (waitClock :: HeartbeatTick)
     |@|
-    (processLeavesSF >-> processJoinsSF >-> executeJoinsSF >-> gatherInputSF >-> processInputSF >-> deliverNarrationSF)
-      @@ ioClock (waitClock :: PlayerTick)
+    playerTickBlock @@ ioClock (waitClock :: PlayerTick)
 
 heartbeatSF :: ClSF RhineM (IOClock RhineM HeartbeatTick) () ()
 heartbeatSF = constMCl $ do
@@ -175,26 +163,64 @@ heartbeatSF = constMCl $ do
       mapM_ (\sid -> writeTChan (acOutbound appCtx) (Routed sid msg))
         [sid | (sid, phase) <- assocs sessions, Just _ <- [sessionGid phase]]
 
-deliverNarrationSF :: ClSF RhineM (IOClock RhineM PlayerTick) () ()
-deliverNarrationSF = constMCl $ do
-  appCtx <- askAppCtx
+playerTickBlock :: ClSF RhineM (IOClock RhineM PlayerTick) () ()
+playerTickBlock = constMCl $ do
   gs <- lookGameState
-  sessions <- liftIO $ readMVar (acSessions appCtx)
-  let nMap = view (narrationMap . unNarrationMap) gs
-  forM_ (assocs nMap) $ \(agentGid, narr) -> do
-    let targetSids = [s | (s, phase) <- assocs sessions, sessionGid phase == Just agentGid]
-    forM_ targetSids $ \targetSid ->
-      liftIO . atomically $
-        writeTChan (acOutbound appCtx) (Routed targetSid (GameNarration narr))
-  when (not (null nMap)) $
-    addGameState (set narrationMap (NarrationMap mempty) gs)
+  appCtx <- askAppCtx
+  pg <- askPossibilityGraph
 
-processLeavesSF :: ClSF RhineM (IOClock RhineM PlayerTick) () ()
-processLeavesSF = constMCl $ do
-  appCtx <- askAppCtx
-  gs <- lookGameState
+  -- IO: gather inputs
   sessions <- liftIO $ readMVar (acSessions appCtx)
   known <- liftIO $ readMVar (acKnownPlayers appCtx)
+  joins <- liftIO $ drainChan (acJoinChan appCtx)
+  msgs <- liftIO $ drainChan (acInbound appCtx)
+
+  -- IO: pre-allocate GIDs for new players
+  newGIDs <- liftIO $ allocateNewGIDs appCtx known joins
+
+  -- GENERATE: compose one big GameComputation
+  let (pings, commandComp) = resolveCommands sessions msgs
+      (joinResults, joinComp) = processJoinsPure known newGIDs
+      leavesComp = processLeavesPure sessions known
+      ctx = ComputationContext { _ctxPossibilityGraph = pg }
+      tickComp = composeTick leavesComp joinComp commandComp (joinGIDs joinResults)
+
+      -- EXECUTE: run once
+      (result, gs') = runPureComputation tickComp ctx gs
+
+  -- IO: protocol replies (delivered regardless of tick result)
+  liftIO . forM_ pings $ \sid ->
+    atomically $ writeTChan (acOutbound appCtx) (Routed sid Pong)
+
+  -- ERROR EVALUATION: after execution
+  case result of
+    Left err ->
+      liftIO $ hPutStrLn stderr ("Tick computation failed: " <> unpack err)
+    Right narrations -> do
+      -- IO: execute join effects (session promotion, welcome messages)
+      liftIO $ forM_ joinResults (executeJoinIO appCtx)
+      -- IO: deliver narrations to clients
+      liftIO $ deliverNarrationIO appCtx narrations
+
+  addGameState gs'
+
+composeTick :: GameComputation Identity ()
+            -> GameComputation Identity ()
+            -> GameComputation Identity ()
+            -> [GID Agent]
+            -> GameComputation Identity (Map (GID Agent) Narration)
+composeTick leavesComp joinComp commandComp joinedGids = do
+  leavesComp
+  joinComp
+  commandComp
+  forM_ joinedGids $ \gid -> runEvalFor gid "look"
+  extractNarration
+
+processLeavesPure :: Map SessionId SessionPhase
+                  -> Map PlayerNameVAL (GID Agent)
+                  -> GameComputation Identity ()
+processLeavesPure sessions known = do
+  gs <- get
   let activeGids = Set.fromList [gid | phase <- elems sessions, Just gid <- [sessionGid phase]]
       knownGids = Set.fromList (elems known)
       aMap = view (world . agentMap . getAgentMap) gs
@@ -206,113 +232,144 @@ processLeavesSF = constMCl $ do
         , let departed = Set.filter isDeparted (view sceneAgents scene)
         , not (Set.null departed)
         ]
-  forM_ sceneDepartures $ \(sceneGid, scene, departed) -> do
-    currentGs <- lookGameState
-    let remaining = foldl' (flip Set.delete) (view sceneAgents scene) (toList departed)
-        scene' = set sceneAgents remaining scene
-        recipientGids = [g | g <- Set.toList remaining
-                           , Just a <- [lookup g aMap]
-                           , view agentKind a == Denizen]
-        departNarr = mconcat
-          [ Narration
-              { _playerAction      = []
-              , _actionConsequence = [view agentShortName a <> plain " has departed."]
-              , _presenceListing   = []
-              , _actionEpilogue    = []
-              }
-          | gid <- Set.toList departed
-          , Just a <- [lookup gid aMap]
-          ]
-        narrations = fromList [(r, departNarr) | r <- recipientGids]
-        gs' = currentGs
-          & world . sceneMap . getGIDToDataMap . at sceneGid ?~ scene'
-          & over (narrationMap . unNarrationMap) (unionWith (<>) narrations)
-    addGameState gs'
+      applyDeparture currentGs (sceneGid, scene, departed) =
+        let remaining = foldl' (flip Set.delete) (view sceneAgents scene) (toList departed)
+            scene' = set sceneAgents remaining scene
+            departNarr = mconcat
+              [ consequenceNarration (view agentShortName a <> plain " has departed.")
+              | gid <- Set.toList departed
+              , Just a <- [lookup gid aMap]
+              ]
+        in currentGs
+             & world . sceneMap . getGIDToDataMap . at sceneGid ?~ scene'
+             & announceToDenizens aMap (Set.toList remaining) departNarr
+  put (foldl' applyDeparture gs sceneDepartures)
 
-processJoinsSF :: ClSF RhineM (IOClock RhineM PlayerTick) () [Either JoinError JoinResult]
-processJoinsSF = constMCl $ do
-  appCtx <- askAppCtx
-  known <- liftIO $ readMVar (acKnownPlayers appCtx)
-  joins <- liftIO $ drainChan (acJoinChan appCtx)
-  traverse (processOneJoin known) joins
-
-executeJoinsSF :: ClSF RhineM (IOClock RhineM PlayerTick) [Either JoinError JoinResult] ()
-executeJoinsSF = arrMCl $ \results -> do
-  appCtx <- askAppCtx
-  liftIO . forM_ results $ \case
-    Left (JoinError sid failure) ->
-      atomically $ writeTChan (acOutbound appCtx) (Routed sid (SystemMessage (joinFailureText failure)))
-    Right joinResult ->
-      executeJoin appCtx joinResult
-
-processOneJoin :: Map PlayerNameVAL (GID Agent) -> PlayerJoined -> RhineM (Either JoinError JoinResult)
-processOneJoin known (PlayerJoined sid name) =
-  case lookup name known of
-    Just gid -> do
-      gs <- lookGameState
+processJoinsPure :: Map PlayerNameVAL (GID Agent)
+                 -> [(PlayerJoined, GID Agent)]
+                 -> ([JoinResult], GameComputation Identity ())
+processJoinsPure known newGIDs = (joinResults, mapM_ joinComputation joinResults)
+  where
+    joinResults = fmap classify newGIDs
+    classify (PlayerJoined sid name, allocatedGid) =
+      case lookup name known of
+        Just gid -> ReturningPlayerJoined sid gid
+        Nothing  -> NewPlayerJoined sid name allocatedGid
+    joinComputation (ReturningPlayerJoined _sid gid) = do
+      gs <- get
       case lookup gid (view (world . agentMap . getAgentMap) gs) of
-        Nothing -> pure (Left (JoinError sid ReturningAgentMissing))
+        Nothing -> throwError ("Programmer Error: returning player agent not found: " <> pack (show gid))
         Just agent ->
           case lookup gid (view agentLocationMap gs) of
-            Nothing -> pure (Left (JoinError sid ReturningLocationMissing))
+            Nothing -> throwError ("Programmer Error: returning player location not found: " <> pack (show gid))
             Just sceneGid ->
               case lookup sceneGid (view (world . sceneMap . getGIDToDataMap) gs) of
-                Nothing -> pure (Left (JoinError sid ReturningSceneMissing))
+                Nothing -> throwError ("Programmer Error: returning player scene not found: " <> pack (show sceneGid))
                 Just scene -> do
                   let aMap = view (world . agentMap . getAgentMap) gs
                       scene' = set sceneAgents (Set.insert gid (view sceneAgents scene)) scene
-                      announceNarration = Narration
-                        { _playerAction      = []
-                        , _actionConsequence = [colored White (toPlainText (view agentShortName agent) <> " has arrived.")]
-                        , _presenceListing   = []
-                        , _actionEpilogue    = []
-                        }
-                      recipientGids = [g | g <- Set.toList (view sceneAgents scene')
-                                         , g /= gid
-                                         , Just a <- [lookup g aMap]
-                                         , view agentKind a == Denizen]
-                      joinNarrations = fromList [(g, announceNarration) | g <- recipientGids]
+                      announceNarration = consequenceNarration (colored White (toPlainText (view agentShortName agent) <> " has arrived."))
+                      others = [g | g <- Set.toList (view sceneAgents scene'), g /= gid]
                       gs' = gs
                         & world . sceneMap . getGIDToDataMap . at sceneGid ?~ scene'
-                        & over (narrationMap . unNarrationMap) (unionWith (<>) joinNarrations)
-                  addGameState gs'
-                  pure (Right (ReturningPlayerJoined sid name gid))
-    Nothing -> do
-      gs <- lookGameState
-      appCtx <- askAppCtx
-      pg <- askPossibilityGraph
-      nextId <- liftIO $ atomicModifyIORef' (acNextAgentId appCtx) (\p -> (succPInt p, p))
-      let gid = GID (unPInt nextId)
-          sceneGid = view newUserStartScene pg
+                        & announceToDenizens aMap others announceNarration
+                  put gs'
+    joinComputation (NewPlayerJoined _sid name gid) = do
+      gs <- get
+      pg <- view ctxPossibilityGraph
+      let sceneGid = view newUserStartScene pg
           mkAgent = view newUserMkAgent pg
           agent = mkAgent (view unPlayerNameVAL name)
       case lookup sceneGid (view (world . sceneMap . getGIDToDataMap) gs) of
-        Nothing -> pure (Left (JoinError sid NewUserSceneMissing))
+        Nothing -> throwError ("Programmer Error: new player start scene not found: " <> pack (show sceneGid))
         Just scene -> do
           let aMap = view (world . agentMap . getAgentMap) gs
               scene' = set sceneAgents (Set.insert gid (view sceneAgents scene)) scene
-              announceNarration = Narration
-                { _playerAction      = []
-                , _actionConsequence = [colored White (view unPlayerNameVAL name <> " has arrived.")]
-                , _presenceListing   = []
-                , _actionEpilogue    = []
-                }
-              recipientGids = [g | g <- Set.toList (view sceneAgents scene')
-                                 , g /= gid
-                                 , Just a <- [lookup g aMap]
-                                 , view agentKind a == Denizen]
-              joinNarrations = fromList [(g, announceNarration) | g <- recipientGids]
+              announceNarration = consequenceNarration (colored White (view unPlayerNameVAL name <> " has arrived."))
+              others = [g | g <- Set.toList (view sceneAgents scene'), g /= gid]
               gs' = gs
                 & world . agentMap . getAgentMap . at gid ?~ agent
                 & world . sceneMap . getGIDToDataMap . at sceneGid ?~ scene'
                 & agentLocationMap . at gid ?~ sceneGid
-                & over (narrationMap . unNarrationMap) (unionWith (<>) joinNarrations)
+                & announceToDenizens aMap others announceNarration
                 & evaluation . at gid ?~ Evaluator eval
-          addGameState gs'
-          pure (Right (NewPlayerJoined sid name gid))
+          put gs'
 
-executeJoin :: AppCtx -> JoinResult -> IO ()
-executeJoin ctx (NewPlayerJoined sid name gid) = do
+consequenceNarration :: RichText -> Narration
+consequenceNarration line = Narration
+  { _playerAction      = []
+  , _actionConsequence = [line]
+  , _presenceListing   = []
+  , _actionEpilogue    = []
+  }
+
+announceToDenizens :: Map (GID Agent) Agent -> [GID Agent] -> Narration -> GameState -> GameState
+announceToDenizens aMap gids narr =
+  let recipients = [g | g <- gids, Just a <- [lookup g aMap], view agentKind a == Denizen]
+  in over (narrationMap . unNarrationMap) (flip (unionWith (<>)) (fromList [(g, narr) | g <- recipients]))
+
+extractNarration :: GameComputation Identity (Map (GID Agent) Narration)
+extractNarration = do
+  nMap <- use (narrationMap . unNarrationMap)
+  narrationMap .= NarrationMap mempty
+  pure nMap
+
+joinGIDs :: [JoinResult] -> [GID Agent]
+joinGIDs = fmap $ \case
+  NewPlayerJoined _ _ gid       -> gid
+  ReturningPlayerJoined _ gid -> gid
+
+runEvalFor :: GID Agent -> Text -> GameComputation Identity ()
+runEvalFor gid cmdText =
+  case lexify tokens cmdText of
+    Left err -> throwError err
+    Right lexemes ->
+      case parseTokens lexemes of
+        Left err -> throwError err
+        Right sentence -> do
+          evaluator <- lookupEvaluatorOrThrow gid
+          view runEvaluator evaluator gid sentence
+
+lookupEvaluatorOrThrow :: GID Agent -> GameComputation Identity Evaluator
+lookupEvaluatorOrThrow gid = do
+  evals <- use evaluation
+  case lookup gid evals of
+    Nothing        -> throwError ("Programmer Error: no evaluator for " <> pack (show gid))
+    Just evaluator -> pure evaluator
+
+runPureComputation :: GameComputation Identity a
+                   -> ComputationContext
+                   -> GameState
+                   -> (Either Text a, GameState)
+runPureComputation comp ctx gs =
+  runIdentity (runStateT (runGameStateT (runExceptT (runReaderT (runGameComputation comp) ctx))) gs)
+
+allocateNewGIDs :: AppCtx
+                -> Map PlayerNameVAL (GID Agent)
+                -> [PlayerJoined]
+                -> IO [(PlayerJoined, GID Agent)]
+allocateNewGIDs appCtx known joins =
+  forM joins $ \joined@(PlayerJoined _ name) ->
+    case lookup name known of
+      Just gid -> pure (joined, gid)
+      Nothing -> do
+        nextId <- atomicModifyIORef' (acNextAgentId appCtx) (\p -> (succPInt p, p))
+        pure (joined, GID (unPInt nextId))
+
+resolveCommands :: Map SessionId SessionPhase
+                -> [Routed MessageTo]
+                -> ([SessionId], GameComputation Identity ())
+resolveCommands sessions msgs = (pings, mapM_ commandComputation cmds)
+  where
+    pings = [sid | Routed sid Ping <- msgs]
+    cmds  = [(sid, cmdText) | Routed sid (GameCommand cmdText) <- msgs]
+    commandComputation (sid, cmdText) =
+      case lookup sid sessions >>= sessionGid of
+        Nothing  -> throwError ("Programmer Error: no InGame session for " <> pack (show sid))
+        Just gid -> runEvalFor gid cmdText
+
+executeJoinIO :: AppCtx -> JoinResult -> IO ()
+executeJoinIO ctx (NewPlayerJoined sid name gid) = do
   modifyMVar_ (acKnownPlayers ctx) (pure . insert name gid)
   modifyMVar_ (acSessions ctx) $ \sessions ->
     pure $ case lookup sid sessions of
@@ -323,8 +380,7 @@ executeJoin ctx (NewPlayerJoined sid name gid) = do
   atomically $
     writeTChan (acOutbound ctx)
       (Routed sid (ChatMessage ("Welcome, " <> view unPlayerNameVAL name <> "!")))
-  atomically $ writeTChan (acInbound ctx) (Routed sid (GameCommand "look"))
-executeJoin ctx (ReturningPlayerJoined sid _name gid) = do
+executeJoinIO ctx (ReturningPlayerJoined sid gid) = do
   modifyMVar_ (acSessions ctx) $ \sessions ->
     pure $ case lookup sid sessions of
       Just (SessionPhase n (AwaitingJoin send)) -> insert sid (SessionPhase n (InGame send gid)) sessions
@@ -334,62 +390,16 @@ executeJoin ctx (ReturningPlayerJoined sid _name gid) = do
   atomically $
     writeTChan (acOutbound ctx)
       (Routed sid (ChatMessage "Welcome back!"))
-  atomically $ writeTChan (acInbound ctx) (Routed sid (GameCommand "look"))
 
-gatherInputSF :: ClSF RhineM (IOClock RhineM PlayerTick) () [Routed MessageTo]
-gatherInputSF = constMCl $ do
-  appCtx <- askAppCtx
-  liftIO $ drainChan (acInbound appCtx)
-
-processInputSF :: ClSF RhineM (IOClock RhineM PlayerTick) [Routed MessageTo] ()
-processInputSF = arrMCl $ \msgs -> do
-  appCtx <- askAppCtx
-  pg     <- askPossibilityGraph
-  sessions <- liftIO $ readMVar (acSessions appCtx)
-  forM_ msgs $ \(Routed sid msgTo) ->
-    case msgTo of
-      Ping ->
-        liftIO . atomically $
-          writeTChan (acOutbound appCtx) (Routed sid Pong)
-      GameCommand cmdText -> do
-        gs <- lookGameState
-        case lookup sid sessions >>= sessionGid of
-          Nothing  -> pure ()
-          Just gid ->
-            case lexify tokens cmdText of
-              Left err ->
-                liftIO . atomically $
-                  writeTChan (acOutbound appCtx) (Routed sid (SystemMessage err))
-              Right lexemes ->
-                case parseTokens lexemes of
-                  Left err ->
-                    liftIO . atomically $
-                      writeTChan (acOutbound appCtx) (Routed sid (SystemMessage err))
-                  Right sentence ->
-                    runCommand appCtx pg gs sid gid sentence
-
-runCommand :: AppCtx -> PossibilityGraph -> GameState -> SessionId -> GID Agent -> Sentence -> RhineM ()
-runCommand appCtx pg gs sid gid sentence =
-  case lookup gid (view evaluation gs) of
-    Nothing ->
-      liftIO . atomically $
-        writeTChan (acOutbound appCtx) (Routed sid (SystemMessage "failure to load evaluator"))
-    Just evaluator -> do
-      let ctx = ComputationContext { _ctxPossibilityGraph = pg }
-          comp = view runEvaluator evaluator gid sentence
-          result = runIdentity
-                 . flip runStateT gs
-                 . runGameStateT
-                 . runExceptT
-                 . flip runReaderT ctx
-                 . runGameComputation
-                 $ comp
-      case result of
-        (Left err, _) ->
-          liftIO . atomically $
-            writeTChan (acOutbound appCtx) (Routed sid (SystemMessage err))
-        (Right (), gs') ->
-          addGameState gs'
+deliverNarrationIO :: AppCtx
+                   -> Map (GID Agent) Narration
+                   -> IO ()
+deliverNarrationIO appCtx narrations = do
+  sessions <- readMVar (acSessions appCtx)
+  forM_ (assocs narrations) $ \(agentGid, narr) -> do
+    let targetSids = [s | (s, phase) <- assocs sessions, sessionGid phase == Just agentGid]
+    forM_ targetSids $ \targetSid ->
+      atomically $ writeTChan (acOutbound appCtx) (Routed targetSid (GameNarration narr))
 
 drainChan :: TChan a -> IO [a]
 drainChan chan = do
