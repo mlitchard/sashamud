@@ -2,7 +2,6 @@
 
 module Engine.Simulation.SignalNetwork
   ( RhineM
-  , JoinResult (..)
   , gameLoop
   ) where
 
@@ -115,7 +114,7 @@ import           Server.App
 import           Server.Validator (PlayerNameVAL, unPlayerNameVAL)
 
 data JoinResult = NewPlayerJoined SessionId PlayerNameVAL (GID Agent)
-                | ReturningPlayerJoined SessionId PlayerNameVAL (GID Agent)
+                | ReturningPlayerJoined SessionId (GID Agent)
 
 data JoinFailure
   = ReturningAgentMissing
@@ -267,9 +266,9 @@ processJoinsPure known newGIDs pg = (joinResults, mapM_ joinComputation joinResu
     joinResults = fmap classify newGIDs
     classify (PlayerJoined sid name, allocatedGid) =
       case lookup name known of
-        Just gid -> ReturningPlayerJoined sid name gid
+        Just gid -> ReturningPlayerJoined sid gid
         Nothing  -> NewPlayerJoined sid name allocatedGid
-    joinComputation (ReturningPlayerJoined _sid _name gid) = do
+    joinComputation (ReturningPlayerJoined _sid gid) = do
       gs <- get
       case lookup gid (view (world . agentMap . getAgentMap) gs) of
         Nothing -> throwError (joinFailureText ReturningAgentMissing)
@@ -330,7 +329,7 @@ extractNarration = do
 joinGIDs :: [JoinResult] -> [GID Agent]
 joinGIDs = fmap $ \case
   NewPlayerJoined _ _ gid       -> gid
-  ReturningPlayerJoined _ _ gid -> gid
+  ReturningPlayerJoined _ gid -> gid
 
 runEvalFor :: GID Agent -> Text -> GameComputation Identity ()
 runEvalFor gid cmdText =
@@ -393,7 +392,7 @@ executeJoinIO ctx (NewPlayerJoined sid name gid) = do
   atomically $
     writeTChan (acOutbound ctx)
       (Routed sid (ChatMessage ("Welcome, " <> view unPlayerNameVAL name <> "!")))
-executeJoinIO ctx (ReturningPlayerJoined sid _name gid) = do
+executeJoinIO ctx (ReturningPlayerJoined sid gid) = do
   modifyMVar_ (acSessions ctx) $ \sessions ->
     pure $ case lookup sid sessions of
       Just (SessionPhase n (AwaitingJoin send)) -> insert sid (SessionPhase n (InGame send gid)) sessions
