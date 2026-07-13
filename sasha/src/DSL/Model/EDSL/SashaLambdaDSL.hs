@@ -7,9 +7,9 @@ module DSL.Model.EDSL.SashaLambdaDSL
   , declareImplicitStimulusGID
   , createISAManagement
   , declareWitnessGID
-  , createWitnessManagement
   , sceneBehavior
   , playerBehavior
+  , witnessBehavior
   , linkWorldOutcomeEffect
   , newUser
   , finalizeGameState
@@ -18,6 +18,7 @@ module DSL.Model.EDSL.SashaLambdaDSL
 import           SashaPrelude hiding (map)
 
 import           Grammar.Parser.Atomics.Verbs (ImplicitStimulusVerb)
+import           Grammar.Parser.GCase (VerbKey)
 import           Model.Core
   ( ActionEffectKey
   , ActionManagement
@@ -41,9 +42,9 @@ data SashaLambdaDSL a where Pure :: a -> SashaLambdaDSL a
                             DeclareImplicitStimulusGID :: ImplicitStimulusF -> SashaLambdaDSL (GID ImplicitStimulusF)
                             CreateISAManagement :: ImplicitStimulusVerb -> GID ImplicitStimulusF -> SashaLambdaDSL ActionManagement
                             DeclareWitnessGID :: WitnessF -> SashaLambdaDSL (GID WitnessF)
-                            CreateWitnessManagement :: GID WitnessF -> SashaLambdaDSL ActionManagement
                             SceneBehavior :: Scene -> ActionManagement -> SashaLambdaDSL Scene
                             PlayerBehavior :: (Text -> Agent) -> ActionManagement -> SashaLambdaDSL (Text -> Agent)
+                            WitnessBehavior :: (Text -> Agent) -> VerbKey -> GID WitnessF -> SashaLambdaDSL (Text -> Agent)
                             LinkWorldOutcomeEffect :: ActionEffectKey -> WorldOutcome -> SashaLambdaDSL ()
                             NewUser :: GID Scene -> (Text -> Agent) -> SashaLambdaDSL ()
                             FinalizeGameState :: SashaLambdaDSL GameState
@@ -79,14 +80,14 @@ createISAManagement = CreateISAManagement
 declareWitnessGID :: WitnessF -> SashaLambdaDSL (GID WitnessF)
 declareWitnessGID = DeclareWitnessGID
 
-createWitnessManagement :: GID WitnessF -> SashaLambdaDSL ActionManagement
-createWitnessManagement = CreateWitnessManagement
-
 sceneBehavior :: Scene -> ActionManagement -> SashaLambdaDSL Scene
 sceneBehavior = SceneBehavior
 
 playerBehavior :: (Text -> Agent) -> ActionManagement -> SashaLambdaDSL (Text -> Agent)
 playerBehavior = PlayerBehavior
+
+witnessBehavior :: (Text -> Agent) -> VerbKey -> GID WitnessF -> SashaLambdaDSL (Text -> Agent)
+witnessBehavior = WitnessBehavior
 
 linkWorldOutcomeEffect :: ActionEffectKey -> WorldOutcome -> SashaLambdaDSL ()
 linkWorldOutcomeEffect = LinkWorldOutcomeEffect

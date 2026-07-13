@@ -32,6 +32,7 @@ library
     Grammar.Parser.Atomics.Verbs
     Grammar.Parser.Composites.Model
     Grammar.Parser.Composites.Rules
+    Grammar.Parser.GCase
     Grammar.Sentence
     SashaGrammar
 

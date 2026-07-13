@@ -57,9 +57,9 @@ youSeeM actorGid = do
   sMap <- use (world . sceneMap . getGIDToDataMap)
   scene <- throwMaybeM ("Scene not found: " <> pack (show sceneGid))
              (lookup sceneGid sMap)
-  modifyAgentNarration actorGid (over playerAction (colored White "You look around." :))
+  modifyAgentNarration actorGid (over playerAction (<> [colored White "You look around."]))
   let desc = view sceneDescription scene
-  modifyAgentNarration actorGid (over actionConsequence (desc :))
+  modifyAgentNarration actorGid (over actionConsequence (<> [desc]))
   let otherAgentGids = filter (/= actorGid) (toList (view sceneAgents scene))
       otherPlayerNames =
         [ toPlainText (view agentShortName agent)
@@ -69,4 +69,4 @@ youSeeM actorGid = do
         ]
   when (not (null otherPlayerNames)) $
     modifyAgentNarration actorGid
-      (over presenceListing (colored White ("Also here: " <> intercalate ", " otherPlayerNames) :))
+      (over presenceListing (<> [colored White ("Also here: " <> intercalate ", " otherPlayerNames)]))

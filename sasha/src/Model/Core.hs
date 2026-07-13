@@ -24,7 +24,7 @@ module Model.Core
   , ComputationContext (..)
   , GameComputation (GameComputation, runGameComputation)
     -- * Action Management
-  , ActionManagement (ISAManagementKey, WitnessManagementKey)
+  , ActionManagement (ISAManagementKey)
   , ActionManagementFunctions (ActionManagementFunctions)
   , actionManagementFunctions
   , ActionManagementOperation (AddImplicitStimulus)
@@ -40,7 +40,7 @@ module Model.Core
   , WitnessMap
     -- * World Outcomes
   , NarrationComputation (LookNarration, StaticNarration)
-  , WorldOutcome (NarrationEffect, WitnessEffect)
+  , WorldOutcome (NarrationEffect)
   , EntityKey (SceneKey')
     -- * Registries
   , ActionMaps (ActionMaps)
@@ -57,6 +57,7 @@ module Model.Core
   , agentDescription
   , agentTitle
   , agentActionManagement
+  , agentWitnessManagement
   , agentKind
   , title
   , sceneDescription
@@ -99,6 +100,7 @@ import           Data.Map.Strict (Map, unionWith)
 import           Data.Set (Set)
 import           Grammar.Parser.Atomics.Verbs (ImplicitStimulusVerb)
 import           Grammar.Parser.Composites.Model (Sentence)
+import           Grammar.Parser.GCase (VerbKey)
 import           Lens.Micro.Platform (makeLenses)
 import           Model.GID (GID)
 import           Model.RichText (RichText)
@@ -112,7 +114,6 @@ import           Test.QuickCheck.Instances.Text ()
 
 type ActionManagement :: Type
 data ActionManagement = ISAManagementKey ImplicitStimulusVerb (GID ImplicitStimulusF)
-                      | WitnessManagementKey (GID WitnessF)
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
@@ -155,11 +156,12 @@ data Object
 
 type Agent :: Type
 data Agent = Agent
-  { _agentShortName        :: RichText
-  , _agentDescription      :: RichText
-  , _agentTitle            :: RichText
-  , _agentActionManagement :: ActionManagementFunctions
-  , _agentKind             :: AgentKind
+  { _agentShortName         :: RichText
+  , _agentDescription       :: RichText
+  , _agentTitle             :: RichText
+  , _agentActionManagement  :: ActionManagementFunctions
+  , _agentWitnessManagement :: Map VerbKey (GID WitnessF)
+  , _agentKind              :: AgentKind
   }
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
@@ -238,7 +240,6 @@ data NarrationComputation = LookNarration
 
 type WorldOutcome :: Type
 data WorldOutcome = NarrationEffect NarrationComputation
-                  | WitnessEffect NarrationComputation
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
@@ -265,7 +266,7 @@ type ImplicitStimulusMap :: Type
 type ImplicitStimulusMap = Map (GID ImplicitStimulusF) ImplicitStimulusF
 
 type WitnessEffectF :: Type
-type WitnessEffectF = GID Agent -> GID Agent -> NarrationComputation -> GameComputation Identity ()
+type WitnessEffectF = GID Agent -> GID Agent -> GameComputation Identity ()
 
 type WitnessF :: Type
 data WitnessF = WitnessF WitnessEffectF
