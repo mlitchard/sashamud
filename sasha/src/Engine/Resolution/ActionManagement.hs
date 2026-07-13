@@ -1,8 +1,8 @@
 module Engine.Resolution.ActionManagement
   ( processActionEffects
+  , processWitnesses
   , processWitnessEffects
   , lookupImplicitStimulus
-  , lookupWitness
   ) where
 
 import           SashaPrelude
@@ -16,25 +16,25 @@ import           Engine.Resolution.Perception
   , witnessLookM
   , youSeeM
   )
+import           Error (throwMaybeM)
 import           Grammar.Parser.Atomics.Verbs (ImplicitStimulusVerb)
+import           Grammar.Parser.GCase (VerbKey)
 import           Lens.Micro.Platform (over, use, view)
 import           Model.Core
   ( ActionEffectKey
-  , ActionManagement (ISAManagementKey, WitnessManagementKey)
+  , ActionManagement (ISAManagementKey)
   , ActionManagementFunctions (ActionManagementFunctions)
   , Agent
-  , AgentKind (Denizen)
   , GameComputation
   , ImplicitStimulusF
   , NarrationComputation (LookNarration, StaticNarration)
   , WitnessEffectF
   , WitnessF (WitnessF)
-  , WorldOutcome (NarrationEffect, WitnessEffect)
+  , WorldOutcome (NarrationEffect)
   , actionConsequence
-  , agentActionManagement
-  , agentKind
   , agentLocationMap
   , agentMap
+  , agentWitnessManagement
   , ctxPossibilityGraph
   , getAgentMap
   , getGIDToDataMap
@@ -60,53 +60,42 @@ processWorldOutcomes actorGid actionKey = do
 processWorldOutcome :: GID Agent -> WorldOutcome -> GameComputation Identity ()
 processWorldOutcome actorGid (NarrationEffect narrationComp) =
   processNarrationEffect actorGid narrationComp
-processWorldOutcome actorGid (WitnessEffect narrationComp) =
-  processWitnesses actorGid narrationComp
 
 processNarrationEffect :: GID Agent -> NarrationComputation -> GameComputation Identity ()
 processNarrationEffect actorGid LookNarration = youSeeM actorGid
 processNarrationEffect actorGid (StaticNarration text) =
   modifyAgentNarration actorGid (over actionConsequence (<> [colored White text]))
 
-processWitnesses :: GID Agent -> NarrationComputation -> GameComputation Identity ()
-processWitnesses actorGid narrationComp = do
+processWitnesses :: GID Agent -> VerbKey -> GameComputation Identity ()
+processWitnesses actorGid verbKey = do
   locMap <- use agentLocationMap
-  case lookup actorGid locMap of
-    Nothing -> pure ()
-    Just sceneGid -> do
-      sMap <- use (world . sceneMap . getGIDToDataMap)
-      case lookup sceneGid sMap of
-        Nothing -> pure ()
-        Just scene -> do
-          aMap <- use (world . agentMap . getAgentMap)
-          wMap <- asks (view (ctxPossibilityGraph . witnessMap))
-          let witnesses =
-                [ (gid, agent)
-                | gid <- toList (view sceneAgents scene)
-                , gid /= actorGid
-                , Just agent <- [lookup gid aMap]
-                , view agentKind agent == Denizen
-                ]
-          forM_ witnesses $ \(witnessGid, witnessAgent) ->
-            case lookupWitness (view agentActionManagement witnessAgent) of
-              Nothing -> pure ()
-              Just witnessFGid ->
-                case lookup witnessFGid wMap of
-                  Nothing            -> pure ()
-                  Just (WitnessF wf) -> wf witnessGid actorGid narrationComp
+  sceneGid <- throwMaybeM ("Agent location not found: " <> pack (show actorGid))
+                (lookup actorGid locMap)
+  sMap <- use (world . sceneMap . getGIDToDataMap)
+  scene <- throwMaybeM ("Scene not found: " <> pack (show sceneGid))
+             (lookup sceneGid sMap)
+  aMap <- use (world . agentMap . getAgentMap)
+  wMap <- asks (view (ctxPossibilityGraph . witnessMap))
+  let witnesses =
+        [ (gid, agent)
+        | gid <- toList (view sceneAgents scene)
+        , gid /= actorGid
+        , Just agent <- [lookup gid aMap]
+        ]
+  forM_ witnesses $ \(witnessGid, witnessAgent) ->
+    case lookup verbKey (view agentWitnessManagement witnessAgent) of
+      Nothing -> pure ()
+      Just witnessFGid -> do
+        witnessFn <- throwMaybeM ("Witness function not found: " <> pack (show witnessFGid))
+                       (lookup witnessFGid wMap)
+        case witnessFn of
+          WitnessF wf -> wf witnessGid actorGid
 
 processWitnessEffects :: WitnessEffectF
-processWitnessEffects witnessGid actorGid LookNarration =
-  witnessLookM witnessGid actorGid
-processWitnessEffects witnessGid _actorGid (StaticNarration text) =
-  modifyAgentNarration witnessGid (over actionConsequence (<> [colored White text]))
+processWitnessEffects = witnessLookM
 
 lookupImplicitStimulus :: ImplicitStimulusVerb
                        -> ActionManagementFunctions
                        -> Maybe (GID ImplicitStimulusF)
 lookupImplicitStimulus verb (ActionManagementFunctions actions) =
   listToMaybe [gid | ISAManagementKey v gid <- toList actions, v == verb]
-
-lookupWitness :: ActionManagementFunctions -> Maybe (GID WitnessF)
-lookupWitness (ActionManagementFunctions actions) =
-  listToMaybe [gid | WitnessManagementKey gid <- toList actions]

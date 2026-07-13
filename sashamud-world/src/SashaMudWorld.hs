@@ -17,7 +17,6 @@ import           DSL.Builder
 import           DSL.Model.EDSL.SashaLambdaDSL
   ( SashaLambdaDSL
   , createISAManagement
-  , createWitnessManagement
   , declareImplicitStimulusGID
   , declareSceneGID
   , declareWitnessGID
@@ -29,23 +28,25 @@ import           DSL.Model.EDSL.SashaLambdaDSL
   , sceneBehavior
   , sceneDescriptionRich
   , title
+  , witnessBehavior
   )
 import           DSL.Vocabulary (andThen)
 import           Grammar.Parser.Atomics.Semantics.Verbs.ImplicitStimulus
   ( isaLook
   )
+import           Grammar.Parser.GCase (VerbKey (ImplicitStimulusKey))
 import           Model.Core
   ( ActionEffectKey (ImplicitStimulusActionKey)
   , ActionManagement
   , ActionManagementFunctions (ActionManagementFunctions)
-  , Agent (Agent, _agentActionManagement, _agentDescription, _agentKind, _agentShortName, _agentTitle)
+  , Agent (Agent, _agentActionManagement, _agentDescription, _agentKind, _agentShortName, _agentTitle, _agentWitnessManagement)
   , AgentKind (Denizen)
   , GameState (GameState, _actionMaps, _agentLocationMap, _evaluation, _narrationMap, _world)
   , NarrationComputation (LookNarration)
   , NarrationMap (NarrationMap)
   , PossibilityGraph
   , Scene
-  , WorldOutcome (NarrationEffect, WitnessEffect)
+  , WorldOutcome (NarrationEffect)
   , defaultScene
   , defaultWorld
   , emptyActionMaps
@@ -67,22 +68,21 @@ sashaMudWorld = do
   sceneLookKey  <- createISAManagement isaLook sceneLookGID
   playerLookKey <- createISAManagement isaLook playerLookGID
   witnessGID    <- declareWitnessGID witnessF
-  witnessKey    <- createWitnessManagement witnessGID
   registerScene lobbyGID (buildLobby sceneLookKey)
   denizen       <- playerBehavior defaultDenizen playerLookKey
-  denizen'      <- playerBehavior denizen witnessKey
-  newUser lobbyGID denizen'
+  lookWitness   <- witnessBehavior denizen (ImplicitStimulusKey isaLook) witnessGID
+  newUser lobbyGID lookWitness
   linkWorldOutcomeEffect (ImplicitStimulusActionKey sceneLookGID) (NarrationEffect LookNarration)
-  linkWorldOutcomeEffect (ImplicitStimulusActionKey sceneLookGID) (WitnessEffect LookNarration)
   finalizeGameState
 
 defaultDenizen :: Text -> Agent
 defaultDenizen playerName = Agent
-  { _agentShortName        = plain playerName
-  , _agentDescription      = colored White "A player."
-  , _agentTitle            = mempty
-  , _agentActionManagement = ActionManagementFunctions mempty
-  , _agentKind             = Denizen
+  { _agentShortName         = plain playerName
+  , _agentDescription       = colored White "A player."
+  , _agentTitle             = mempty
+  , _agentActionManagement  = ActionManagementFunctions mempty
+  , _agentWitnessManagement = mempty
+  , _agentKind              = Denizen
   }
 
 defaultGameState :: GameState

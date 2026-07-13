@@ -8,8 +8,12 @@ import           Engine.ActionDiscovery.Protocol
   , fetchAgentAction
   , fetchSceneAction
   )
-import           Engine.Resolution.ActionManagement (lookupImplicitStimulus)
+import           Engine.Resolution.ActionManagement
+  ( lookupImplicitStimulus
+  , processWitnesses
+  )
 import           Grammar.Parser.Atomics.Verbs (ImplicitStimulusVerb)
+import           Grammar.Parser.GCase (VerbKey (ImplicitStimulusKey))
 import           Lens.Micro.Platform (view)
 import           Model.Core
   ( ActionEffectKey (ImplicitStimulusActionKey)
@@ -44,4 +48,6 @@ instance ActionProtocol ImplicitStimulusF where
       (_, ImplicitNoStimulusF lf) ->
         lf actorGid sceneKey
       (ImplicitStimulusF ps, ImplicitStimulusF ls) ->
-        ps actorGid playerKey >> ls actorGid sceneKey
+        ps actorGid playerKey
+          >> ls actorGid sceneKey
+          >> processWitnesses actorGid (ImplicitStimulusKey verb)

@@ -14,7 +14,7 @@ import qualified Data.Set (insert)
 import           DSL.Model.EDSL.SashaLambdaDSL (SashaLambdaDSL (..))
 import           Lens.Micro.Platform (at, non, (%~))
 import           Model.Core
-  ( ActionManagement (ISAManagementKey, WitnessManagementKey)
+  ( ActionManagement (ISAManagementKey)
   , Agent
   , EntityActionRegistry
   , GameState
@@ -25,6 +25,7 @@ import           Model.Core
   , actionManagementFunctions
   , actionMaps
   , agentActionManagement
+  , agentWitnessManagement
   , getGIDToDataMap
   , implicitStimulusMap
   , sceneActionManagement
@@ -105,13 +106,14 @@ interpretDSL (DeclareWitnessGID witnessFn) = do
          }
   pure gid
 
-interpretDSL (CreateWitnessManagement gid) = pure (WitnessManagementKey gid)
-
 interpretDSL (SceneBehavior scene actionMgmt) =
   pure (scene & sceneActionManagement . actionManagementFunctions %~ Data.Set.insert actionMgmt)
 
 interpretDSL (PlayerBehavior mkAgent actionMgmt) =
   pure (\name -> mkAgent name & agentActionManagement . actionManagementFunctions %~ Data.Set.insert actionMgmt)
+
+interpretDSL (WitnessBehavior mkAgent verbKey witnessGid) =
+  pure (\name -> mkAgent name & agentWitnessManagement %~ insert verbKey witnessGid)
 
 interpretDSL (LinkWorldOutcomeEffect actionKey worldOutcome) = do
   st <- get
