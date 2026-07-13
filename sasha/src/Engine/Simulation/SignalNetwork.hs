@@ -116,18 +116,6 @@ import           Server.Validator (PlayerNameVAL, unPlayerNameVAL)
 data JoinResult = NewPlayerJoined SessionId PlayerNameVAL (GID Agent)
                 | ReturningPlayerJoined SessionId (GID Agent)
 
-data JoinFailure
-  = ReturningAgentMissing
-  | ReturningLocationMissing
-  | ReturningSceneMissing
-  | NewUserSceneMissing
-
-joinFailureText :: JoinFailure -> Text
-joinFailureText ReturningAgentMissing    = "returning player agent not found"
-joinFailureText ReturningLocationMissing = "returning player location not found"
-joinFailureText ReturningSceneMissing    = "returning player scene not found"
-joinFailureText NewUserSceneMissing      = "new player start scene not found"
-
 type RhineM :: Type -> Type
 newtype RhineM a = RhineM { unRhineM :: AccumT (Last GameState) (ReaderT PossibilityGraph (ReaderT AppCtx IO)) a }
   deriving newtype (Applicative, Functor, Monad, MonadIO)
@@ -271,13 +259,13 @@ processJoinsPure known newGIDs pg = (joinResults, mapM_ joinComputation joinResu
     joinComputation (ReturningPlayerJoined _sid gid) = do
       gs <- get
       case lookup gid (view (world . agentMap . getAgentMap) gs) of
-        Nothing -> throwError (joinFailureText ReturningAgentMissing)
+        Nothing -> throwError ("Programmer Error: returning player agent not found: " <> pack (show gid))
         Just agent ->
           case lookup gid (view agentLocationMap gs) of
-            Nothing -> throwError (joinFailureText ReturningLocationMissing)
+            Nothing -> throwError ("Programmer Error: returning player location not found: " <> pack (show gid))
             Just sceneGid ->
               case lookup sceneGid (view (world . sceneMap . getGIDToDataMap) gs) of
-                Nothing -> throwError (joinFailureText ReturningSceneMissing)
+                Nothing -> throwError ("Programmer Error: returning player scene not found: " <> pack (show sceneGid))
                 Just scene -> do
                   let aMap = view (world . agentMap . getAgentMap) gs
                       scene' = set sceneAgents (Set.insert gid (view sceneAgents scene)) scene
@@ -293,7 +281,7 @@ processJoinsPure known newGIDs pg = (joinResults, mapM_ joinComputation joinResu
           mkAgent = view newUserMkAgent pg
           agent = mkAgent (view unPlayerNameVAL name)
       case lookup sceneGid (view (world . sceneMap . getGIDToDataMap) gs) of
-        Nothing -> throwError (joinFailureText NewUserSceneMissing)
+        Nothing -> throwError ("Programmer Error: new player start scene not found: " <> pack (show sceneGid))
         Just scene -> do
           let aMap = view (world . agentMap . getAgentMap) gs
               scene' = set sceneAgents (Set.insert gid (view sceneAgents scene)) scene
