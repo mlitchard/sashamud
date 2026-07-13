@@ -80,6 +80,7 @@ import           Model.Core
   , agentLocationMap
   , agentMap
   , agentShortName
+  , ctxPossibilityGraph
   , evaluation
   , getAgentMap
   , getGIDToDataMap
@@ -180,7 +181,7 @@ playerTickBlock = constMCl $ do
   -- GENERATE: compose one big GameComputation
   let (pings, commandComp) = resolveCommands sessions msgs
       ctx = ComputationContext { _ctxPossibilityGraph = pg }
-      tickComp = composeTick sessions known newGIDs commandComp pg
+      tickComp = composeTick sessions known newGIDs commandComp
 
       -- EXECUTE: run once
       (result, gs') = runPureComputation tickComp ctx gs
@@ -205,11 +206,10 @@ composeTick :: Map SessionId SessionPhase
             -> Map PlayerNameVAL (GID Agent)
             -> [(PlayerJoined, GID Agent)]
             -> GameComputation Identity ()
-            -> PossibilityGraph
             -> GameComputation Identity ([JoinResult], Map (GID Agent) Narration)
-composeTick sessions known newGIDs commandComp pg = do
+composeTick sessions known newGIDs commandComp = do
   processLeavesPure sessions known
-  let (joinResults, joinComp) = processJoinsPure known newGIDs pg
+  let (joinResults, joinComp) = processJoinsPure known newGIDs
   joinComp
   commandComp
   forM_ (joinGIDs joinResults) $ \gid -> runEvalFor gid "look"
@@ -247,9 +247,8 @@ processLeavesPure sessions known = do
 
 processJoinsPure :: Map PlayerNameVAL (GID Agent)
                  -> [(PlayerJoined, GID Agent)]
-                 -> PossibilityGraph
                  -> ([JoinResult], GameComputation Identity ())
-processJoinsPure known newGIDs pg = (joinResults, mapM_ joinComputation joinResults)
+processJoinsPure known newGIDs = (joinResults, mapM_ joinComputation joinResults)
   where
     joinResults = fmap classify newGIDs
     classify (PlayerJoined sid name, allocatedGid) =
@@ -277,6 +276,7 @@ processJoinsPure known newGIDs pg = (joinResults, mapM_ joinComputation joinResu
                   put gs'
     joinComputation (NewPlayerJoined _sid name gid) = do
       gs <- get
+      pg <- view ctxPossibilityGraph
       let sceneGid = view newUserStartScene pg
           mkAgent = view newUserMkAgent pg
           agent = mkAgent (view unPlayerNameVAL name)
