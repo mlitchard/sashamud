@@ -46,7 +46,7 @@ witnessLookM witnessGid actorGid = do
     Nothing -> pure ()
     Just actor ->
       modifyAgentNarration witnessGid
-        (over actionConsequence (colored White (toPlainText (view agentShortName actor) <> " looks around.") :))
+        (over actionConsequence (<> [colored White (toPlainText (view agentShortName actor) <> " looks around.")]))
 
 youSeeM :: GID Agent -> GameComputation Identity ()
 youSeeM actorGid = do
