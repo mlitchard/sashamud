@@ -15,12 +15,14 @@ import           API.Types
   , Routed (Routed)
   , SessionId (SessionId)
   )
-import           Control.Concurrent (modifyMVar_, readMVar)
+import           Control.Concurrent (modifyMVar, modifyMVar_, readMVar)
 import           Control.Concurrent.Async (race_)
 import           Control.Concurrent.STM (atomically, readTChan)
 import           Control.Exception (Handler (Handler), SomeException, catches)
 import           Control.Monad (forever)
+import           Control.Monad.Except (throwError)
 import           Control.Monad.Reader (ask, runReaderT)
+import           Data.Foldable (any)
 import           Data.Map.Strict (delete, insert, lookup)
 import qualified Data.Map.Strict (filter)
 import           Data.UUID (toText)
@@ -36,6 +38,7 @@ import           Servant
   , NoContent (NoContent)
   , Proxy (Proxy)
   , Raw
+  , err409
   , serveDirectoryFileServer
   , serveWithContext
   , type (:<|>) ((:<|>))
@@ -74,11 +77,17 @@ loginHandler :: PlayerNameVAL -> AppM LoginResponse
 loginHandler playerName = do
   ctx <- ask
   sessionId <- liftIO (SessionId . toText <$> nextRandom)
-  liftIO $ modifyMVar_ (acSessions ctx)
-    (pure . insert sessionId (SessionPhase playerName AwaitingSocket) . Data.Map.Strict.filter keepEntry)
+  alreadyActive <- liftIO . modifyMVar (acSessions ctx) $ \sessions ->
+    if any hasActiveSession sessions
+      then pure (sessions, True)
+      else pure (insert sessionId (SessionPhase playerName AwaitingSocket)
+                   (Data.Map.Strict.filter keepEntry sessions), False)
+  when alreadyActive (throwError err409)
   liftIO $ writeLog (acGameLog ctx) (PlayerLogin playerName)
   pure (LoginResponse sessionId)
   where
+    hasActiveSession (SessionPhase _ AwaitingSocket) = False
+    hasActiveSession (SessionPhase n _)              = n == playerName
     keepEntry (SessionPhase n AwaitingSocket) = n /= playerName
     keepEntry _                               = True
 
