@@ -6,10 +6,12 @@ module Server.App
   , AppM (..)
   , GameLog (..)
   , PInt
-  , SessionPhase (AwaitingSocket, AwaitingJoin, InGame)
+  , SessionPhase (SessionPhase)
+  , SessionState (AwaitingSocket, AwaitingJoin, InGame)
   , firstPlayerId
   , newAppCtx
   , sessionGid
+  , sessionPlayerName
   , sessionSend
   , succPInt
   , unPInt
@@ -47,19 +49,24 @@ unPInt (PInt n) = n
 firstPlayerId :: PInt
 firstPlayerId = PInt 1000
 
-data SessionPhase = AwaitingSocket PlayerNameVAL
-                  | AwaitingJoin PlayerNameVAL ([MessageFrom] -> IO ())
+data SessionPhase = SessionPhase PlayerNameVAL SessionState
+
+data SessionState = AwaitingSocket
+                  | AwaitingJoin ([MessageFrom] -> IO ())
                   | InGame ([MessageFrom] -> IO ()) (GID Agent)
 
+sessionPlayerName :: SessionPhase -> PlayerNameVAL
+sessionPlayerName (SessionPhase name _) = name
+
 sessionGid :: SessionPhase -> Maybe (GID Agent)
-sessionGid (AwaitingSocket _) = Nothing
-sessionGid (AwaitingJoin _ _) = Nothing
-sessionGid (InGame _ gid)     = Just gid
+sessionGid (SessionPhase _ AwaitingSocket)   = Nothing
+sessionGid (SessionPhase _ (AwaitingJoin _)) = Nothing
+sessionGid (SessionPhase _ (InGame _ gid))   = Just gid
 
 sessionSend :: SessionPhase -> Maybe ([MessageFrom] -> IO ())
-sessionSend (AwaitingSocket _)    = Nothing
-sessionSend (AwaitingJoin _ send) = Just send
-sessionSend (InGame send _)       = Just send
+sessionSend (SessionPhase _ AwaitingSocket)      = Nothing
+sessionSend (SessionPhase _ (AwaitingJoin send)) = Just send
+sessionSend (SessionPhase _ (InGame send _))     = Just send
 
 newtype AppM a = AppM { unAppM :: ReaderT AppCtx Handler a }
   deriving newtype
