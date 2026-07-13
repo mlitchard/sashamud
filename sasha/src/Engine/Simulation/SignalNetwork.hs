@@ -24,7 +24,7 @@ import           Control.Concurrent.STM
   )
 import           Control.Monad.Except (runExceptT, throwError)
 import           Control.Monad.Schedule.Class (MonadSchedule (schedule))
-import           Control.Monad.State (get, modify, put, runStateT)
+import           Control.Monad.State (get, put, runStateT)
 import           Control.Monad.Trans.Accum (AccumT, add, look, runAccumT)
 import           Control.Monad.Trans.Class (lift)
 import           Control.Monad.Trans.Reader (ReaderT (runReaderT), ask)
@@ -225,7 +225,7 @@ composeTick sessions known newGIDs commandComp pg = do
   let (joinResults, joinComp) = processJoinsPure known newGIDs pg
   joinComp
   commandComp
-  forM_ (successfulJoinGIDs joinResults) $ \gid -> runEvalFor gid "look"
+  forM_ (joinGIDs joinResults) $ \gid -> runEvalFor gid "look"
   narrations <- extractNarration
   pure (joinResults, narrations)
 
@@ -245,18 +245,18 @@ processLeavesPure sessions known = do
         , let departed = Set.filter isDeparted (view sceneAgents scene)
         , not (Set.null departed)
         ]
-  forM_ sceneDepartures $ \(sceneGid, scene, departed) ->
-    modify $ \currentGs ->
-      let remaining = foldl' (flip Set.delete) (view sceneAgents scene) (toList departed)
-          scene' = set sceneAgents remaining scene
-          departNarr = mconcat
-            [ consequenceNarration (view agentShortName a <> plain " has departed.")
-            | gid <- Set.toList departed
-            , Just a <- [lookup gid aMap]
-            ]
-      in currentGs
-           & world . sceneMap . getGIDToDataMap . at sceneGid ?~ scene'
-           & announceToDenizens aMap (Set.toList remaining) departNarr
+      applyDeparture currentGs (sceneGid, scene, departed) =
+        let remaining = foldl' (flip Set.delete) (view sceneAgents scene) (toList departed)
+            scene' = set sceneAgents remaining scene
+            departNarr = mconcat
+              [ consequenceNarration (view agentShortName a <> plain " has departed.")
+              | gid <- Set.toList departed
+              , Just a <- [lookup gid aMap]
+              ]
+        in currentGs
+             & world . sceneMap . getGIDToDataMap . at sceneGid ?~ scene'
+             & announceToDenizens aMap (Set.toList remaining) departNarr
+  put (foldl' applyDeparture gs sceneDepartures)
 
 processJoinsPure :: Map PlayerNameVAL (GID Agent)
                  -> [(PlayerJoined, GID Agent)]
@@ -327,8 +327,8 @@ extractNarration = do
   narrationMap .= NarrationMap mempty
   pure nMap
 
-successfulJoinGIDs :: [JoinResult] -> [GID Agent]
-successfulJoinGIDs = fmap $ \case
+joinGIDs :: [JoinResult] -> [GID Agent]
+joinGIDs = fmap $ \case
   NewPlayerJoined _ _ gid       -> gid
   ReturningPlayerJoined _ _ gid -> gid
 
