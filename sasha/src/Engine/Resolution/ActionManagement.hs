@@ -66,7 +66,7 @@ processWorldOutcome actorGid (WitnessEffect narrationComp) =
 processNarrationEffect :: GID Agent -> NarrationComputation -> GameComputation Identity ()
 processNarrationEffect actorGid LookNarration = youSeeM actorGid
 processNarrationEffect actorGid (StaticNarration text) =
-  modifyAgentNarration actorGid (over actionConsequence (colored White text :))
+  modifyAgentNarration actorGid (over actionConsequence (<> [colored White text]))
 
 processWitnesses :: GID Agent -> NarrationComputation -> GameComputation Identity ()
 processWitnesses actorGid narrationComp = do
@@ -99,7 +99,7 @@ processWitnessEffects :: WitnessEffectF
 processWitnessEffects witnessGid actorGid LookNarration =
   witnessLookM witnessGid actorGid
 processWitnessEffects witnessGid _actorGid (StaticNarration text) =
-  modifyAgentNarration witnessGid (over actionConsequence (colored White text :))
+  modifyAgentNarration witnessGid (over actionConsequence (<> [colored White text]))
 
 lookupImplicitStimulus :: ImplicitStimulusVerb
                        -> ActionManagementFunctions

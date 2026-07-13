@@ -1,0 +1,723 @@
+ ▐▛███▜▌   Claude Code v2.1.81
+▝▜█████▛▘  Opus 4.6 (1M context) · Claude Max
+  ▘▘ ▝▝    ~/gitlab/sashamud
+
+❯ /clear                                                                        
+  ⎿  (no content)
+
+❯   Execute the plan at .claude-plans/adversarial-cleanup.md in the sashamud    
+repo.                                                                           
+                                                                                
+  Before touching anything:                                                     
+  1. Read /home/mlitchard/gitlab/sashamud/.claude-memory/MEMORY.md (the         
+CRITICAL RULES section especially)                                              
+  2. Read the plan file — seven steps, minor to major, one file:                
+sasha/src/Engine/Simulation/SignalNetwork.hs                                    
+  3. Read the current SignalNetwork.hs                                          
+  4. Mark the plan STATUS: APPROVED, then start                                 
+                                                                                
+  Rules of engagement:                                                          
+  - One step at a time, in order. After each step, STOP — I run `nix flake      
+check`.                                                                         
+    You do not start the next step until I say the check passed. If it fails,   
+    I send the errors as the next prompt.                                       
+  - NEVER build or test yourself. Claude writes, I build.                       
+  - Stay out of plan mode — the plan exists, execute it with direct edits.      
+  - Step 4's export question is already ruled in the plan: drop JoinResult from 
+ the export list.                                                               
+  - No inventions, no extra changes beyond the plan, explicit imports only,     
+    lenses only, never swallow errors.                                          
+  - After all seven steps pass, do the MEMORY.md update named in the plan.      
+                                                                                
+
+● Alright — let's read the sacred texts before we lay a finger on anything.
+
+  Read 3 files (ctrl+o to expand)
+
+● Update(.claude-plans/adversarial-cleanup.md)
+  ⎿  Added 1 line, removed 1 line
+      1  # Plan: adversarial cleanup of the per-tick monolith            
+      2                                                                  
+      3 -STATUS: DRAFT                                                   
+      3 +STATUS: APPROVED                                                
+      4                                                                  
+      5  ## Context                                                      
+      6                                                                  
+
+● Update(sasha/src/Engine/Simulation/SignalNetwork.hs)
+  ⎿  Added 1 line, removed 1 line
+      225    let (joinResults, joinComp) = processJoinsPure known        
+           newGIDs pg                                                    
+      226    joinComp                                                    
+      227    commandComp                                                 
+      228 -  processAutoLook (successfulJoinGIDs joinResults)            
+      228 +  forM_ (successfulJoinGIDs joinResults) $ \gid -> runEvalFor 
+          + gid "look"                                                   
+      229    narrations <- extractNarration                              
+      230    pure (joinResults, narrations)                              
+      231                                                                
+
+● Update(sasha/src/Engine/Simulation/SignalNetwork.hs)
+  ⎿  Removed 4 lines
+      321    let recipients = [g | g <- gids, Just a <- [lookup g aMap], 
+            view agentKind a == Denizen]                                 
+      322    in over (narrationMap . unNarrationMap) (flip (unionWith    
+           (<>)) (fromList [(g, narr) | g <- recipients]))               
+      323                                                                
+      324 -processAutoLook :: [GID Agent] -> GameComputation Identity () 
+      325 -processAutoLook joinedGids =                                  
+      326 -  forM_ joinedGids $ \gid -> runEvalFor gid "look"            
+      327 -                                                              
+      324  extractNarration :: GameComputation Identity (Map (GID Agent) 
+            Narration)                                                   
+      325  extractNarration = do                                         
+      326    nMap <- use (narrationMap . unNarrationMap)                 
+
+● Step 1 done — checklist's clean: exact plan scope, no import changes needed
+  (forM_ and runEvalFor already live elsewhere in the file), minimal edits,
+  nothing reformatted.
+
+  - Call site in composeTick now reads forM_ (successfulJoinGIDs joinResults) $ 
+  \gid -> runEvalFor gid "look"
+  - processAutoLook is gone
+
+  Stopping here per the rules of engagement. Run nix flake check — I don't move
+  on Step 2 until you say it's green.
+
+✻ Cooked for 43s
+
+❯ check pass, show me a commit message for this work                            
+
+● Here's your commit message, clean and true:
+
+  inline processAutoLook at its sole call site
+
+  Single-call one-liner helper violated the no-helpers rule. The
+  forM_/runEvalFor body now lives directly in composeTick; the
+  helper is deleted. Step 1 of the adversarial-cleanup plan.
+
+  Say the word and I start Step 2 — unifying the state discipline in
+  processLeavesPure.
+
+❯ committed, start step 2                                                       
+
+● Update(sasha/src/Engine/Simulation/SignalNetwork.hs)
+  ⎿  Added 12 lines, removed 12 lines
+      245          , let departed = Set.filter isDeparted (view          
+           sceneAgents scene)                                            
+      246          , not (Set.null departed)                             
+      247          ]                                                     
+      248 -  forM_ sceneDepartures $ \(sceneGid, scene, departed) ->     
+      249 -    modify $ \currentGs ->                                    
+      250 -      let remaining = foldl' (flip Set.delete) (view          
+          -sceneAgents scene) (toList departed)                          
+      251 -          scene' = set sceneAgents remaining scene            
+      252 -          departNarr = mconcat                                
+      253 -            [ consequenceNarration (view agentShortName a <>  
+          -plain " has departed.")                                       
+      254 -            | gid <- Set.toList departed                      
+      255 -            , Just a <- [lookup gid aMap]                     
+      256 -            ]                                                 
+      257 -      in currentGs                                            
+      258 -           & world . sceneMap . getGIDToDataMap . at sceneGid 
+          - ?~ scene'                                                    
+      259 -           & announceToDenizens aMap (Set.toList remaining)   
+          -departNarr                                                    
+      248 +      applyDeparture currentGs (sceneGid, scene, departed) =  
+      249 +        let remaining = foldl' (flip Set.delete) (view        
+          +sceneAgents scene) (toList departed)                          
+      250 +            scene' = set sceneAgents remaining scene          
+      251 +            departNarr = mconcat                              
+      252 +              [ consequenceNarration (view agentShortName a   
+          +<> plain " has departed.")                                    
+      253 +              | gid <- Set.toList departed                    
+      254 +              , Just a <- [lookup gid aMap]                   
+      255 +              ]                                               
+      256 +        in currentGs                                          
+      257 +             & world . sceneMap . getGIDToDataMap . at        
+          +sceneGid ?~ scene'                                            
+      258 +             & announceToDenizens aMap (Set.toList remaining) 
+          + departNarr                                                   
+      259 +  put (foldl' applyDeparture gs sceneDepartures)              
+      260                                                                
+      261  processJoinsPure :: Map PlayerNameVAL (GID Agent)             
+      262                   -> [(PlayerJoined, GID Agent)]               
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Only the import remains — it goes.
+
+● Update(sasha/src/Engine/Simulation/SignalNetwork.hs)
+  ⎿  Added 1 line, removed 1 line
+      24    )                                                            
+      25  import           Control.Monad.Except (runExceptT, throwError) 
+      26  import           Control.Monad.Schedule.Class (MonadSchedule   
+          (schedule))                                                    
+      27 -import           Control.Monad.State (get, modify,             
+         -put, runStateT)                                                
+      27 +import           Control.Monad.State (get, put, runStateT)     
+      28  import           Control.Monad.Trans.Accum (AccumT, add, look, 
+           runAccumT)                                                    
+      29  import           Control.Monad.Trans.Class (lift)              
+      30  import           Control.Monad.Trans.Reader (ReaderT           
+          (runReaderT), ask)                                             
+
+● Step 2 done, exactly per the plan:
+
+  - processLeavesPure now folds all departures with applyDeparture into one new
+  state and issues a single put — same get/put discipline as the joins
+  - modify dropped from the Control.Monad.State import — its last use is gone
+
+  Run nix flake check. Step 3 waits on your green light.
+✻ Baked for 54s
+
+❯ check passed, commit message then step 3                                      
+
+● Commit message:
+
+  unify state discipline in processLeavesPure
+
+  Leaves used get + per-scene modify with stale scene closures while
+  joins used get/put. Departures now fold into one new state via
+  applyDeparture with a single put; modify dropped from the
+  Control.Monad.State import. Step 2 of the adversarial-cleanup plan.
+
+  Step 3: rename successfulJoinGIDs → joinGIDs. The name lies — failures throw
+  and kill the tick, so every result is a success. Two sites.
+
+● Update(sasha/src/Engine/Simulation/SignalNetwork.hs)
+  ⎿  Added 3 lines, removed 3 lines
+      225    let (joinResults, joinComp) = processJoinsPure known        
+           newGIDs pg                                                    
+      226    joinComp                                                    
+      227    commandComp                                                 
+      228 -  forM_ (successfulJoinGIDs                                   
+          - joinResults) $ \gid -> runEvalFor gid "look"                 
+      228 +  forM_ (joinGIDs joinResults) $ \gid -> runEvalFor gid "look"
+      229    narrations <- extractNarration                              
+      230    pure (joinResults, narrations)                              
+      231                                                                
+     ...
+      327    narrationMap .= NarrationMap mempty                         
+      328    pure nMap                                                   
+      329                                                                
+      330 -successfulJoinGIDs :: [JoinResult] -> [GID Agent]             
+      331 -successfulJoinGIDs = fmap $ \case                             
+      330 +joinGIDs :: [JoinResult] -> [GID Agent]                       
+      331 +joinGIDs = fmap $ \case                                       
+      332    NewPlayerJoined _ _ gid       -> gid                        
+      333    ReturningPlayerJoined _ _ gid -> gid                        
+      334                                                                
+
+● Step 3 done — pure rename, definition and the composeTick call site, nothing
+  else touched.
+
+  Run nix flake check. Step 4 waits on green.
+
+❯ i asked for a commit message, make a message for both step 2 and three before 
+ proceeding                                                                     
+
+● My bad — I gave you Step 2's message and rolled straight into Step 3 without
+  letting you commit. Here's one message covering both:
+
+  unify processLeavesPure state discipline; rename successfulJoinGIDs
+
+  Step 2: leaves used get + per-scene modify with stale scene closures
+  while joins used get/put. Departures now fold into one new state via
+  applyDeparture with a single put; modify dropped from the
+  Control.Monad.State import.
+
+  Step 3: successfulJoinGIDs -> joinGIDs. The old name lied — failures
+  throw and kill the tick, so every JoinResult is a success.
+
+  Steps 2-3 of the adversarial-cleanup plan.
+
+  Step 3's edits are already in the file. Once you've committed and nix flake 
+  check passes, say the word and Step 4 begins.
+
+❯ committed, check passed, start step 4                                         
+
+● Step 4: drop the dead name from ReturningPlayerJoined, drop JoinResult from 
+  exports. Six edits.
+
+● Update(sasha/src/Engine/Simulation/SignalNetwork.hs)
+  ⎿  Removed 1 line
+      2                                                                  
+      3  module Engine.Simulation.SignalNetwork                          
+      4    ( RhineM                                                      
+      5 -  , JoinResult (..)                                             
+      5    , gameLoop                                                    
+      6    ) where                                                       
+      7                                                                  
+
+● Update(sasha/src/Engine/Simulation/SignalNetwork.hs)
+  ⎿  Added 1 line, removed 1 line
+      114  import           Server.Validator (PlayerNameVAL,             
+           unPlayerNameVAL)                                              
+      115                                                                
+      116  data JoinResult = NewPlayerJoined SessionId PlayerNameVAL     
+           (GID Agent)                                                   
+      117 -                | ReturningPlayerJoined SessionId             
+          -PlayerNameVAL (GID Agent)                                     
+      117 +                | ReturningPlayerJoined SessionId (GID Agent) 
+      118                                                                
+      119  data JoinFailure                                              
+      120    = ReturningAgentMissing                                     
+
+● Update(sasha/src/Engine/Simulation/SignalNetwork.hs)
+  ⎿  Added 1 line, removed 1 line
+      266      joinResults = fmap classify newGIDs                       
+      267      classify (PlayerJoined sid name, allocatedGid) =          
+      268        case lookup name known of                               
+      269 -        Just gid -> ReturningPlayerJoined sid name gid        
+      269 +        Just gid -> ReturningPlayerJoined sid gid             
+      270          Nothing  -> NewPlayerJoined sid name allocatedGid     
+      271      joinComputation (ReturningPlayerJoined _sid _name gid) =  
+           do                                                            
+      272        gs <- get                                               
+
+● Update(sasha/src/Engine/Simulation/SignalNetwork.hs)
+  ⎿  Added 1 line, removed 1 line
+      268        case lookup name known of                               
+      269          Just gid -> ReturningPlayerJoined sid gid             
+      270          Nothing  -> NewPlayerJoined sid name allocatedGid     
+      271 -    joinComputation (ReturningPlayerJoined _sid _name         
+          -gid) = do                                                     
+      271 +    joinComputation (ReturningPlayerJoined _sid gid) = do     
+      272        gs <- get                                               
+      273        case lookup gid (view (world . agentMap . getAgentMap)  
+           gs) of                                                        
+      274          Nothing -> throwError (joinFailureText                
+           ReturningAgentMissing)                                        
+
+● Update(sasha/src/Engine/Simulation/SignalNetwork.hs)
+  ⎿  Added 1 line, removed 1 line
+      329  joinGIDs :: [JoinResult] -> [GID Agent]                       
+      330  joinGIDs = fmap $ \case                                       
+      331    NewPlayerJoined _ _ gid       -> gid                        
+      332 -  ReturningPlayerJoined _ _ gid -> gid                        
+      332 +  ReturningPlayerJoined _ gid -> gid                          
+      333                                                                
+      334  runEvalFor :: GID Agent -> Text -> GameComputation Identity   
+           ()                                                            
+      335  runEvalFor gid cmdText =                                      
+
+● Update(sasha/src/Engine/Simulation/SignalNetwork.hs)
+  ⎿  Added 1 line, removed 1 line
+      392    atomically $                                                
+      393      writeTChan (acOutbound ctx)                               
+      394        (Routed sid (ChatMessage ("Welcome, " <> view           
+           unPlayerNameVAL name <> "!")))                                
+      395 -executeJoinIO ctx (ReturningPlayerJoined sid _name gid) = do  
+      395 +executeJoinIO ctx (ReturningPlayerJoined sid gid) = do        
+      396    modifyMVar_ (acSessions ctx) $ \sessions ->                 
+      397      pure $ case lookup sid sessions of                        
+      398        Just (SessionPhase n (AwaitingJoin send)) -> insert sid 
+            (SessionPhase n (InGame send gid)) sessions                  
+
+● Step 4 done, all six sites per the plan:
+
+  - Export list: JoinResult (..) dropped — nothing outside this module uses it
+  (as ruled)
+  - ReturningPlayerJoined SessionId (GID Agent) — dead PlayerNameVAL gone
+  - classify, joinComputation, joinGIDs, executeJoinIO updated to match
+
+  Commit message, ready when the check is:
+
+  drop the dead name field from ReturningPlayerJoined
+
+  The PlayerNameVAL was ignored by every consumer. JoinResult also
+  leaves the export list — nothing outside SignalNetwork.hs uses it.
+  Step 4 of the adversarial-cleanup plan.
+
+  Run nix flake check — Step 5 waits on green.
+
+❯ proceed to step 5                                                             
+
+● Step 5: delete the JoinFailure ceremony. Type and renderer go; four inline
+  house-style throws take their place.
+
+● Update(sasha/src/Engine/Simulation/SignalNetwork.hs)
+  ⎿  Removed 12 lines
+      116  data JoinResult = NewPlayerJoined SessionId PlayerNameVAL     
+           (GID Agent)                                                   
+      117                  | ReturningPlayerJoined SessionId (GID Agent) 
+      118                                                                
+      119 -data JoinFailure                                              
+      120 -  = ReturningAgentMissing                                     
+      121 -  | ReturningLocationMissing                                  
+      122 -  | ReturningSceneMissing                                     
+      123 -  | NewUserSceneMissing                                       
+      124 -                                                              
+      125 -joinFailureText :: JoinFailure -> Text                        
+      126 -joinFailureText ReturningAgentMissing    = "returning player  
+          -agent not found"                                              
+      127 -joinFailureText ReturningLocationMissing = "returning player  
+          -location not found"                                           
+      128 -joinFailureText ReturningSceneMissing    = "returning player  
+          -scene not found"                                              
+      129 -joinFailureText NewUserSceneMissing      = "new player start  
+          -scene not found"                                              
+      130 -                                                              
+      119  type RhineM :: Type -> Type                                   
+      120  newtype RhineM a = RhineM { unRhineM :: AccumT (Last          
+           GameState) (ReaderT PossibilityGraph (ReaderT AppCtx IO)) a } 
+      121    deriving newtype (Applicative, Functor, Monad, MonadIO)     
+
+● Update(sasha/src/Engine/Simulation/SignalNetwork.hs)
+  ⎿  Added 1 line, removed 1 line
+      259      joinComputation (ReturningPlayerJoined _sid gid) = do     
+      260        gs <- get                                               
+      261        case lookup gid (view (world . agentMap . getAgentMap)  
+           gs) of                                                        
+      262 -        Nothing -> throwError (joinFailureText                
+          -ReturningAgentMissing)                                        
+      262 +        Nothing -> throwError ("Programmer Error: returning   
+          +player agent not found: " <> pack (show gid))                 
+      263          Just agent ->                                         
+      264            case lookup gid (view agentLocationMap gs) of       
+      265              Nothing -> throwError (joinFailureText            
+           ReturningLocationMissing)                                     
+
+● Update(sasha/src/Engine/Simulation/SignalNetwork.hs)
+  ⎿  Added 1 line, removed 1 line
+      262          Nothing -> throwError ("Programmer Error: returning   
+           player agent not found: " <> pack (show gid))                 
+      263          Just agent ->                                         
+      264            case lookup gid (view agentLocationMap gs) of       
+      265 -            Nothing -> throwError (joinFailureText            
+          -ReturningLocationMissing)                                     
+      265 +            Nothing -> throwError ("Programmer Error:         
+          +returning player location not found: " <> pack (show gid))    
+      266              Just sceneGid ->                                  
+      267                case lookup sceneGid (view (world . sceneMap .  
+           getGIDToDataMap) gs) of                                       
+      268                  Nothing -> throwError (joinFailureText        
+           ReturningSceneMissing)                                        
+
+● Update(sasha/src/Engine/Simulation/SignalNetwork.hs)
+  ⎿  Added 1 line, removed 1 line
+      265              Nothing -> throwError ("Programmer Error:         
+           returning player location not found: " <> pack (show gid))    
+      266              Just sceneGid ->                                  
+      267                case lookup sceneGid (view (world . sceneMap .  
+           getGIDToDataMap) gs) of                                       
+      268 -                Nothing -> throwError (joinFailureText        
+          -ReturningSceneMissing)                                        
+      268 +                Nothing -> throwError ("Programmer Error:     
+          +returning player scene not found: " <> pack (show sceneGid))  
+      269                  Just scene -> do                              
+      270                    let aMap = view (world . agentMap .         
+           getAgentMap) gs                                               
+      271                        scene' = set sceneAgents (Set.insert    
+           gid (view sceneAgents scene)) scene                           
+
+● Update(sasha/src/Engine/Simulation/SignalNetwork.hs)
+  ⎿  Added 1 line, removed 1 line
+      281            mkAgent = view newUserMkAgent pg                    
+      282            agent = mkAgent (view unPlayerNameVAL name)         
+      283        case lookup sceneGid (view (world . sceneMap .          
+           getGIDToDataMap) gs) of                                       
+      284 -        Nothing -> throwError (joinFailureText                
+          -NewUserSceneMissing)                                          
+      284 +        Nothing -> throwError ("Programmer Error: new player  
+          +start scene not found: " <> pack (show sceneGid))             
+      285          Just scene -> do                                      
+      286            let aMap = view (world . agentMap . getAgentMap) gs 
+      287                scene' = set sceneAgents (Set.insert gid (view  
+           sceneAgents scene)) scene                                     
+● Step 5 done:
+
+  - JoinFailure type and joinFailureText deleted
+  - Four throw sites now use inline "Programmer Error: ..." texts with the
+  offending GID appended — matching the house style already in this file
+  (pack/show already in use at lookupEvaluatorOrThrow, no import changes)
+
+  Commit message:
+
+  delete the JoinFailure ceremony
+
+  Four constructors plus joinFailureText were squashed to Text at
+  throwError anyway, while sibling throws in the same file use inline
+  "Programmer Error: ..." texts. One style per file; the inlined texts
+  now carry the offending GID. Becomes GameError constructors when the
+  ExceptT GameError cut lands. Step 5 of the adversarial-cleanup plan.
+
+  Run nix flake check — Step 6 waits on green.
+
+❯ give me a commit message before proceeding                                    
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ proceed to step 6                                                             
+
+● Step 6: PossibilityGraph through the Reader. Four edits — signature,
+  joinComputation body, composeTick, import.
+
+● Update(sasha/src/Engine/Simulation/SignalNetwork.hs)
+  ⎿  Added 1 line, removed 2 lines
+      247                                                                
+      248  processJoinsPure :: Map PlayerNameVAL (GID Agent)             
+      249                   -> [(PlayerJoined, GID Agent)]               
+      250 -                 -> PossibilityGraph                          
+      250                   -> ([JoinResult], GameComputation Identity   
+           ())                                                           
+      251 -processJoinsPure known newGIDs pg                             
+          -= (joinResults, mapM_ joinComputation joinResults)            
+      251 +processJoinsPure known newGIDs                                
+          += (joinResults, mapM_ joinComputation joinResults)            
+      252    where                                                       
+      253      joinResults = fmap classify newGIDs                       
+      254      classify (PlayerJoined sid name, allocatedGid) =          
+
+● Update(sasha/src/Engine/Simulation/SignalNetwork.hs)
+  ⎿  Added 1 line
+      276                    put gs'                                     
+      277      joinComputation (NewPlayerJoined _sid name gid) = do      
+      278        gs <- get                                               
+      279 +      pg <- view ctxPossibilityGraph                          
+      280        let sceneGid = view newUserStartScene pg                
+      281            mkAgent = view newUserMkAgent pg                    
+      282            agent = mkAgent (view unPlayerNameVAL name)         
+
+● Update(sasha/src/Engine/Simulation/SignalNetwork.hs)
+  ⎿  Added 2 lines, removed 3 lines
+      205              -> Map PlayerNameVAL (GID Agent)                  
+      206              -> [(PlayerJoined, GID Agent)]                    
+      207              -> GameComputation Identity ()                    
+      208 -            -> PossibilityGraph                               
+      208              -> GameComputation Identity ([JoinResult], Map    
+           (GID Agent) Narration)                                        
+      209 -composeTick sessions known newGIDs commandComp pg = do        
+      209 +composeTick sessions known newGIDs commandComp = do           
+      210    processLeavesPure sessions known                            
+      211 -  let (joinResults, joinComp) = processJoinsPure known newGIDs
+          - pg                                                           
+      211 +  let (joinResults, joinComp) = processJoinsPure known newGIDs
+      212    joinComp                                                    
+      213    commandComp                                                 
+      214    forM_ (joinGIDs joinResults) $ \gid -> runEvalFor gid       
+           "look"                                                        
+
+● Update(sasha/src/Engine/Simulation/SignalNetwork.hs)
+  ⎿  Added 1 line, removed 1 line
+      180    -- GENERATE: compose one big GameComputation                
+      181    let (pings, commandComp) = resolveCommands sessions msgs    
+      182        ctx = ComputationContext { _ctxPossibilityGraph = pg }  
+      183 -      tickComp = composeTick sessions known newGIDs           
+          -commandComp pg                                                
+      183 +      tickComp = composeTick sessions known newGIDs           
+          +commandComp                                                   
+      184                                                                
+      185        -- EXECUTE: run once                                    
+      186        (result, gs') = runPureComputation tickComp ctx gs      
+
+● Update(sasha/src/Engine/Simulation/SignalNetwork.hs)
+  ⎿  Added 1 line
+      69    ( Agent                                                      
+      70    , AgentKind (Denizen)                                        
+      71    , ComputationContext (ComputationContext,                    
+          _ctxPossibilityGraph)                                          
+      72 +  , ctxPossibilityGraph                                        
+      73    , Evaluator (Evaluator)                                      
+      74    , GameComputation (runGameComputation)                       
+      75    , GameState                                                  
+
+● Step 6 done, per the plan:
+
+  - processJoinsPure loses the pg parameter — new-player branch reads it from
+  the Reader: pg <- view ctxPossibilityGraph
+  - composeTick drops the pg it only forwarded; call site in playerTickBlock
+  updated
+  - ctxPossibilityGraph added to the Model.Core import list; playerTickBlock
+  still uses its own pg to build ComputationContext — untouched
+
+  Commit message:
+
+  route PossibilityGraph through the Reader, not a parameter
+
+  GameComputation already carries ComputationContext via MonadReader;
+  the pg parameter into processJoinsPure was a second authority for
+  the same value. The new-player branch now views ctxPossibilityGraph;
+  composeTick drops the parameter it only forwarded. Step 6 of the
+  adversarial-cleanup plan.
+
+  Run nix flake check — Step 7, the big one, waits on green.
+
+✻ Crunched for 44s
+
+❯ committed, check passed, start step 7                                         
+
+● Step 7: composeTick becomes a pure sequencer; joinResults at generation time.
+  Three edits — playerTickBlock's let, the result case, composeTick itself.
+
+● Update(sasha/src/Engine/Simulation/SignalNetwork.hs)
+  ⎿  Added 3 lines, removed 1 line
+      180                                                                
+      181    -- GENERATE: compose one big GameComputation                
+      182    let (pings, commandComp) = resolveCommands sessions msgs    
+      183 +      (joinResults, joinComp) = processJoinsPure known        
+          +newGIDs                                                       
+      184 +      leavesComp = processLeavesPure sessions known           
+      185        ctx = ComputationContext { _ctxPossibilityGraph = pg }  
+      186 -      tickComp = composeTick sessions known newGIDs           
+          -commandComp                                                   
+      186 +      tickComp = composeTick leavesComp joinComp commandComp  
+          +(joinGIDs joinResults)                                        
+      187                                                                
+      188        -- EXECUTE: run once                                    
+      189        (result, gs') = runPureComputation tickComp ctx gs      
+
+● Update(sasha/src/Engine/Simulation/SignalNetwork.hs)
+  ⎿  Added 1 line, removed 1 line
+      196    case result of                                              
+      197      Left err ->                                               
+      198        liftIO $ hPutStrLn stderr ("Tick computation failed: "  
+           <> unpack err)                                                
+      199 -    Right (joinResults, narrations) -> do                     
+      199 +    Right narrations -> do                                    
+      200        -- IO: execute join effects (session promotion, welcome 
+            messages)                                                    
+      201        liftIO $ forM_ joinResults (executeJoinIO appCtx)       
+      202        -- IO: deliver narrations to clients                    
+
+● Update(sasha/src/Engine/Simulation/SignalNetwork.hs)
+  ⎿  Added 8 lines, removed 10 lines
+      204                                                                
+      205    addGameState gs'                                            
+      206                                                                
+      207 -composeTick :: Map SessionId SessionPhase                     
+      208 -            -> Map PlayerNameVAL (GID Agent)                  
+      209 -            -> [(PlayerJoined, GID Agent)]                    
+      207 +composeTick :: GameComputation Identity ()                    
+      208              -> GameComputation Identity ()                    
+      209 -            -> GameComputation Identity (                     
+          -[JoinResult], Map (GID Agent) Narration)                      
+      210 -composeTick sessions known newGIDs commandComp = do           
+      211 -  processLeavesPure sessions known                            
+      212 -  let (joinResults, joinComp) = processJoinsPure known        
+          -newGIDs                                                       
+      209 +            -> GameComputation Identity ()                    
+      210 +            -> [GID Agent]                                    
+      211 +            -> GameComputation Identity (Map (GID Agent)      
+          +Narration)                                                    
+      212 +composeTick leavesComp joinComp commandComp joinedGids = do   
+      213 +  leavesComp                                                  
+      214    joinComp                                                    
+      215    commandComp                                                 
+      216 -  forM_ (joinGIDs joinResults) $ \gid -> runEvalFor gid "look"
+      217 -  narrations <- extractNarration                              
+      218 -  pure (joinResults, narrations)                              
+      216 +  forM_ joinedGids $ \gid -> runEvalFor gid "look"            
+      217 +  extractNarration                                            
+      218                                                                
+      219  processLeavesPure :: Map SessionId SessionPhase               
+      220                    -> Map PlayerNameVAL (GID Agent)            
+
+● Step 7 done — the major one, per the plan:
+
+  - composeTick is now a pure sequencer: three computations + generation-time
+  joinedGids in, narrations out. No maps, no re-generation
+  - All generators run in playerTickBlock's let: resolveCommands,
+  processJoinsPure, processLeavesPure — joinResults is generation-time data
+  - executeJoinIO stays gated on Right — a failed tick still refuses to promote
+  sessions or send welcomes
+  - No import changes needed — everything in the new signatures was already
+  imported
+
+  Commit message:
+
+  composeTick becomes a pure sequencer; joinResults at generation time
+
+  joinResults depends only on known+newGIDs — zero GameState — yet rode
+  through the executed computation's return value, and composeTick was
+  half sequencer, half generator-caller. All generators now run in
+  playerTickBlock's let; composeTick takes three computations plus the
+  joined GIDs and only sequences. executeJoinIO stays gated on Right —
+  a failed tick must not promote sessions or send welcomes. Step 7 of
+  the adversarial-cleanup plan.
+
+  Run nix flake check. When it's green, I do the MEMORY.md update and we're
+  home.
+
+✻ Cooked for 54s
+
+❯ next step my man                                                              
+
+● The last mile — the MEMORY.md update named in the plan. Extending the existing
+   Generator pattern entry rather than duplicating it.
+
+● Update(.claude-memory/MEMORY.md)
+  ⎿  Added 1 line, removed 1 line
+      166  - Narration ordering is CHRONOLOGICAL within a field: always  
+           append new entries (`<> [x]`, `flip (unionWith (<>)) newMap`) 
+            — never cons/prepend; user-ruled 2026-07-13 (raj             
+           arrived/looks-around backward bug)                            
+      167  - "Not in IO" principle (user-ruled 2026-07-13): IO phases    
+           gather inputs and deliver outputs — TRANSPORT ONLY. Every     
+           game decision (incl. error judgment/rendering, who gets told  
+           what) lives in the GameComputation and throws/narrates there. 
+            Never respond to game events from the IO gather phase —      
+           that's a second authority outside the composed computation    
+      168  - NEVER swallow errors in the signal pipeline (user-ruled     
+           2026-07-13): failed lookups inside the composed computation   
+           throwError at the point of failure — no silent `Nothing ->    
+           pure ()` branches. ExceptT short-circuits; error evaluated    
+           after execution like every other throw                        
+      169 -- Generator pattern (user-ruled 2026-07-13): pure per-tick    
+          -functions return `(dataForIOPhase, GameComputation Identity   
+          -())` — processJoinsPure `([JoinResult], comp)`,               
+          -resolveCommands `([SessionId] pings, comp)`. Composition of   
+          -per-item computations happens IN the generator (mapM_), not in
+          - the caller. Classify messages exactly once (partition by     
+          -pattern-match comprehension) — no dead branches re-dissecting 
+          -them downstream                                               
+      169 +- Generator pattern (user-ruled 2026-07-13): pure per-tick    
+          +functions return `(dataForIOPhase, GameComputation Identity   
+          +())` — processJoinsPure `([JoinResult], comp)`,               
+          +resolveCommands `([SessionId] pings, comp)`. Composition of   
+          +per-item computations happens IN the generator (mapM_), not in
+          + the caller. Classify messages exactly once (partition by     
+          +pattern-match comprehension) — no dead branches re-dissecting 
+          +them downstream                                               
+          +. Generators run at the generation site (playerTickBlock let);
+          + the sequencer (composeTick) takes only computations and      
+          +generation-time data — never raw maps to re-generate from.    
+          +Data that doesn't depend on GameState never routes through the
+          + executed computation's return value (adversarial-cleanup     
+          +plan, applied 2026-07-13)                                     
+      170  - Login race FIXED (2026-07-12, branch 4-login-bug-fix, plan  
+           .claude-plans/session-phase.md, executed in 4 gated steps):   
+           loginHandler inserts AwaitingSocket at HTTP login (evicting   
+           stale same-name AwaitingSocket entries); PlayerJoined fires   
+           at websocket attach — a join cannot exist before its send     
+           function does, by construction. executeJoin promotes          
+           AwaitingJoin → InGame atomically. The race-codifying tests    
+           ("login creates agent in agentMap", "multi-player: both in    
+           lobby") were rewritten to connect and prove the join via      
+           auto-look narration; reproducer test "auto-look survives a    
+           slow websocket connect" (login, 3s delay, connect, expect     
+           auto-look) guards the regression. Accepted residual leak: a   
+           name that logs in and never connects leaves one               
+           AwaitingSocket entry, self-healed on next same-name login —   
+           noted beside the persistence debt                             
+      171  - Types with commit-2-only constructors gain more             
+           constructors in future commits                                
+      172  - TH staging: all makeLenses and derivingTypeScriptDefinition 
+            calls at bottom of Core.hs, single TH stage                  
+● That's the whole plan, my man — all seven steps green, MEMORY.md updated with
+  the ruling:
+
+  - Generator pattern entry now records: generators run at the generation site
+  (playerTickBlock let); composeTick sequences only computations and
+  generation-time data; data that doesn't depend on GameState never rides the
+  executed computation's return value
+
+  If you want a commit message covering the MEMORY update alongside Step 7's
+  (already given), here's a one-liner to fold in:
+
+  record generator/sequencer ruling in MEMORY.md
+
+  The adversarial-cleanup plan is fully applied. One file changed throughout,
+  exactly as scoped.
+
+✻ Churned for 40s

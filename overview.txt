@@ -1,0 +1,290 @@
+ ▐▛███▜▌   Claude Code v2.1.81
+▝▜█████▛▘  Opus 4.6 (1M context) · Claude Max
+  ▘▘ ▝▝    ~/gitlab/sashamud
+
+❯ /clear                                                                        
+  ⎿  (no content)
+
+❯ give a complete analysis of the codebase with the intent of explaining the    
+processes and systems involved in what happens when someone logs in, and types  
+'look', including what other pkaters see. We need a detailed analysis and a     
+toplevel executive report.                                                      
+
+● Alright, you want the whole story — from the knock on the door to the echo in
+  the room. Let me get my tools and read the house rules first.
+
+  Searched for 3 patterns, read 5 files (ctrl+o to expand)
+
+● The engine core's in view. Now the front door and the perception machinery.
+
+  Read 4 files (ctrl+o to expand)
+
+● The narration engine's clear. Now the dispatch protocol layer and the effect
+  tables.
+
+  Read 4 files (ctrl+o to expand)
+
+● Now the type spine and the world content — the last pieces of the puzzle.
+
+  Read 4 files (ctrl+o to expand)
+
+● One last sweep — the clocks and the routes, so I can name the tick rates and
+  endpoints precisely.
+
+  Read 3 files (ctrl+o to expand)
+
+● Every file's read, every wire traced. Here's the story — the executive cut up
+  top, the deep walk underneath.
+
+  ---
+  EXECUTIVE REPORT — SashaMud: Login → "look" → What the Room Sees
+
+  The one-paragraph truth: SashaMud is a multiplayer MUD built as a Servant web
+  server bolted to a Rhine FRP simulation. The server side (sessions, sockets,
+  channels) and the game side (world, agents, narration) are deliberately 
+  separate sovereignties. HTTP/WebSocket machinery writes requests into
+  channels; once per second a single game tick drains those channels, composes
+  ONE pure computation over the entire game state, runs it, and ships the
+  resulting narration back out. Nobody touches the world except that tick.
+  That's the whole religion: IO gathers and delivers; the pure computation 
+  decides everything.
+
+  The five systems in play:
+
+  ┌─────────────┬─────────────────────────────────────┬─────────────────────┐
+  │   System    │                Where                │         Job         │
+  ├─────────────┼─────────────────────────────────────┼─────────────────────┤
+  │ HTTP/Auth   │ Server/Server.hs,                   │ Validate name, mint │
+  │ front door  │ Authentication.hs, Validator.hs     │  session, gate the  │
+  │             │                                     │ socket              │
+  ├─────────────┼─────────────────────────────────────┼─────────────────────┤
+  │             │                                     │ AwaitingSocket →    │
+  │ Session     │ Server/App.hs, GameWebSocket.hs     │ AwaitingJoin →      │
+  │ lifecycle   │                                     │ InGame state        │
+  │             │                                     │ machine in an MVar  │
+  ├─────────────┼─────────────────────────────────────┼─────────────────────┤
+  │ Rhine       │                                     │ 1s player tick + 5s │
+  │ simulation  │ Engine/Simulation/SignalNetwork.hs  │  heartbeat,         │
+  │             │                                     │ GameState in AccumT │
+  ├─────────────┼─────────────────────────────────────┼─────────────────────┤
+  │ Action      │ Evaluators, ActionDiscovery,        │ parse → dispatch →  │
+  │ engine      │ Resolution                          │ veto chain → world  │
+  │             │                                     │ outcomes            │
+  ├─────────────┼─────────────────────────────────────┼─────────────────────┤
+  │ Witness     │ Resolution/ActionManagement.hs,     │ Same event datum    │
+  │ system      │ Perception.hs                       │ rendered two ways:  │
+  │             │                                     │ actor and bystander │
+  └─────────────┴─────────────────────────────────────┴─────────────────────┘
+
+  The headline behaviors:
+  - Login is two-phase by construction: HTTP login can't create a player; only
+  the websocket attach fires PlayerJoined — so a join can never exist before its
+   send-function does.
+  - A joining player is auto-issued a "look" command by the engine itself —
+  first thing you see is the room.
+  - When you type look: you get "You look around." + scene description + "Also
+  here: …"; everyone else in the room gets "YourName looks around." — driven by
+  capability keys on the witnesses, not by the actor pushing anything.
+  - A failed tick computation poisons nothing: pongs still go out, but no joins
+  promote and no narration ships. All-or-nothing per tick.
+
+  Debt on the books (already known and documented): acKnownPlayers and the GID
+  counter live outside GameState — restart loses identities until persistence
+  lands. One noted style drift: youSeeM prepends (:) to narration lists while
+  the house rule and witnessLookM append — invisible today (one entry per field
+  per tick), but it's the exact shape of the raj-arrival ordering bug that got
+  ruled on.
+
+  ---
+  DETAILED ANALYSIS
+
+  Act I — The Front Door (HTTP Login)
+
+  Client POSTs {"unPlayerNameUNV": "Alice"} to /api/game/login
+  (API/Routes.hs:32).
+
+  1. Validation at the boundary — Server/Validator.hs:90. A custom Servant
+  combinator ValidatedBody decodes the raw PlayerNameUNV and refuses to even
+  construct a PlayerNameVAL unless the name is non-empty, ≤20 chars,
+  alphanumeric. Unvalidated text cannot reach a handler — the type system is the
+   bouncer.
+
+  2. loginHandler — Server/Server.hs:76-92:
+  - Mints a fresh UUID SessionId.
+  - Under the acSessions MVar: if the name already has an active session
+  (AwaitingJoin/InGame), reply 409 Conflict — one body per name. Stale
+  AwaitingSocket entries for the same name get evicted (self-healing the
+  never-connected leak).
+  - Otherwise inserts SessionPhase name AwaitingSocket and returns LoginResponse
+   sessionId.
+
+  Note what did not happen: no agent, no GID, no world entry. Login is a
+  promise, not a person.
+
+  Act II — The Handshake (WebSocket Attach)
+
+  Client opens ws://…/ws/game with the session ID smuggled in the
+  Sec-WebSocket-Protocol header. The auth handler (Authentication.hs:36-41)
+  reads it or throws 401.
+
+  gameWebSocket — GameWebSocket.hs:24-41 — under the sessions MVar:
+  - AwaitingSocket → fires PlayerJoined sessionId name into acJoinChan and
+  promotes to AwaitingJoin sendMsgs. The join event and the send function are
+  born in the same atomic breath — this is the login-race fix, made structural.
+  - AwaitingJoin/InGame (reconnect) → just swap in the fresh send function.
+  - Returns the socket Handler: every inbound frame becomes Routed sessionId msg
+   on acInbound; disconnect deletes the session. Disconnects are async 
+  server-state, never routed through the game.
+
+  Act III — The Machine Room (Rhine Simulation)
+
+  startServer (Server.hs:116-125) races three immortals: the Rhine gameLoop, the
+   deliverOutbound pump, and Warp.
+
+  The monad: RhineM = AccumT (Last GameState) (ReaderT PossibilityGraph (ReaderT
+   AppCtx IO)) (SignalNetwork.hs:121). Game state lives in the accumulator — no
+  TVar, no lock, one writer: the player tick. Two parallel clocks (Clocks.hs):
+  heartbeat every 5s (broadcasts *** heartbeat to InGame sessions), player tick
+  every 1s.
+
+  playerTickBlock (SignalNetwork.hs:166-205) — each second, four movements:
+
+  Gather (IO, transport only): read acSessions + acKnownPlayers, drain
+  acJoinChan + acInbound, pre-allocate GIDs for new names via atomicModifyIORef'
+   on the counter (starts at 1000, monotone by construction — PInt has no
+  subtraction).
+
+  Generate (pure):
+  - resolveCommands (:359) partitions the drained messages exactly once: Pings
+  out one side, GameCommands become a computation that maps each session →
+  InGame GID → runEvalFor gid text.
+  - processJoinsPure (:248) classifies each join: name in acKnownPlayers →
+  ReturningPlayerJoined (agent + location must already exist or the tick throws
+  "Programmer Error"); unknown → NewPlayerJoined — the computation inserts the
+  agent (built by newUserMkAgent from the PossibilityGraph), adds them to
+  sceneAgents of newUserStartScene (the lobby), sets agentLocationMap, registers
+   Evaluator eval, and announces "Alice has arrived." into the NarrationMap of
+  every other Denizen in the scene.
+  - processLeavesPure (:219) — departed = known player with no InGame session.
+  Removed from scenes, "has departed." announced to those left behind.
+
+  Execute (once): composeTick (:207) sequences leaves → joins → commands → 
+  auto-look for each joiner → extractNarration into a single GameComputation 
+  Identity and runPureComputation runs the whole stack — ReaderT 
+  ComputationContext → ExceptT Text → StateT GameState → Identity — over the
+  current state. ExceptT means any failed lookup anywhere aborts the entire
+  tick's state change. No half-written worlds.
+
+  Deliver (IO): Pongs go out unconditionally. On Right narrations: executeJoinIO
+   (:371) writes the name→GID into acKnownPlayers, promotes AwaitingJoin → 
+  InGame gid, sends "Welcome, Alice!" — and deliverNarrationIO (:394) resolves
+  each agent-GID to its session(s) and pushes GameNarration frames onto
+  acOutbound. On Left: stderr log, no promotion, no narration — a failed tick
+  must not mint ghosts. Finally addGameState gs' seals the new world into the
+  accumulator.
+
+  The deliverOutbound thread (Server.hs:100-114) is the mailman: reads
+  acOutbound, finds sessionSend, ships it. Dead socket → SendDropped logged;
+  ConnectionException → session deleted. The game never blocks on a bad wire.
+
+  Act IV — The Verb (Typing "look")
+
+  The client frame GameCommand "look" rides acInbound and is picked up next
+  tick. runEvalFor (SignalNetwork.hs:322):
+
+  1. Lex — lexify tokens "look" (sasha-grammar). Failure → throwError, tick
+  aborts. (Known future cut: proper error sum types here.)
+  2. Parse — parseTokens → Sentence: Imperative (StimulusVerbPhrase 
+  (ImplicitStimulusVerb look)).
+  3. Evaluator lookup — per-agent, from GameState._evaluation. Registered at
+  join. No evaluator = programmer error, thrown loud.
+  4. Pure dispatch — Engine/Evaluators/Player/General.hs is nothing but
+  pattern-match-and-delegate: eval → evalImperative → evalStimulusVerbPhrase → 
+  manageImplicitStimulusProcess, which is literally runActionProtocol 
+  @ImplicitStimulusF (Look.hs:19).
+
+  The protocol (Protocol.hs, Instances.hs:22-47): fetch the actor's look-action
+  GID from the agent's own ActionManagementFunctions (ISAManagementKey look → 
+  playerLookGID), fetch the scene's from the scene's dispatch table
+  (sceneLookGID), resolve both through ActionMaps.implicitStimulusMap to actual
+  functions. Then the veto chain: if either side is ImplicitNoStimulusF, only
+  the denial runs (blindness, darkness — future currency). In this world both
+  are lookF = ImplicitStimulusF processActionEffects
+  (ConstraintRefinement/Actions.hs:16), so both fire: player key, then scene
+  key.
+
+  World outcomes (Resolution/ActionManagement.hs:53): each key is looked up in
+  the PossibilityGraph's worldOutcomeEffects registry. Here's the elegance —
+  SashaMudWorld.hs:75-76 registers outcomes only on sceneLookGID:
+
+  NarrationEffect LookNarration   -- the actor's view
+  WitnessEffect  LookNarration    -- the room's view
+
+  The player key hits the registry and finds nothing — no-op. So effects fire
+  exactly once, on the scene key, even though the veto chain called both.
+
+  Act V — Two Renderings of One Truth
+
+  LookNarration is a semantic datum — "a look happened" — rendered twice:
+
+  Actor side — youSeeM (Perception.hs:51-72) writes into the actor's Narration
+  in the NarrationMap:
+  - playerAction: "You look around."
+  - actionConsequence: the scene description ("A spacious lobby with high
+  ceilings.")
+  - presenceListing: "Also here: Bob, Carol" — other Denizens in sceneAgents,
+  actor excluded.
+
+  Witness side — processWitnesses (ActionManagement.hs:71-96) walks
+  agentLocationMap → sceneMap → sceneAgents, minus the actor, Denizen-filtered.
+  Now the beautiful part: capability lives on the witness. Each bystander's own
+  ActionManagementFunctions is checked for a WitnessManagementKey; that GID
+  resolves through the PossibilityGraph.witnessMap to witnessF = WitnessF 
+  processWitnessEffects, which calls witnessLookM: appends "Alice looks around."
+   to the witness's actionConsequence. Every player gets the witness key at
+  creation (SashaMudWorld.hs:73). Future stealth is just a GID swap — no one has
+   to push perception; you either carry the capability to perceive or you don't.
+
+  Delivery: extractNarration pulls the whole Map (GID Agent) Narration and
+  flushes the map — narration is ephemeral, born and buried in one tick.
+  deliverNarrationIO routes each agent's bundle to their session as one
+  GameNarration frame. Client renders in fixed order: playerAction → 
+  actionConsequence → presenceListing → actionEpilogue.
+
+  What Each Screen Shows
+
+  Alice logs in and connects (one tick, in order):
+  Welcome, Alice!                              (ChatMessage, executeJoinIO)
+  You look around.                             (auto-look: playerAction)
+  A spacious lobby with high ceilings.         (actionConsequence)
+  Also here: Bob                               (presenceListing, if Bob's there)
+
+  Bob, already in the lobby, same tick:
+  Alice has arrived.                           (join announcement)
+  Alice looks around.                          (witness effect of her auto-look)
+
+  Alice later types look: she gets the you-look/description/presence block
+  again; Bob gets one line: "Alice looks around." A Fixture in the room gets
+  nothing — it's furniture. A player in another scene gets nothing — sceneAgents
+   is the only authority on who's in the room.
+
+  Observations for the Record
+
+  1. Ordering drift: youSeeM prepends with : (Perception.hs:60,62,72); the ruled
+   convention and witnessLookM append with <> [x]. Harmless while each field
+  gets one entry per tick — but it's the same species as the
+  arrived/looks-around backward bug that produced the rule. Flagging, not
+  fixing.
+  2. Silent no-ops in processWitnesses: every lookup miss is pure () (by
+  witness-design decision), which sits in tension with the never-swallow-errors
+  ruling for the composed computation. Design doc says silent-by-intent for the
+  discovery walk; worth a conscious re-confirmation someday.
+  3. Persistence debt stands as documented: acKnownPlayers + GID counter are
+  world-truth in server-land.
+
+  That's the whole machine — one door, one clock, one writer, one truth rendered
+   per pair of eyes. Clean separation of who decides (the pure tick) from who
+  carries (the IO edges). The architecture keeps its promises because it's built
+   so it can't break most of them.
+
+✻ Crunched for 2m 56s
