@@ -180,8 +180,10 @@ playerTickBlock = constMCl $ do
 
   -- GENERATE: compose one big GameComputation
   let (pings, commandComp) = resolveCommands sessions msgs
+      (joinResults, joinComp) = processJoinsPure known newGIDs
+      leavesComp = processLeavesPure sessions known
       ctx = ComputationContext { _ctxPossibilityGraph = pg }
-      tickComp = composeTick sessions known newGIDs commandComp
+      tickComp = composeTick leavesComp joinComp commandComp (joinGIDs joinResults)
 
       -- EXECUTE: run once
       (result, gs') = runPureComputation tickComp ctx gs
@@ -194,7 +196,7 @@ playerTickBlock = constMCl $ do
   case result of
     Left err ->
       liftIO $ hPutStrLn stderr ("Tick computation failed: " <> unpack err)
-    Right (joinResults, narrations) -> do
+    Right narrations -> do
       -- IO: execute join effects (session promotion, welcome messages)
       liftIO $ forM_ joinResults (executeJoinIO appCtx)
       -- IO: deliver narrations to clients
@@ -202,19 +204,17 @@ playerTickBlock = constMCl $ do
 
   addGameState gs'
 
-composeTick :: Map SessionId SessionPhase
-            -> Map PlayerNameVAL (GID Agent)
-            -> [(PlayerJoined, GID Agent)]
+composeTick :: GameComputation Identity ()
             -> GameComputation Identity ()
-            -> GameComputation Identity ([JoinResult], Map (GID Agent) Narration)
-composeTick sessions known newGIDs commandComp = do
-  processLeavesPure sessions known
-  let (joinResults, joinComp) = processJoinsPure known newGIDs
+            -> GameComputation Identity ()
+            -> [GID Agent]
+            -> GameComputation Identity (Map (GID Agent) Narration)
+composeTick leavesComp joinComp commandComp joinedGids = do
+  leavesComp
   joinComp
   commandComp
-  forM_ (joinGIDs joinResults) $ \gid -> runEvalFor gid "look"
-  narrations <- extractNarration
-  pure (joinResults, narrations)
+  forM_ joinedGids $ \gid -> runEvalFor gid "look"
+  extractNarration
 
 processLeavesPure :: Map SessionId SessionPhase
                   -> Map PlayerNameVAL (GID Agent)
