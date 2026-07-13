@@ -44,7 +44,8 @@ import           Server.App
   ( AppCtx (acGameLog, acOutbound, acSessions)
   , AppM (..)
   , GameLog (GameLog)
-  , SessionPhase (AwaitingJoin, AwaitingSocket, InGame)
+  , SessionPhase (SessionPhase)
+  , SessionState (AwaitingSocket)
   , newAppCtx
   , sessionSend
   )
@@ -74,13 +75,12 @@ loginHandler playerName = do
   ctx <- ask
   sessionId <- liftIO (SessionId . toText <$> nextRandom)
   liftIO $ modifyMVar_ (acSessions ctx)
-    (pure . insert sessionId (AwaitingSocket playerName) . Data.Map.Strict.filter keepEntry)
+    (pure . insert sessionId (SessionPhase playerName AwaitingSocket) . Data.Map.Strict.filter keepEntry)
   liftIO $ writeLog (acGameLog ctx) (PlayerLogin playerName)
   pure (LoginResponse sessionId)
   where
-    keepEntry (AwaitingSocket n) = n /= playerName
-    keepEntry (AwaitingJoin _ _) = True
-    keepEntry (InGame _ _)       = True
+    keepEntry (SessionPhase n AwaitingSocket) = n /= playerName
+    keepEntry _                               = True
 
 logoutHandler :: SessionId -> AppM NoContent
 logoutHandler sessionId = do

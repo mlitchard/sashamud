@@ -103,7 +103,8 @@ import           Model.WireProtocol
   )
 import           Server.App
   ( AppCtx (acInbound, acJoinChan, acKnownPlayers, acNextAgentId, acOutbound, acSessions)
-  , SessionPhase (AwaitingJoin, AwaitingSocket, InGame)
+  , SessionPhase (SessionPhase)
+  , SessionState (AwaitingJoin, AwaitingSocket, InGame)
   , sessionGid
   , succPInt
   , unPInt
@@ -315,10 +316,10 @@ executeJoin ctx (NewPlayerJoined sid name gid) = do
   modifyMVar_ (acKnownPlayers ctx) (pure . insert name gid)
   modifyMVar_ (acSessions ctx) $ \sessions ->
     pure $ case lookup sid sessions of
-      Just (AwaitingJoin _ send) -> insert sid (InGame send gid) sessions
-      Just (AwaitingSocket _)    -> sessions
-      Just (InGame _ _)          -> sessions
-      Nothing                    -> sessions
+      Just (SessionPhase n (AwaitingJoin send)) -> insert sid (SessionPhase n (InGame send gid)) sessions
+      Just (SessionPhase _ AwaitingSocket)      -> sessions
+      Just (SessionPhase _ (InGame _ _))        -> sessions
+      Nothing                                   -> sessions
   atomically $
     writeTChan (acOutbound ctx)
       (Routed sid (ChatMessage ("Welcome, " <> view unPlayerNameVAL name <> "!")))
@@ -326,10 +327,10 @@ executeJoin ctx (NewPlayerJoined sid name gid) = do
 executeJoin ctx (ReturningPlayerJoined sid _name gid) = do
   modifyMVar_ (acSessions ctx) $ \sessions ->
     pure $ case lookup sid sessions of
-      Just (AwaitingJoin _ send) -> insert sid (InGame send gid) sessions
-      Just (AwaitingSocket _)    -> sessions
-      Just (InGame _ _)          -> sessions
-      Nothing                    -> sessions
+      Just (SessionPhase n (AwaitingJoin send)) -> insert sid (SessionPhase n (InGame send gid)) sessions
+      Just (SessionPhase _ AwaitingSocket)      -> sessions
+      Just (SessionPhase _ (InGame _ _))        -> sessions
+      Nothing                                   -> sessions
   atomically $
     writeTChan (acOutbound ctx)
       (Routed sid (ChatMessage "Welcome back!"))

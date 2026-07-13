@@ -17,20 +17,21 @@ import           Model.WireProtocol (MessageFrom)
 import           Servant.API.WebSocket (Handler (Handler, handle, recieve))
 import           Server.App
   ( AppCtx (acInbound, acJoinChan, acSessions)
-  , SessionPhase (AwaitingJoin, AwaitingSocket, InGame)
+  , SessionPhase (SessionPhase)
+  , SessionState (AwaitingJoin, AwaitingSocket, InGame)
   )
 
 gameWebSocket :: AppCtx -> AuthenticatedUser -> ([MessageFrom] -> IO ()) -> IO (Handler MessageTo)
 gameWebSocket ctx (AuthenticatedUser sessionId) sendMsgs = do
   modifyMVar_ (acSessions ctx) $ \sessions ->
     case Map.lookup sessionId sessions of
-      Just (AwaitingSocket name) -> do
+      Just (SessionPhase name AwaitingSocket) -> do
         atomically $ writeTChan (acJoinChan ctx) (PlayerJoined sessionId name)
-        pure (Map.insert sessionId (AwaitingJoin name sendMsgs) sessions)
-      Just (AwaitingJoin name _) ->
-        pure (Map.insert sessionId (AwaitingJoin name sendMsgs) sessions)
-      Just (InGame _ gid) ->
-        pure (Map.insert sessionId (InGame sendMsgs gid) sessions)
+        pure (Map.insert sessionId (SessionPhase name (AwaitingJoin sendMsgs)) sessions)
+      Just (SessionPhase name (AwaitingJoin _)) ->
+        pure (Map.insert sessionId (SessionPhase name (AwaitingJoin sendMsgs)) sessions)
+      Just (SessionPhase name (InGame _ gid)) ->
+        pure (Map.insert sessionId (SessionPhase name (InGame sendMsgs gid)) sessions)
       Nothing ->
         pure sessions
   pure Handler
