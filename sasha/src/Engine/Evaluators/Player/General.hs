@@ -2,10 +2,10 @@ module Engine.Evaluators.Player.General
   ( eval
   ) where
 
-import           Control.Monad.Except (throwError)
 import           Data.Functor.Identity (Identity)
 import           Engine.ActionDiscovery.Percieve.Look
-  ( manageImplicitStimulusProcess
+  ( manageDirectionalStimulusProcess
+  , manageImplicitStimulusProcess
   )
 import           Grammar.Parser.Composites.Model
   ( Imperative (StimulusVerbPhrase)
@@ -25,5 +25,5 @@ evalImperative actorGid (StimulusVerbPhrase stimulusVerbPhrase) =
 evalStimulusVerbPhrase :: GID Agent -> StimulusVerbPhrase -> GameComputation Identity ()
 evalStimulusVerbPhrase actorGid (ImplicitStimulusVerb verb) =
   manageImplicitStimulusProcess actorGid verb
-evalStimulusVerbPhrase _actorGid (DirectStimulusVerbPhrase _verb _nounPhrase) =
-  throwError "Directional stimulus not yet implemented"
+evalStimulusVerbPhrase actorGid (DirectStimulusVerbPhrase verb nounPhrase) =
+  manageDirectionalStimulusProcess actorGid verb nounPhrase
