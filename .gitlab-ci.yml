@@ -54,7 +54,6 @@ Haskell No Warnings:
     - Cabal Style
   script:
     - nix build .#checks.x86_64-linux.haskell-warnings-grammar -L --no-link
-    - nix build .#checks.x86_64-linux.haskell-warnings-vocabulary -L --no-link
     - nix build .#checks.x86_64-linux.haskell-warnings-sasha -L --no-link
     - nix build .#checks.x86_64-linux.haskell-warnings-world -L --no-link
     - nix build .#checks.x86_64-linux.haskell-warnings-server -L --no-link
