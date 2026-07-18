@@ -11,10 +11,15 @@ import           Data.Kind (Type)
 import           Data.Ord (Ord)
 import           GHC.Generics (Generic)
 import           GHC.Show (Show)
-import           Grammar.Parser.Atomics.Verbs (ImplicitStimulusVerb)
+import           Grammar.Parser.Atomics.Verbs
+  ( DirectionalStimulusVerb
+  , ImplicitStimulusVerb
+  )
+import           Grammar.Parser.Composites.Nouns (DirectionalStimulusNounPhrase)
 
 type StimulusVerbPhrase :: Type
 data StimulusVerbPhrase = ImplicitStimulusVerb ImplicitStimulusVerb
+                        | DirectStimulusVerbPhrase DirectionalStimulusVerb DirectionalStimulusNounPhrase
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
