@@ -77,7 +77,6 @@
 
           myOverlay = final: _prev: {
             sasha-grammar = final.callCabal2nix "sasha-grammar" (cleanPkgSrc "sasha-grammar") { };
-            sasha-vocabulary = final.callCabal2nix "sasha-vocabulary" (cleanPkgSrc "sasha-vocabulary") { };
             sasha = final.callCabal2nix "sasha" (cleanPkgSrc "sasha") { };
             sashamud-world = final.callCabal2nix "sashamud-world" (cleanPkgSrc "sashamud-world") { };
             sashamud-server = final.callCabal2nix "sashamud-server" (cleanPkgSrc "sashamud-server") { };
@@ -170,7 +169,7 @@
                   fmt-haskell = {
                     description = "apply stylish-haskell to all .hs files in the repo";
                     script = ''
-                      find sasha-grammar sasha-vocabulary sasha sashamud-world sashamud-server -name '*.hs' -exec ${lib.getExe lu-pkgs.stylish-haskell} -i {} +
+                      find sasha-grammar sasha sashamud-world sashamud-server -name '*.hs' -exec ${lib.getExe lu-pkgs.stylish-haskell} -i {} +
                     '';
                   };
                   lint-ts = {
@@ -217,7 +216,6 @@
           devShells.default = (legacyPackages.shellFor {
             packages = p: [
               p.sasha-grammar
-              p.sasha-vocabulary
               p.sasha
               p.sashamud-world
               p.sashamud-server
@@ -368,7 +366,6 @@
             };
             haskell-warnings-sasha = lu.werror { pkg = legacyPackages.sasha; };
             haskell-warnings-grammar = lu.werror { pkg = legacyPackages.sasha-grammar; };
-            haskell-warnings-vocabulary = lu.werror { pkg = legacyPackages.sasha-vocabulary; };
             haskell-warnings-world = lu.werror { pkg = legacyPackages.sashamud-world; };
             haskell-warnings-server = lu.werror { pkg = legacyPackages.sashamud-server; };
             client-check =
