@@ -71,6 +71,7 @@ module SashaPrelude
   , filter
   , reverse
     -- * Data.Foldable
+  , any
   , mapM_
   , forM_
   , for_
@@ -126,7 +127,8 @@ import           Data.Bool (not, (&&), (||))
 import           Data.Either (Either (Left, Right), either)
 import           Data.Eq (Eq ((/=), (==)))
 import           Data.Foldable
-  ( concatMap
+  ( any
+  , concatMap
   , elem
   , foldl'
   , foldr
