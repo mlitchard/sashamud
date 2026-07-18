@@ -12,6 +12,7 @@ import           Control.Applicative
   , many
   , (*>)
   , (<*)
+  , (<|>)
   )
 import           Control.Category ((.))
 
@@ -43,7 +44,10 @@ newtype Lexer a = Lexer { runLexer :: Parsec Void Text a }
 
 type Lexeme :: Type
 data Lexeme
-  = LOOK
+  = AT
+  | BALL
+  | FLOOR
+  | LOOK
   deriving stock (Bounded, Enum, Eq, Generic, Ord, Show)
   deriving anyclass (Hashable, NFData)
 
@@ -69,7 +73,10 @@ sc = Lexer (space (void spaceChar) lineCmnt blockCmnt)
     blockCmnt = skipBlockComment "/*" "*/"
 
 term :: Lexer Lexeme
-term = LOOK <$ sym "LOOK"
+term = AT <$ sym "AT"
+   <|> BALL <$ sym "BALL"
+   <|> FLOOR <$ sym "FLOOR"
+   <|> LOOK <$ sym "LOOK"
 
 tokens :: Lexer [Lexeme]
 tokens = sc *> many term <* Lexer eof
