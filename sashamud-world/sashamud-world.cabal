@@ -24,6 +24,7 @@ library
   exposed-modules: SashaMudWorld
   build-depends:
     , base           >=4.7 && <5
+    , containers
     , sasha
     , sasha-grammar
 
