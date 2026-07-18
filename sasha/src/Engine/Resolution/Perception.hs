@@ -16,6 +16,7 @@ import           Model.Core
   , AgentKind (Denizen)
   , GameComputation
   , Narration
+  , WitnessContext
   , actionConsequence
   , agentKind
   , agentLocationMap
@@ -39,8 +40,8 @@ modifyAgentNarration :: GID Agent -> (Narration -> Narration) -> GameComputation
 modifyAgentNarration agentGid f =
   narrationMap . unNarrationMap . at agentGid . non mempty %= f
 
-witnessLookM :: GID Agent -> GID Agent -> GameComputation Identity ()
-witnessLookM witnessGid actorGid = do
+witnessLookM :: GID Agent -> GID Agent -> WitnessContext -> GameComputation Identity ()
+witnessLookM witnessGid actorGid _ctx = do
   aMap <- use (world . agentMap . getAgentMap)
   case lookup actorGid aMap of
     Nothing -> pure ()

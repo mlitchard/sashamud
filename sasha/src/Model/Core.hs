@@ -10,7 +10,11 @@ module Model.Core
   , World (..)
   , Narration (..)
   , NarrationMap (NarrationMap)
-  , Object
+  , Object (..)
+    -- * Spatial
+  , EntityID (EntityObject, EntityAgent)
+  , SpatialRelationship (ContainedIn, Contains, Supports, SupportedBy)
+  , SpatialRelationshipMap (SpatialRelationshipMap)
     -- * Session
   , SessionId (SessionId, unSessionId)
     -- * Evaluator
@@ -24,32 +28,38 @@ module Model.Core
   , ComputationContext (..)
   , GameComputation (GameComputation, runGameComputation)
     -- * Action Management
-  , ActionManagement (ISAManagementKey)
+  , ActionManagement (DSAManagementKey, ISAManagementKey)
   , ActionManagementFunctions (ActionManagementFunctions)
   , actionManagementFunctions
-  , ActionManagementOperation (AddImplicitStimulus)
+  , ActionManagementOperation (AddDirectionalStimulus, AddImplicitStimulus)
   , GIDToDataMap (GIDToDataMap)
   , getGIDToDataMap
     -- * Action Effects
-  , ActionEffectKey (ImplicitStimulusActionKey)
+  , ActionEffectKey (DirectionalStimulusActionKey, ImplicitStimulusActionKey)
   , ActionEffectKeyF
+  , DirectionalStimulusF (DirectionalStimulusF, DirectionalNoStimulusF)
+  , DirectionalStimulusMap
   , ImplicitStimulusF (ImplicitStimulusF, ImplicitNoStimulusF)
   , ImplicitStimulusMap
+    -- * Witness
+  , WitnessContext (ImplicitWitnessContext, DirectedWitnessContext)
   , WitnessEffectF
   , WitnessF (WitnessF)
   , WitnessMap
     -- * World Outcomes
-  , NarrationComputation (LookNarration, StaticNarration)
+  , NarrationComputation (LookNarration, LookAtNarration, StaticNarration)
   , WorldOutcome (NarrationEffect)
   , EntityKey (SceneKey')
     -- * Registries
   , ActionMaps (ActionMaps)
+  , directionalStimulusMap
   , implicitStimulusMap
   , witnessMap
   , EntityActionRegistry
   , WorldOutcomeRegistry
   , emptyActionMaps
     -- * Defaults
+  , defaultObject
   , defaultScene
   , defaultWorld
     -- * Lenses
@@ -59,6 +69,9 @@ module Model.Core
   , agentActionManagement
   , agentWitnessManagement
   , agentKind
+  , shortName
+  , description
+  , objectActionManagement
   , title
   , sceneDescription
   , sceneActionManagement
@@ -67,6 +80,8 @@ module Model.Core
   , agentMap
   , objectMap
   , globalSemanticMap
+  , spatialRelationshipMap
+  , unSpatialRelationshipMap
   , playerAction
   , actionConsequence
   , presenceListing
@@ -98,7 +113,10 @@ import           Data.Aeson.TypeScript (derivingTypeScriptDefinition)
 import           Data.Functor.Identity (Identity)
 import           Data.Map.Strict (Map, unionWith)
 import           Data.Set (Set)
-import           Grammar.Parser.Atomics.Verbs (ImplicitStimulusVerb)
+import           Grammar.Parser.Atomics.Verbs
+  ( DirectionalStimulusVerb
+  , ImplicitStimulusVerb
+  )
 import           Grammar.Parser.Composites.Model (Sentence)
 import           Grammar.Parser.GCase (VerbKey)
 import           Lens.Micro.Platform (makeLenses)
@@ -113,7 +131,8 @@ import           Test.QuickCheck.Instances.Text ()
 -- Action Management
 
 type ActionManagement :: Type
-data ActionManagement = ISAManagementKey ImplicitStimulusVerb (GID ImplicitStimulusF)
+data ActionManagement = DSAManagementKey DirectionalStimulusVerb (GID DirectionalStimulusF)
+                      | ISAManagementKey ImplicitStimulusVerb (GID ImplicitStimulusF)
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
@@ -130,7 +149,8 @@ newtype GIDToDataMap k v = GIDToDataMap { _getGIDToDataMap :: Map (GID k) v }
 -- Action Management Operations
 
 type ActionManagementOperation :: Type
-data ActionManagementOperation = AddImplicitStimulus ImplicitStimulusVerb (GID ImplicitStimulusF)
+data ActionManagementOperation = AddDirectionalStimulus DirectionalStimulusVerb (GID DirectionalStimulusF)
+                               | AddImplicitStimulus ImplicitStimulusVerb (GID ImplicitStimulusF)
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
@@ -149,8 +169,12 @@ data AgentKind
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
-data Object
-  = Object
+type Object :: Type
+data Object = Object
+  { _shortName              :: Text
+  , _description            :: RichText
+  , _objectActionManagement :: ActionManagementFunctions
+  }
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
@@ -186,17 +210,37 @@ newtype SceneMap = SceneMap { _getSceneMap :: Map (GID Scene) Scene }
   deriving stock (Eq, Ord, Show)
   deriving newtype (NFData)
 
+type EntityID :: Type
+data EntityID = EntityObject (GID Object)
+              | EntityAgent (GID Agent)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
+
+type SpatialRelationship :: Type
+data SpatialRelationship = ContainedIn EntityID
+                         | Contains (Set EntityID)
+                         | Supports (Set EntityID)
+                         | SupportedBy EntityID
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
+
+type SpatialRelationshipMap :: Type
+newtype SpatialRelationshipMap = SpatialRelationshipMap { _unSpatialRelationshipMap :: Map EntityID (Set SpatialRelationship) }
+  deriving stock (Eq, Ord, Show)
+  deriving newtype (NFData)
+
 type World :: Type
 data World = World
-  { _objectMap         :: GIDToDataMap Object Object
-  , _sceneMap          :: GIDToDataMap Scene Scene
-  , _globalSemanticMap :: Map Text (Set (GID Object))
-  , _agentMap          :: AgentMap
+  { _objectMap              :: GIDToDataMap Object Object
+  , _sceneMap               :: GIDToDataMap Scene Scene
+  , _globalSemanticMap      :: Map Text (Set (GID Object))
+  , _agentMap               :: AgentMap
+  , _spatialRelationshipMap :: SpatialRelationshipMap
   }
   deriving stock (Eq, Ord, Show)
 
 instance NFData World where
-  rnf (World om sm gs am) = rnf om `seq` rnf sm `seq` rnf gs `seq` rnf am
+  rnf (World om sm gs am srm) = rnf om `seq` rnf sm `seq` rnf gs `seq` rnf am `seq` rnf srm
 
 type Narrative :: Type
 data Narrative
@@ -233,7 +277,8 @@ instance Monoid NarrationMap where
 -- World Outcomes
 
 type NarrationComputation :: Type
-data NarrationComputation = LookNarration
+data NarrationComputation = LookAtNarration (GID Object)
+                          | LookNarration
                           | StaticNarration Text
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
@@ -251,12 +296,20 @@ data EntityKey = SceneKey' (GID Scene)
 -- Action Effect Types
 
 type ActionEffectKey :: Type
-data ActionEffectKey = ImplicitStimulusActionKey (GID ImplicitStimulusF)
+data ActionEffectKey = DirectionalStimulusActionKey (GID DirectionalStimulusF)
+                     | ImplicitStimulusActionKey (GID ImplicitStimulusF)
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
 type ActionEffectKeyF :: Type
 type ActionEffectKeyF = GID Agent -> ActionEffectKey -> GameComputation Identity ()
+
+type DirectionalStimulusF :: Type
+data DirectionalStimulusF = DirectionalStimulusF ActionEffectKeyF
+                          | DirectionalNoStimulusF ActionEffectKeyF
+
+type DirectionalStimulusMap :: Type
+type DirectionalStimulusMap = Map (GID DirectionalStimulusF) DirectionalStimulusF
 
 type ImplicitStimulusF :: Type
 data ImplicitStimulusF = ImplicitStimulusF ActionEffectKeyF
@@ -265,8 +318,12 @@ data ImplicitStimulusF = ImplicitStimulusF ActionEffectKeyF
 type ImplicitStimulusMap :: Type
 type ImplicitStimulusMap = Map (GID ImplicitStimulusF) ImplicitStimulusF
 
+type WitnessContext :: Type
+data WitnessContext = ImplicitWitnessContext
+                    | DirectedWitnessContext (GID Object)
+
 type WitnessEffectF :: Type
-type WitnessEffectF = GID Agent -> GID Agent -> GameComputation Identity ()
+type WitnessEffectF = GID Agent -> GID Agent -> WitnessContext -> GameComputation Identity ()
 
 type WitnessF :: Type
 data WitnessF = WitnessF WitnessEffectF
@@ -278,11 +335,15 @@ type WitnessMap = Map (GID WitnessF) WitnessF
 
 type ActionMaps :: Type
 data ActionMaps = ActionMaps
-  { _implicitStimulusMap :: ImplicitStimulusMap
+  { _directionalStimulusMap :: DirectionalStimulusMap
+  , _implicitStimulusMap    :: ImplicitStimulusMap
   }
 
 emptyActionMaps :: ActionMaps
-emptyActionMaps = ActionMaps { _implicitStimulusMap = mempty }
+emptyActionMaps = ActionMaps
+  { _directionalStimulusMap = mempty
+  , _implicitStimulusMap    = mempty
+  }
 
 type EntityActionRegistry :: Type
 type EntityActionRegistry = Map ActionEffectKey (Map EntityKey (Set ActionManagementOperation))
@@ -360,12 +421,20 @@ defaultScene = Scene
   , _sceneAgents           = mempty
   }
 
+defaultObject :: Object
+defaultObject = Object
+  { _shortName              = mempty
+  , _description            = mempty
+  , _objectActionManagement = ActionManagementFunctions mempty
+  }
+
 defaultWorld :: World
 defaultWorld = World
   { _objectMap              = GIDToDataMap mempty
   , _sceneMap               = GIDToDataMap mempty
   , _globalSemanticMap      = mempty
   , _agentMap               = AgentMap mempty
+  , _spatialRelationshipMap = SpatialRelationshipMap mempty
   }
 
 -- Template Haskell (single stage — all types visible)
@@ -376,7 +445,9 @@ makeLenses ''ActionManagementFunctions
 makeLenses ''GIDToDataMap
 makeLenses ''Agent
 makeLenses ''AgentMap
+makeLenses ''Object
 makeLenses ''Scene
+makeLenses ''SpatialRelationshipMap
 makeLenses ''World
 makeLenses ''Narration
 makeLenses ''NarrationMap

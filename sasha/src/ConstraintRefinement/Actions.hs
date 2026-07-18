@@ -5,7 +5,7 @@ module ConstraintRefinement.Actions
   ) where
 
 import           Engine.Resolution.ActionManagement
-  ( processActionEffects
+  ( processActionOutcomeRegistry
   , processWitnessEffects
   )
 import           Model.Core
@@ -14,10 +14,10 @@ import           Model.Core
   )
 
 lookF :: ImplicitStimulusF
-lookF = ImplicitStimulusF processActionEffects
+lookF = ImplicitStimulusF processActionOutcomeRegistry
 
 lookDeniedF :: ImplicitStimulusF
-lookDeniedF = ImplicitNoStimulusF processActionEffects
+lookDeniedF = ImplicitNoStimulusF processActionOutcomeRegistry
 
 witnessF :: WitnessF
 witnessF = WitnessF processWitnessEffects

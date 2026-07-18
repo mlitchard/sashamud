@@ -18,6 +18,7 @@ import           Lens.Micro.Platform (view)
 import           Model.Core
   ( ActionEffectKey (ImplicitStimulusActionKey)
   , ImplicitStimulusF (ImplicitNoStimulusF, ImplicitStimulusF)
+  , WitnessContext (ImplicitWitnessContext)
   , actionMaps
   , implicitStimulusMap
   )
@@ -50,4 +51,4 @@ instance ActionProtocol ImplicitStimulusF where
       (ImplicitStimulusF ps, ImplicitStimulusF ls) ->
         ps actorGid playerKey
           >> ls actorGid sceneKey
-          >> processWitnesses actorGid (ImplicitStimulusKey verb)
+          >> processWitnesses actorGid (ImplicitStimulusKey verb) ImplicitWitnessContext
