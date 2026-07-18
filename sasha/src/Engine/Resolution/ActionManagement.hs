@@ -16,11 +16,7 @@ import           Data.Map.Strict (lookup)
 import           Data.Maybe (listToMaybe)
 import           Data.Set (Set)
 import           Data.Text (intercalate)
-import           Engine.Resolution.Perception
-  ( modifyAgentNarration
-  , witnessLookM
-  , youSeeM
-  )
+import           Engine.Resolution.Perception (modifyAgentNarration, youSeeM)
 import           Error (throwMaybeM)
 import           Grammar.Parser.Atomics.Verbs
   ( DirectionalStimulusVerb
@@ -39,7 +35,7 @@ import           Model.Core
   , ImplicitStimulusF
   , NarrationComputation (LookAtNarration, LookNarration, StaticNarration)
   , SpatialRelationship (ContainedIn, Contains, SupportedBy, Supports)
-  , WitnessContext
+  , WitnessContext (DirectedWitnessContext, ImplicitWitnessContext)
   , WitnessEffectF
   , WitnessF (WitnessF)
   , WorldOutcome (NarrationEffect)
@@ -65,23 +61,23 @@ import           Model.Core
 import           Model.GID (GID)
 import           Model.RichText (TextColor (White), colored, toPlainText)
 
--- | Top-level action outcome processing (old code: processActionOutcomeRegistry)
+-- | Top-level action outcome processing
 processActionOutcomeRegistry :: GID Agent -> ActionEffectKey -> GameComputation Identity ()
 processActionOutcomeRegistry actorGid actionKey = do
   worldOutcomes <- lookupWorldOutcomes actionKey
   mapM_ (processWorldOutcome actorGid) (toList worldOutcomes)
 
--- | Lookup world outcomes for an action key (old code: EffectRegistry.lookupWorldOutcomes)
+-- | Lookup world outcomes for an action key
 lookupWorldOutcomes :: ActionEffectKey -> GameComputation Identity (Set WorldOutcome)
 lookupWorldOutcomes actionKey =
   asks ((fromMaybe mempty . lookup actionKey) . view (ctxPossibilityGraph . worldOutcomeEffects))
 
--- | Dispatch on WorldOutcome constructors (old code: processWorldOutcome)
+-- | Dispatch on WorldOutcome constructors
 processWorldOutcome :: GID Agent -> WorldOutcome -> GameComputation Identity ()
 processWorldOutcome actorGid (NarrationEffect narrationComp) =
   processNarrationEffect actorGid narrationComp
 
--- | Process narration effects (old code: processNarrationEffect)
+-- | Process narration effects
 processNarrationEffect :: GID Agent -> NarrationComputation -> GameComputation Identity ()
 processNarrationEffect actorGid (LookAtNarration objGID) = do
   oMap <- use (world . objectMap . getGIDToDataMap)
@@ -163,9 +159,23 @@ processWitnesses actorGid verbKey witnessCtx = do
           WitnessF wf -> wf witnessGid actorGid witnessCtx
 
 processWitnessEffects :: WitnessEffectF
-processWitnessEffects = witnessLookM
+processWitnessEffects witnessGid actorGid ImplicitWitnessContext = do
+  aMap <- use (world . agentMap . getAgentMap)
+  actor <- throwMaybeM ("Actor not found: " <> pack (show actorGid))
+             (lookup actorGid aMap)
+  modifyAgentNarration witnessGid
+    (over actionConsequence (<> [colored White (toPlainText (view agentShortName actor) <> " looks around.")]))
+processWitnessEffects witnessGid actorGid (DirectedWitnessContext objGID) = do
+  aMap <- use (world . agentMap . getAgentMap)
+  oMap <- use (world . objectMap . getGIDToDataMap)
+  actor <- throwMaybeM ("Actor not found: " <> pack (show actorGid))
+             (lookup actorGid aMap)
+  obj <- throwMaybeM ("Object not found: " <> pack (show objGID))
+           (lookup objGID oMap)
+  modifyAgentNarration witnessGid
+    (over actionConsequence (<> [colored White (toPlainText (view agentShortName actor) <> " looks at the " <> view shortName obj <> ".")]))
 
--- | Lookup functions (old code: lookupImplicitStimulus, lookupDirectionalStimulus)
+-- | Lookup functions
 lookupImplicitStimulus :: ImplicitStimulusVerb
                        -> ActionManagementFunctions
                        -> Maybe (GID ImplicitStimulusF)

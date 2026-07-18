@@ -1,5 +1,7 @@
 module ConstraintRefinement.Actions
-  ( lookF
+  ( lookAtF
+  , lookAtDeniedF
+  , lookF
   , lookDeniedF
   , witnessF
   ) where
@@ -9,7 +11,8 @@ import           Engine.Resolution.ActionManagement
   , processWitnessEffects
   )
 import           Model.Core
-  ( ImplicitStimulusF (ImplicitNoStimulusF, ImplicitStimulusF)
+  ( DirectionalStimulusF (DirectionalNoStimulusF, DirectionalStimulusF)
+  , ImplicitStimulusF (ImplicitNoStimulusF, ImplicitStimulusF)
   , WitnessF (WitnessF)
   )
 
@@ -18,6 +21,12 @@ lookF = ImplicitStimulusF processActionOutcomeRegistry
 
 lookDeniedF :: ImplicitStimulusF
 lookDeniedF = ImplicitNoStimulusF processActionOutcomeRegistry
+
+lookAtF :: DirectionalStimulusF
+lookAtF = DirectionalStimulusF processActionOutcomeRegistry
+
+lookAtDeniedF :: DirectionalStimulusF
+lookAtDeniedF = DirectionalNoStimulusF processActionOutcomeRegistry
 
 witnessF :: WitnessF
 witnessF = WitnessF processWitnessEffects
