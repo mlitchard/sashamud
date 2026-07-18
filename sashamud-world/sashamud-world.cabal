@@ -23,10 +23,9 @@ library
   hs-source-dirs:  src
   exposed-modules: SashaMudWorld
   build-depends:
-    , base              >=4.7 && <5
+    , base           >=4.7 && <5
     , sasha
     , sasha-grammar
-    , sasha-vocabulary
 
 executable sashamud-world-tests
   import:         shared

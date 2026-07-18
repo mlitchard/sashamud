@@ -23,9 +23,11 @@
 ## Rhine Architecture (verified from source + koans)
 - Rhine source: /home/mlitchard/github/rhine
 - Rhine koans: /home/mlitchard/github/rhine-koans
+- Rhine tutorial: /home/mlitchard/github/rhine-tutorial
 - MonadSchedule is in Data.Automaton.Schedule, NOT Control.Monad.Schedule.Class
 - StateT CANNOT be used with |@| — Rhine koans say this explicitly (koan 3/3)
 - AccumT is Rhine's answer for shared state across multiple clocks
+- AccumT carries state ACROSS ticks. StateT runs WITHIN a tick (GameComputation uses StateT for effect execution inside a single tick). Two layers, two jobs.
 - Millisecond n has Clock IO only — need ioClock waitClock to lift
 - flow returns m void — never returns, infinite loop via reactimate
 - IO MonadSchedule uses forkIO internally (true concurrency)
@@ -43,7 +45,6 @@
 - deliverOutbound thread outside network reads acOutbound, routes via acSessions sessionSend
 - PlayerJoined fires at websocket attach (AwaitingSocket → AwaitingJoin promotion in gameWebSocket) — network decides new vs returning player
 - GID assignment: counter in AppCtx IORef (acNextAgentId :: IORef PInt), atomicModifyIORef' + succPInt in processOneJoin; PInt is a bare newtype, hidden constructor, only succPInt/unPInt/firstPlayerId exported — no subtraction by construction
-- Rhine tutorial: /home/mlitchard/github/rhine-tutorial
 
 ## IX EventNetwork Pattern — GameState Construction
 - GameState is reconstructed each tick from current GameState + player input
@@ -61,10 +62,9 @@
 - sasha-vocabulary: swappable word lists
 - sasha: THE APPLICATION — engine, API, server, model types, DSL, Rhine
 - sashamud-world: game content ONLY (scenes, agents, world definition) — pure library
-- sashamud-server: thin top-level package — sasha-server executable (wires server + game content)
 - Server CODE (Server.hs etc) is in sasha
-- Dependency: sasha-grammar <- sasha-vocabulary <- sasha <- sashamud-world <- sashamud-server
-- Future e2e tests go in sashamud-server
+- Dependency: sasha-grammar <- sasha-vocabulary <- sasha <- sashamud-world
+- Future e2e tests go in sashamud-world
 
 ## Nix/Flake
 - shelpers from gitlab:platonic/shelpers for dev commands
@@ -74,6 +74,10 @@
 - needs meta.mainProgram for nix run to find the right binary
 - Clay removed from project — TextColor enum instead
 - Generated client.ts goes to web/packages/type-gen-output/src/client.ts
+
+## STM Channel Usage
+- TChan for server-lifetime channels (acInbound, acOutbound, acJoinChan) — unbounded STM FIFO, no locks, multiple writers safe via STM optimistic concurrency
+- TMChan for per-player/per-session channels — closeable, `closeTMChan` on disconnect signals readers with `Nothing`, resources reclaimed by GC after close
 
 ## Consolidation Decisions (intentional, not gaps)
 - Model/Core/ consolidated: GameState, Agent, Scene, World, EntityKey, Defaults all in Core.hs
@@ -174,8 +178,10 @@
 
 ## Code Rules (learned the hard way)
 - ALL packages use NoImplicitPrelude — always include it in default-extensions
-- NEVER qualify imports — use explicit imports only, stop and ask on name collisions
-- When qualified import is needed, qualifier is the module name — no aliases
+- Every module imports SashaPrelude — it is the project's custom prelude (based on attic/core/src/SashaPrelude.hs)
+- NEVER qualify imports — user makes the call on qualified imports, not Claude. If a name collision arises, STOP and ask.
+- Always explicitly import constructors (no (..) wildcards)
+- Always include type signatures
 - NEVER second-guess user instructions — apply them, come back with compiler error if it fails
 - ALWAYS use lenses (view, set, over), NEVER direct record field access
 - Never use _fieldName accessors — use the lens equivalent without underscore
@@ -202,6 +208,12 @@
 - GameState is CONSTRUCTED from accumulated pieces. Builder accumulates, then constructs.
 - Before deleting files, confirm with user — destructive operation
 - Test types with real structure. Trivial newtypes over primitives (GID over Int) prove nothing.
+- DSL uses free-monad-style GADT (Pure/Bind constructors give Monad instance)
+
+## Dead Files (confirmed dead, pending removal)
+- sasha/src/Error.hs
+- sasha/src/Model/RandomPool.hs
+- sasha/src/Server/Log.hs
 
 ## Testing Pattern (from quux/server)
 - JSON roundtrip with QuickCheck: `checkJSON = property $ \(a :: a) -> Just a == decode (encode a)`
@@ -215,6 +227,18 @@
 - Complex sum types with GenericArbitrary need `{-# OPTIONS_GHC -fconstraint-solver-iterations=10 #-}` at top of module (quux pattern: Messages.hs, WebSocket.hs, Authorization.hs)
 - ALWAYS study quux/old code BEFORE writing Arbitrary instances — do not guess the pattern
 
+## Conventions
+- GHC2021 language
+- microlens-platform for lenses
+- makeLenses TH in each module
+- aeson-generics-typescript fork for TS codegen (derivingTypeScriptDefinition TH splices)
+- horizon-platform for Nix Haskell package set (GHC 9.6.x)
+- Rhine from turion/rhine GitHub (specific commit hash)
+- SessionId (Text) is the primary identifier for player sessions
+- WebSocket is bidirectional: Text in (commands), WireMessage out (responses)
+- AuthProtect SecWebSocketProtocol on the WebSocket route
+- async package for thread management
+
 ## Key Files
 - Architecture doc: /home/mlitchard/gitlab/sashamud/docs/monorepo-redesign.md
 - Commit-1 doc: /home/mlitchard/gitlab/sashamud/docs/roadmap/commit-01-working-mud.md
@@ -223,4 +247,6 @@
 - Rhine source: /home/mlitchard/github/rhine
 - Rhine koans: /home/mlitchard/github/rhine-koans
 - Quux server (DB patterns): /home/mlitchard/gitlab/quux/server
+- IX (reactive EventNetwork): /home/mlitchard/github/ix/
+- Attic (SashaPrelude, old core types): /home/mlitchard/gitlab/sashamud/attic/
 - Memory: /home/mlitchard/gitlab/sashamud/.claude-memory/MEMORY.md (NOT the auto directory with - prefix)

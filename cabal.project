@@ -1,6 +1,5 @@
 packages:
   ./sasha-grammar
-  ./sasha-vocabulary
   ./sasha
   ./sashamud-world
   ./sashamud-server
