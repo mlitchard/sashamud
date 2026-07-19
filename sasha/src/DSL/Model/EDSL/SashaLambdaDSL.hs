@@ -1,31 +1,47 @@
 module DSL.Model.EDSL.SashaLambdaDSL
   ( SashaLambdaDSL (..)
-  , declareSceneGID
-  , registerScene
-  , title
-  , sceneDescriptionRich
-  , declareImplicitStimulusGID
+  , createDSAManagement
   , createISAManagement
+  , declareDirectionalStimulusGID
+  , declareImplicitStimulusGID
+  , declareObjectGID
+  , declareSceneGID
   , declareWitnessGID
-  , sceneBehavior
-  , playerBehavior
-  , witnessBehavior
+  , description
+  , finalizeGameState
   , linkWorldOutcomeEffect
   , newUser
-  , finalizeGameState
+  , objectBehavior
+  , playerBehavior
+  , registerObject
+  , registerObjectToScene
+  , registerScene
+  , registerSpatial
+  , sceneBehavior
+  , sceneDescriptionRich
+  , shortName
+  , title
+  , witnessBehavior
   ) where
 
 import           SashaPrelude hiding (map)
 
-import           Grammar.Parser.Atomics.Verbs (ImplicitStimulusVerb)
+import           Grammar.Parser.Atomics.Verbs
+  ( DirectionalStimulusVerb
+  , ImplicitStimulusVerb
+  )
 import           Grammar.Parser.GCase (VerbKey)
 import           Model.Core
   ( ActionEffectKey
   , ActionManagement
   , Agent
+  , DirectionalStimulusF
+  , EntityID
   , GameState
   , ImplicitStimulusF
+  , Object
   , Scene
+  , SpatialRelationship
   , WitnessF
   , WorldOutcome
   )
@@ -39,8 +55,17 @@ data SashaLambdaDSL a where Pure :: a -> SashaLambdaDSL a
                             RegisterScene :: GID Scene -> SashaLambdaDSL Scene -> SashaLambdaDSL ()
                             Title :: Text -> Scene -> SashaLambdaDSL Scene
                             SceneDescription :: RichText -> Scene -> SashaLambdaDSL Scene
+                            DeclareObjectGID :: SashaLambdaDSL (GID Object)
+                            RegisterObject :: GID Object -> SashaLambdaDSL Object -> SashaLambdaDSL ()
+                            ShortName :: Text -> Object -> SashaLambdaDSL Object
+                            Description :: RichText -> Object -> SashaLambdaDSL Object
+                            ObjectBehavior :: Object -> ActionManagement -> SashaLambdaDSL Object
+                            RegisterObjectToScene :: GID Scene -> GID Object -> Text -> SashaLambdaDSL ()
+                            RegisterSpatial :: EntityID -> SpatialRelationship -> SashaLambdaDSL ()
                             DeclareImplicitStimulusGID :: ImplicitStimulusF -> SashaLambdaDSL (GID ImplicitStimulusF)
+                            DeclareDirectionalStimulusGID :: DirectionalStimulusF -> SashaLambdaDSL (GID DirectionalStimulusF)
                             CreateISAManagement :: ImplicitStimulusVerb -> GID ImplicitStimulusF -> SashaLambdaDSL ActionManagement
+                            CreateDSAManagement :: DirectionalStimulusVerb -> GID DirectionalStimulusF -> SashaLambdaDSL ActionManagement
                             DeclareWitnessGID :: WitnessF -> SashaLambdaDSL (GID WitnessF)
                             SceneBehavior :: Scene -> ActionManagement -> SashaLambdaDSL Scene
                             PlayerBehavior :: (Text -> Agent) -> ActionManagement -> SashaLambdaDSL (Text -> Agent)
@@ -71,11 +96,38 @@ title = Title
 sceneDescriptionRich :: RichText -> Scene -> SashaLambdaDSL Scene
 sceneDescriptionRich = SceneDescription
 
+declareObjectGID :: SashaLambdaDSL (GID Object)
+declareObjectGID = DeclareObjectGID
+
+registerObject :: GID Object -> SashaLambdaDSL Object -> SashaLambdaDSL ()
+registerObject = RegisterObject
+
+shortName :: Text -> Object -> SashaLambdaDSL Object
+shortName = ShortName
+
+description :: RichText -> Object -> SashaLambdaDSL Object
+description = Description
+
+objectBehavior :: Object -> ActionManagement -> SashaLambdaDSL Object
+objectBehavior = ObjectBehavior
+
+registerObjectToScene :: GID Scene -> GID Object -> Text -> SashaLambdaDSL ()
+registerObjectToScene = RegisterObjectToScene
+
+registerSpatial :: EntityID -> SpatialRelationship -> SashaLambdaDSL ()
+registerSpatial = RegisterSpatial
+
 declareImplicitStimulusGID :: ImplicitStimulusF -> SashaLambdaDSL (GID ImplicitStimulusF)
 declareImplicitStimulusGID = DeclareImplicitStimulusGID
 
+declareDirectionalStimulusGID :: DirectionalStimulusF -> SashaLambdaDSL (GID DirectionalStimulusF)
+declareDirectionalStimulusGID = DeclareDirectionalStimulusGID
+
 createISAManagement :: ImplicitStimulusVerb -> GID ImplicitStimulusF -> SashaLambdaDSL ActionManagement
 createISAManagement = CreateISAManagement
+
+createDSAManagement :: DirectionalStimulusVerb -> GID DirectionalStimulusF -> SashaLambdaDSL ActionManagement
+createDSAManagement = CreateDSAManagement
 
 declareWitnessGID :: WitnessF -> SashaLambdaDSL (GID WitnessF)
 declareWitnessGID = DeclareWitnessGID

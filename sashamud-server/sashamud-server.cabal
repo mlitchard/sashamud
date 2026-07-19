@@ -38,6 +38,8 @@ executable sasha-e2e-tests
   ghc-options:        -threaded -rtsopts
   other-modules:
     LoginSpec
+    LookAtBallSpec
+    LookAtPlayerSpec
     LookWitnessSpec
     RoseSpec
     SeleniumHarness

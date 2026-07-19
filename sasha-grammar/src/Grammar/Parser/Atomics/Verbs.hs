@@ -1,5 +1,9 @@
 module Grammar.Parser.Atomics.Verbs
-  ( ImplicitStimulusVerb
+  ( DirectionalStimulusVerb
+      ( DirectionalStimulusVerb
+      , _fromDirectionalStimulusVerb
+      )
+  , ImplicitStimulusVerb
       ( ImplicitStimulusVerb
       , _fromImplicitStimulusVerb
       )
@@ -20,3 +24,11 @@ newtype ImplicitStimulusVerb = ImplicitStimulusVerb { _fromImplicitStimulusVerb 
 
 instance HasLexeme ImplicitStimulusVerb where
   toLexeme = _fromImplicitStimulusVerb
+
+type DirectionalStimulusVerb :: Type
+newtype DirectionalStimulusVerb = DirectionalStimulusVerb { _fromDirectionalStimulusVerb :: Lexeme }
+  deriving stock (Eq, Ord, Show)
+  deriving newtype (Hashable, NFData)
+
+instance HasLexeme DirectionalStimulusVerb where
+  toLexeme = _fromDirectionalStimulusVerb

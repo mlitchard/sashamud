@@ -148,7 +148,7 @@ webDriverTestWithClient ctx jstest test = do
 
          window["test"] = async resolve => {
            try {
-             const playerName = "test" + Math.random().toString(36).replace(/[^a-z]/g, "").substring(0, 8);
+             const playerName = "Raj";
              const sessionId: string = await API["/api/game/login(PlayerNameUNV)"](playerName);
              if (!sessionId) {
                resolve("Login failed: no SessionId returned");

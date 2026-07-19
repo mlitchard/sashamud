@@ -16,6 +16,7 @@ common shared
   default-extensions:
     DeriveAnyClass
     DerivingStrategies
+    LambdaCase
     NoImplicitPrelude
     OverloadedStrings
     StrictData
@@ -26,11 +27,19 @@ library
   exposed-modules:
     Grammar.Lexer
     Grammar.Parser.Atomics.AtomicsTH
+    Grammar.Parser.Atomics.Nouns
+    Grammar.Parser.Atomics.Prepositions
+    Grammar.Parser.Atomics.Semantics.Nouns.DirectionalStimulus
+    Grammar.Parser.Atomics.Semantics.Prepositions.DirectionalStimulusMarker
+    Grammar.Parser.Atomics.Semantics.Rules.Nouns
     Grammar.Parser.Atomics.Semantics.Rules.ParseRule
+    Grammar.Parser.Atomics.Semantics.Rules.Prepositions
     Grammar.Parser.Atomics.Semantics.Rules.Verbs
+    Grammar.Parser.Atomics.Semantics.Verbs.DirectionalStimulus
     Grammar.Parser.Atomics.Semantics.Verbs.ImplicitStimulus
     Grammar.Parser.Atomics.Verbs
     Grammar.Parser.Composites.Model
+    Grammar.Parser.Composites.Nouns
     Grammar.Parser.Composites.Rules
     Grammar.Parser.GCase
     Grammar.Sentence
