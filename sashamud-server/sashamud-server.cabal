@@ -39,6 +39,7 @@ executable sasha-e2e-tests
   other-modules:
     LoginSpec
     LookAtBallSpec
+    LookAtPlayerSpec
     LookWitnessSpec
     RoseSpec
     SeleniumHarness

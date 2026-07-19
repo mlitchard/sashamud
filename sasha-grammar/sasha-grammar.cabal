@@ -16,6 +16,7 @@ common shared
   default-extensions:
     DeriveAnyClass
     DerivingStrategies
+    LambdaCase
     NoImplicitPrelude
     OverloadedStrings
     StrictData

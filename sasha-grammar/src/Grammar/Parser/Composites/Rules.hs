@@ -3,11 +3,12 @@ module Grammar.Parser.Composites.Rules
   , imperativeRules
   ) where
 
-import           Control.Applicative ((<*>), (<|>))
+import           Control.Applicative ((<*), (<*>), (<|>))
 import           Data.Function (($))
 import           Data.Functor ((<$>))
+import           Data.Maybe (Maybe (Just, Nothing))
 import           Data.Text (Text)
-import           Grammar.Lexer (Lexeme)
+import           Grammar.Lexer (Lexeme (PLAYERNAME))
 import           Grammar.Parser.Atomics.Semantics.Nouns.DirectionalStimulus
   ( directionalStimuli
   )
@@ -32,13 +33,14 @@ import           Grammar.Parser.Atomics.Semantics.Verbs.ImplicitStimulus
   )
 import           Grammar.Parser.Composites.Model
   ( Imperative (StimulusVerbPhrase)
-  , StimulusVerbPhrase (DirectStimulusVerbPhrase, ImplicitStimulusVerb)
+  , StimulusVerbPhrase (AgentStimulusVerbPhrase, DirectStimulusVerbPhrase, ImplicitStimulusVerb)
   )
 import           Grammar.Parser.Composites.Nouns
   ( DirectionalStimulusNounPhrase (DirectionalStimulusNounPhrase)
   , NounPhrase (SimpleNounPhrase)
+  , PlayerName (PlayerName)
   )
-import           Text.Earley.Grammar (Grammar, Prod, rule)
+import           Text.Earley.Grammar (Grammar, Prod, rule, terminal)
 
 stimulusVerbPhraseRules :: Grammar r (Prod r Text Lexeme StimulusVerbPhrase)
 stimulusVerbPhraseRules = do
@@ -46,12 +48,22 @@ stimulusVerbPhraseRules = do
   directionalStimulusVerb <- directionalStimulusVerbRule directionalStimulusVerbs
   directionalStimulusMarker <- directionalStimulusMarkerRule directionalStimulusMarkers
   directionalStimulus <- directionalStimulusRule directionalStimuli
+  playerName <- playerNameRule
   rule $ ImplicitStimulusVerb <$> implicitStimulusVerb
      <|> DirectStimulusVerbPhrase
            <$> directionalStimulusVerb
            <*> (DirectionalStimulusNounPhrase
                   <$> directionalStimulusMarker
                   <*> (SimpleNounPhrase <$> directionalStimulus))
+     <|> AgentStimulusVerbPhrase
+           <$> directionalStimulusVerb
+           <* directionalStimulusMarker
+           <*> playerName
+
+playerNameRule :: Grammar r (Prod r Text Lexeme PlayerName)
+playerNameRule = rule (terminal (\case
+    PLAYERNAME txt -> Just (PlayerName txt)
+    _              -> Nothing))
 
 imperativeRules :: Grammar r (Prod r Text Lexeme Imperative)
 imperativeRules = do

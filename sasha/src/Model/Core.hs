@@ -42,7 +42,7 @@ module Model.Core
   , ImplicitStimulusF (ImplicitStimulusF, ImplicitNoStimulusF)
   , ImplicitStimulusMap
     -- * Witness
-  , WitnessContext (ImplicitWitnessContext, DirectedWitnessContext)
+  , WitnessContext (ImplicitWitnessContext, DirectedWitnessContext, AgentWitnessContext)
   , WitnessEffectF
   , WitnessF (WitnessF)
   , WitnessMap
@@ -321,6 +321,7 @@ type ImplicitStimulusMap = Map (GID ImplicitStimulusF) ImplicitStimulusF
 type WitnessContext :: Type
 data WitnessContext = ImplicitWitnessContext
                     | DirectedWitnessContext (GID Object)
+                    | AgentWitnessContext (GID Agent)
 
 type WitnessEffectF :: Type
 type WitnessEffectF = GID Agent -> GID Agent -> WitnessContext -> GameComputation Identity ()

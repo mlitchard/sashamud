@@ -4,13 +4,14 @@ module Engine.Evaluators.Player.General
 
 import           Data.Functor.Identity (Identity)
 import           Engine.ActionDiscovery.Percieve.Look
-  ( manageDirectionalStimulusProcess
+  ( manageAgentStimulusProcess
+  , manageDirectionalStimulusProcess
   , manageImplicitStimulusProcess
   )
 import           Grammar.Parser.Composites.Model
   ( Imperative (StimulusVerbPhrase)
   , Sentence (Imperative)
-  , StimulusVerbPhrase (DirectStimulusVerbPhrase, ImplicitStimulusVerb)
+  , StimulusVerbPhrase (AgentStimulusVerbPhrase, DirectStimulusVerbPhrase, ImplicitStimulusVerb)
   )
 import           Model.Core (Agent, GameComputation)
 import           Model.GID (GID)
@@ -27,3 +28,5 @@ evalStimulusVerbPhrase actorGid (ImplicitStimulusVerb verb) =
   manageImplicitStimulusProcess actorGid verb
 evalStimulusVerbPhrase actorGid (DirectStimulusVerbPhrase verb nounPhrase) =
   manageDirectionalStimulusProcess actorGid verb nounPhrase
+evalStimulusVerbPhrase actorGid (AgentStimulusVerbPhrase verb playerName) =
+  manageAgentStimulusProcess actorGid verb playerName

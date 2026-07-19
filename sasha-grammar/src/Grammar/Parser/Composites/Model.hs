@@ -15,11 +15,15 @@ import           Grammar.Parser.Atomics.Verbs
   ( DirectionalStimulusVerb
   , ImplicitStimulusVerb
   )
-import           Grammar.Parser.Composites.Nouns (DirectionalStimulusNounPhrase)
+import           Grammar.Parser.Composites.Nouns
+  ( DirectionalStimulusNounPhrase
+  , PlayerName
+  )
 
 type StimulusVerbPhrase :: Type
 data StimulusVerbPhrase = ImplicitStimulusVerb ImplicitStimulusVerb
                         | DirectStimulusVerbPhrase DirectionalStimulusVerb DirectionalStimulusNounPhrase
+                        | AgentStimulusVerbPhrase DirectionalStimulusVerb PlayerName
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
