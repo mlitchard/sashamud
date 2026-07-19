@@ -35,7 +35,7 @@ import           Model.Core
   , ImplicitStimulusF
   , NarrationComputation (LookAtNarration, LookNarration, StaticNarration)
   , SpatialRelationship (ContainedIn, Contains, SupportedBy, Supports)
-  , WitnessContext (AgentWitnessContext, DirectedWitnessContext, ImplicitWitnessContext)
+  , WitnessContext (AgentWitnessContext, DirectedWitnessContext, FailedAgentLookContext, ImplicitWitnessContext)
   , WitnessEffectF
   , WitnessF (WitnessF)
   , WorldOutcome (NarrationEffect)
@@ -182,6 +182,12 @@ processWitnessEffects witnessGid actorGid (AgentWitnessContext targetGid) = do
               (lookup targetGid aMap)
   modifyAgentNarration witnessGid
     (over actionConsequence (<> [colored White (toPlainText (view agentShortName actor) <> " looks at " <> toPlainText (view agentShortName target) <> ".")]))
+processWitnessEffects witnessGid actorGid FailedAgentLookContext = do
+  aMap <- use (world . agentMap . getAgentMap)
+  actor <- throwMaybeM ("Actor not found: " <> pack (show actorGid))
+             (lookup actorGid aMap)
+  modifyAgentNarration witnessGid
+    (over actionConsequence (<> [colored White (toPlainText (view agentShortName actor) <> " looks around for someone not here.")]))
 
 -- | Lookup functions
 lookupImplicitStimulus :: ImplicitStimulusVerb
