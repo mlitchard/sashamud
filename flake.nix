@@ -1,5 +1,5 @@
 {
-  description = "SashaMUD monorepo";
+  description = "SashaMUD monorepo.";
 
   nixConfig = {
     extra-substituters = "https://horizon.cachix.org";
