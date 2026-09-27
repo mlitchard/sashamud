@@ -3,7 +3,7 @@ module DSL.Builder
   , runWorldBuilder
   , initialBuilderState
   , WorldBuilder
-  , WorldBuilderResult (WorldBuilderResult, resultGameState, resultPossibilityGraph)
+  , WorldBuilderResult (WorldBuilderResult, resultGameState)
   ) where
 
 import           SashaPrelude
@@ -33,6 +33,7 @@ import           Model.Core
   , implicitStimulusMap
   , objectActionManagement
   , objectMap
+  , possibilityGraph
   , sceneActionManagement
   , sceneMap
   , shortName
@@ -60,8 +61,7 @@ type WorldBuilder = State BuilderState
 
 type WorldBuilderResult :: Type
 data WorldBuilderResult = WorldBuilderResult
-  { resultGameState        :: GameState
-  , resultPossibilityGraph :: PossibilityGraph
+  { resultGameState :: GameState
   }
 
 initialBuilderState :: GameState -> BuilderState
@@ -184,18 +184,13 @@ interpretDSL FinalizeGameState =
 runWorldBuilder :: WorldBuilder GameState -> BuilderState -> WorldBuilderResult
 runWorldBuilder builder initState =
   let (gs, finalState) = runState builder initState
-      possibilityGraph = PossibilityGraph
+      pg = PossibilityGraph
         { _entityActionEffects = bsEntityActionRegistry finalState
         , _worldOutcomeEffects = bsWorldOutcomeRegistry finalState
         , _witnessMap          = bsWitnessMap finalState
-        , _newUserStartScene   = fromMaybe
-            (error "runWorldBuilder: world declared no newUser start scene")
-            (bsNewUserStartScene finalState)
-        , _newUserMkAgent      = fromMaybe
-            (error "runWorldBuilder: world declared no newUser agent template")
-            (bsNewUserMkAgent finalState)
+        , _newUserStartScene   = bsNewUserStartScene finalState
+        , _newUserMkAgent      = bsNewUserMkAgent finalState
         }
   in WorldBuilderResult
-       { resultGameState        = gs
-       , resultPossibilityGraph = possibilityGraph
+       { resultGameState = gs & possibilityGraph .~ pg
        }

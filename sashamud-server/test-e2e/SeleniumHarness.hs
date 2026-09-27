@@ -27,7 +27,7 @@ import           Network.HTTP.Client
   , responseTimeoutMicro
   )
 import           Network.Wai.Handler.Warp (testWithApplication)
-import           SashaMudWorld (gameState, possibilityGraph)
+import           SashaMudWorld (gameState)
 import           Server.App (AppCtx, GameLog (GameLog), newAppCtx)
 import           Server.Server (appWithStaticFiles, deliverOutbound)
 import           System.Directory
@@ -70,7 +70,7 @@ withServer action = do
   let logCfg = GameLog stderr
   ctx <- newAppCtx logCfg
   race_
-    (race_ (gameLoop ctx gameState possibilityGraph) (deliverOutbound ctx))
+    (race_ (gameLoop ctx gameState) (deliverOutbound ctx))
     (action ctx)
 
 indexhtml :: FilePath -> String

@@ -47,7 +47,7 @@ import           Network.WebSockets
   , runClientWith
   , sendTextData
   )
-import           SashaMudWorld (gameState, possibilityGraph)
+import           SashaMudWorld (gameState)
 import           Servant
   ( NoContent (NoContent)
   , Proxy (Proxy)
@@ -116,7 +116,7 @@ withTestServer action = do
   let logCfg = GameLog stderr
   ctx <- newAppCtx logCfg
   serverThread <- async $ race_
-    (race_ (gameLoop ctx gameState possibilityGraph) (deliverOutbound ctx))
+    (race_ (gameLoop ctx gameState) (deliverOutbound ctx))
     (run testPort (app ctx))
   threadDelay 500000
   action (testPort, ctx) `finally` cancel serverThread

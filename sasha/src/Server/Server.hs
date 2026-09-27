@@ -28,7 +28,7 @@ import           Data.UUID (toText)
 import           Data.UUID.V4 (nextRandom)
 import           Engine.Simulation.SignalNetwork (gameLoop)
 import           GHC.IO (FilePath)
-import           Model.Core (GameState, PossibilityGraph)
+import           Model.Core (GameState)
 import           Network.Wai (Application)
 import           Network.Wai.Handler.Warp (run)
 import           Network.WebSockets (ConnectionException)
@@ -112,15 +112,15 @@ deliverOutbound ctx = forever $ do
             writeLog (acGameLog ctx) (SendError sid (pack (show e))))
         ]
 
-startServer :: GameState -> PossibilityGraph -> IO ()
-startServer initialGS pg = do
+startServer :: GameState -> IO ()
+startServer initialGS = do
   port <- maybe 8081 readPort <$> lookupEnv "SASHA_WEB_PORT"
   let logCfg = GameLog stderr
   ctx <- newAppCtx logCfg
   writeLog logCfg (ServerStart port)
   hPutStrLn stderr ("sasha-web server starting on port " <> show port)
   race_
-    (race_ (gameLoop ctx initialGS pg) (deliverOutbound ctx))
+    (race_ (gameLoop ctx initialGS) (deliverOutbound ctx))
     (run port (app ctx))
 
 readPort :: String -> Int

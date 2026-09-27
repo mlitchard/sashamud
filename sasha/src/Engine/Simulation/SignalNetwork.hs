@@ -68,25 +68,23 @@ import           Lens.Micro.Platform (at, over, set, use, view, (.=), (?~))
 import           Model.Core
   ( Agent
   , AgentKind (Denizen)
-  , ComputationContext (ComputationContext, _ctxPossibilityGraph)
   , Evaluator (Evaluator)
   , GameComputation (runGameComputation)
   , GameState
   , GameStateT (runGameStateT)
   , Narration (Narration, _actionConsequence, _actionEpilogue, _playerAction, _presenceListing)
   , NarrationMap (NarrationMap)
-  , PossibilityGraph
   , agentKind
   , agentLocationMap
   , agentMap
   , agentShortName
-  , ctxPossibilityGraph
   , evaluation
   , getAgentMap
   , getGIDToDataMap
   , narrationMap
   , newUserMkAgent
   , newUserStartScene
+  , possibilityGraph
   , runEvaluator
   , sceneAgents
   , sceneMap
@@ -118,7 +116,7 @@ data JoinResult = NewPlayerJoined SessionId PlayerNameVAL (GID Agent)
                 | ReturningPlayerJoined SessionId (GID Agent)
 
 type RhineM :: Type -> Type
-newtype RhineM a = RhineM { unRhineM :: AccumT (Last GameState) (ReaderT PossibilityGraph (ReaderT AppCtx IO)) a }
+newtype RhineM a = RhineM { unRhineM :: AccumT (Last GameState) (ReaderT AppCtx IO) a }
   deriving newtype (Applicative, Functor, Monad, MonadIO)
 
 instance MonadSchedule RhineM where
@@ -135,14 +133,11 @@ addGameState :: GameState -> RhineM ()
 addGameState gs = RhineM $ add (Last (Just gs))
 
 askAppCtx :: RhineM AppCtx
-askAppCtx = RhineM $ lift (lift ask)
+askAppCtx = RhineM $ lift ask
 
-askPossibilityGraph :: RhineM PossibilityGraph
-askPossibilityGraph = RhineM $ lift ask
-
-gameLoop :: AppCtx -> GameState -> PossibilityGraph -> IO ()
-gameLoop ctx gs pg =
-  void (runReaderT (runReaderT (runAccumT (unRhineM (flow rhinePipeline)) (Last (Just gs))) pg) ctx)
+gameLoop :: AppCtx -> GameState -> IO ()
+gameLoop ctx gs =
+  void (runReaderT (runAccumT (unRhineM (flow rhinePipeline)) (Last (Just gs))) ctx)
 
 rhinePipeline :: Rhine RhineM
   (ParallelClock
@@ -167,7 +162,6 @@ playerTickBlock :: ClSF RhineM (IOClock RhineM PlayerTick) () ()
 playerTickBlock = constMCl $ do
   gs <- lookGameState
   appCtx <- askAppCtx
-  pg <- askPossibilityGraph
 
   -- IO: gather inputs
   sessions <- liftIO $ readMVar (acSessions appCtx)
@@ -182,11 +176,10 @@ playerTickBlock = constMCl $ do
   let (pings, commandComp) = resolveCommands sessions msgs
       (joinResults, joinComp) = processJoinsPure known newGIDs
       leavesComp = processLeavesPure sessions known
-      ctx = ComputationContext { _ctxPossibilityGraph = pg }
       tickComp = composeTick leavesComp joinComp commandComp (joinGIDs joinResults)
 
       -- EXECUTE: run once
-      (result, gs') = runPureComputation tickComp ctx gs
+      (result, gs') = runPureComputation tickComp gs
 
   -- IO: protocol replies (delivered regardless of tick result)
   liftIO . forM_ pings $ \sid ->
@@ -276,24 +269,27 @@ processJoinsPure known newGIDs = (joinResults, mapM_ joinComputation joinResults
                   put gs'
     joinComputation (NewPlayerJoined _sid name gid) = do
       gs <- get
-      pg <- view ctxPossibilityGraph
-      let sceneGid = view newUserStartScene pg
-          mkAgent = view newUserMkAgent pg
-          agent = mkAgent (view unPlayerNameVAL name)
-      case lookup sceneGid (view (world . sceneMap . getGIDToDataMap) gs) of
-        Nothing -> throwError ("Programmer Error: new player start scene not found: " <> pack (show sceneGid))
-        Just scene -> do
-          let aMap = view (world . agentMap . getAgentMap) gs
-              scene' = set sceneAgents (Set.insert gid (view sceneAgents scene)) scene
-              announceNarration = consequenceNarration (colored White (view unPlayerNameVAL name <> " has arrived."))
-              others = [g | g <- Set.toList (view sceneAgents scene'), g /= gid]
-              gs' = gs
-                & world . agentMap . getAgentMap . at gid ?~ agent
-                & world . sceneMap . getGIDToDataMap . at sceneGid ?~ scene'
-                & agentLocationMap . at gid ?~ sceneGid
-                & announceToDenizens aMap others announceNarration
-                & evaluation . at gid ?~ Evaluator eval
-          put gs'
+      case view (possibilityGraph . newUserStartScene) gs of
+        Nothing -> throwError "Programmer Error: world declared no newUser start scene"
+        Just sceneGid ->
+          case view (possibilityGraph . newUserMkAgent) gs of
+            Nothing -> throwError "Programmer Error: world declared no newUser agent template"
+            Just mkAgent ->
+              case lookup sceneGid (view (world . sceneMap . getGIDToDataMap) gs) of
+                Nothing -> throwError ("Programmer Error: new player start scene not found: " <> pack (show sceneGid))
+                Just scene -> do
+                  let agent = mkAgent (view unPlayerNameVAL name)
+                      aMap = view (world . agentMap . getAgentMap) gs
+                      scene' = set sceneAgents (Set.insert gid (view sceneAgents scene)) scene
+                      announceNarration = consequenceNarration (colored White (view unPlayerNameVAL name <> " has arrived."))
+                      others = [g | g <- Set.toList (view sceneAgents scene'), g /= gid]
+                      gs' = gs
+                        & world . agentMap . getAgentMap . at gid ?~ agent
+                        & world . sceneMap . getGIDToDataMap . at sceneGid ?~ scene'
+                        & agentLocationMap . at gid ?~ sceneGid
+                        & announceToDenizens aMap others announceNarration
+                        & evaluation . at gid ?~ Evaluator eval
+                  put gs'
 
 consequenceNarration :: RichText -> Narration
 consequenceNarration line = Narration
@@ -338,11 +334,10 @@ lookupEvaluatorOrThrow gid = do
     Just evaluator -> pure evaluator
 
 runPureComputation :: GameComputation Identity a
-                   -> ComputationContext
                    -> GameState
                    -> (Either Text a, GameState)
-runPureComputation comp ctx gs =
-  runIdentity (runStateT (runGameStateT (runExceptT (runReaderT (runGameComputation comp) ctx))) gs)
+runPureComputation comp gs =
+  runIdentity (runStateT (runGameStateT (runExceptT (runGameComputation comp))) gs)
 
 allocateNewGIDs :: AppCtx
                 -> Map PlayerNameVAL (GID Agent)
