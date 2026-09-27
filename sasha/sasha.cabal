@@ -47,6 +47,7 @@ library
     ConstraintRefinement.Actions
     DSL.Builder
     DSL.Model.EDSL.SashaLambdaDSL
+    DSL.Reify
     DSL.Vocabulary
     Engine.ActionDiscovery.Instances
     Engine.ActionDiscovery.Percieve.Look
@@ -122,6 +123,7 @@ executable sasha-tests
     ConstraintRefinement.Actions
     DSL.Builder
     DSL.Model.EDSL.SashaLambdaDSL
+    DSL.Reify
     DSL.Vocabulary
     Engine.ActionDiscovery.Instances
     Engine.ActionDiscovery.Percieve.Look
@@ -156,6 +158,7 @@ executable sasha-tests
     , deepseq
     , generic-arbitrary
     , hashable
+    , hint
     , hspec
     , hspec-core
     , hspec-discover
