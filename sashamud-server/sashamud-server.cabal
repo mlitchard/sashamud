@@ -76,12 +76,14 @@ executable sashamud-integration-tests
     , hspec
     , hspec-discover
     , http-client
+    , http-types
     , microlens-platform
     , sasha
     , sashamud-world
     , servant-client
     , servant-client-core
     , servant-server
+    , servant-websockets
     , text
     , warp
     , websockets

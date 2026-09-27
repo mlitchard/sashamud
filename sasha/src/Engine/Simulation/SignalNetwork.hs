@@ -28,7 +28,7 @@ import           Control.Monad.Trans.Accum (AccumT, add, look, runAccumT)
 import           Control.Monad.Trans.Class (lift)
 import           Control.Monad.Trans.Reader (ReaderT (runReaderT), ask)
 import           Data.Functor.Identity (Identity, runIdentity)
-import           Data.IORef (atomicModifyIORef')
+import           Data.IORef (atomicModifyIORef', readIORef, writeIORef)
 import           Data.Map.Strict
   ( Map
   , assocs
@@ -48,8 +48,14 @@ import qualified Data.Set as Set
   , null
   , toList
   )
+import           DSL.Builder
+  ( WorldBuilderResult (WorldBuilderResult, resultCounters, resultGameState)
+  , initialBuilderState
+  , interpretDSL
+  , runWorldBuilder
+  )
 import           Engine.Evaluators.Player.General (eval)
-import           Engine.Simulation.Clocks (HeartbeatTick, PlayerTick)
+import           Engine.Simulation.Clocks (DSLTick, HeartbeatTick, PlayerTick)
 import           FRP.Rhine
   ( ClSF
   , IOClock
@@ -103,7 +109,7 @@ import           Model.WireProtocol
   ( MessageFrom (ChatMessage, GameNarration, Pong, SystemMessage)
   )
 import           Server.App
-  ( AppCtx (acInbound, acJoinChan, acKnownPlayers, acNextAgentId, acOutbound, acSessions)
+  ( AppCtx (acBuilderCounters, acDSLChan, acInbound, acJoinChan, acKnownPlayers, acNextAgentId, acOutbound, acSessions)
   , SessionPhase (SessionPhase)
   , SessionState (AwaitingJoin, AwaitingSocket, InGame)
   , sessionGid
@@ -141,12 +147,16 @@ gameLoop ctx gs =
 
 rhinePipeline :: Rhine RhineM
   (ParallelClock
-    (IOClock RhineM HeartbeatTick)
-    (IOClock RhineM PlayerTick)) () ()
+    (ParallelClock
+      (IOClock RhineM HeartbeatTick)
+      (IOClock RhineM PlayerTick))
+    (IOClock RhineM DSLTick)) () ()
 rhinePipeline =
-    heartbeatSF @@ ioClock (waitClock :: HeartbeatTick)
+    (heartbeatSF @@ ioClock (waitClock :: HeartbeatTick)
+     |@|
+     playerTickBlock @@ ioClock (waitClock :: PlayerTick))
     |@|
-    playerTickBlock @@ ioClock (waitClock :: PlayerTick)
+    dslTickSF @@ ioClock (waitClock :: DSLTick)
 
 heartbeatSF :: ClSF RhineM (IOClock RhineM HeartbeatTick) () ()
 heartbeatSF = constMCl $ do
@@ -157,6 +167,20 @@ heartbeatSF = constMCl $ do
     atomically $
       mapM_ (\sid -> writeTChan (acOutbound appCtx) (Routed sid msg))
         [sid | (sid, phase) <- assocs sessions, Just _ <- [sessionGid phase]]
+
+dslTickSF :: ClSF RhineM (IOClock RhineM DSLTick) () ()
+dslTickSF = constMCl $ do
+  appCtx <- askAppCtx
+  submissions <- liftIO $ drainChan (acDSLChan appCtx)
+  unless (null submissions) $ do
+    gs <- lookGameState
+    counters <- liftIO $ readIORef (acBuilderCounters appCtx)
+    let runSubmission prev dsl =
+          runWorldBuilder (interpretDSL dsl)
+            (initialBuilderState (resultGameState prev) (resultCounters prev))
+        result = foldl' runSubmission (WorldBuilderResult gs counters) submissions
+    liftIO $ writeIORef (acBuilderCounters appCtx) (resultCounters result)
+    addGameState (resultGameState result)
 
 playerTickBlock :: ClSF RhineM (IOClock RhineM PlayerTick) () ()
 playerTickBlock = constMCl $ do

@@ -33,8 +33,9 @@ import           Control.Monad.Except (MonadError)
 import           Control.Monad.Reader (MonadReader, ReaderT)
 import           Data.IORef (IORef, newIORef)
 import           Data.Map.Strict (Map)
+import           DSL.Model.EDSL.SashaLambdaDSL (SashaLambdaDSL)
 import           Lens.Micro.Platform (makeLenses)
-import           Model.Core (Agent)
+import           Model.Core (Agent, GameState)
 import           Model.GID (GID)
 import           Model.WireProtocol (MessageFrom)
 import           Servant (Handler)
@@ -107,6 +108,7 @@ data AppCtx = AppCtx
   { acInbound      :: TChan (Routed MessageTo)
   , acOutbound     :: TChan (Routed MessageFrom)
   , acJoinChan     :: TChan PlayerJoined
+  , acDSLChan      :: TChan (SashaLambdaDSL GameState)
   , acSessions     :: MVar (Map SessionId SessionPhase)
   , acKnownPlayers :: MVar (Map PlayerNameVAL (GID Agent))
   , acNextAgentId  :: IORef PInt
@@ -119,6 +121,7 @@ newAppCtx logCfg counters = do
   inChan   <- newTChanIO
   outChan  <- newTChanIO
   joinChan <- newTChanIO
+  dslChan  <- newTChanIO
   sessions <- newMVar mempty
   known    <- newMVar mempty
   nextId   <- newIORef firstPlayerId
@@ -127,6 +130,7 @@ newAppCtx logCfg counters = do
     { acInbound      = inChan
     , acOutbound     = outChan
     , acJoinChan     = joinChan
+    , acDSLChan      = dslChan
     , acSessions     = sessions
     , acKnownPlayers = known
     , acNextAgentId  = nextId

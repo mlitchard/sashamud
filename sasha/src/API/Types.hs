@@ -7,6 +7,7 @@ module API.Types
   , Routed (..)
   , LoginResponse (..)
   , AuthenticatedUser (..)
+  , DSLSource (..)
   , PlayerJoined (..)
   ) where
 
@@ -45,6 +46,13 @@ newtype LoginResponse = LoginResponse { lrSessionId :: SessionId }
   deriving anyclass (NFData)
 
 derivingTypeScriptDefinition ''LoginResponse
+
+newtype DSLSource = DSLSource { unDSLSource :: Text }
+  deriving stock (Generic, Show)
+  deriving newtype (Eq, FromJSON, ToJSON)
+  deriving anyclass (NFData)
+
+derivingTypeScriptDefinition ''DSLSource
 
 data AuthenticatedUser = AuthenticatedUser
   { auSessionId :: SessionId
