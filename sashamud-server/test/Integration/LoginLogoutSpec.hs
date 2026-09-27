@@ -47,7 +47,8 @@ import           Network.WebSockets
   , runClientWith
   , sendTextData
   )
-import           SashaMudWorld (gameState)
+import           DSL.Builder (WorldBuilderResult (resultCounters))
+import           SashaMudWorld (buildResult, gameState)
 import           Servant
   ( NoContent (NoContent)
   , Proxy (Proxy)
@@ -114,7 +115,7 @@ testClientEnv = do
 withTestServer :: ((Int, AppCtx) -> IO ()) -> IO ()
 withTestServer action = do
   let logCfg = GameLog stderr
-  ctx <- newAppCtx logCfg
+  ctx <- newAppCtx logCfg (resultCounters buildResult)
   serverThread <- async $ race_
     (race_ (gameLoop ctx gameState) (deliverOutbound ctx))
     (run testPort (app ctx))

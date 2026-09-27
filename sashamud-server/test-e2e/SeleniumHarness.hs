@@ -27,7 +27,8 @@ import           Network.HTTP.Client
   , responseTimeoutMicro
   )
 import           Network.Wai.Handler.Warp (testWithApplication)
-import           SashaMudWorld (gameState)
+import           DSL.Builder (WorldBuilderResult (resultCounters))
+import           SashaMudWorld (buildResult, gameState)
 import           Server.App (AppCtx, GameLog (GameLog), newAppCtx)
 import           Server.Server (appWithStaticFiles, deliverOutbound)
 import           System.Directory
@@ -68,7 +69,7 @@ withServer action = do
   hSetEncoding stdout utf8
   hSetBuffering stdout LineBuffering
   let logCfg = GameLog stderr
-  ctx <- newAppCtx logCfg
+  ctx <- newAppCtx logCfg (resultCounters buildResult)
   race_
     (race_ (gameLoop ctx gameState) (deliverOutbound ctx))
     (action ctx)
