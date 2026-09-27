@@ -63,19 +63,18 @@ executable sasha-e2e-tests
     , warp
     , webdriver
 
-test-suite sashamud-integration-tests
-  import:             shared
-  type:               exitcode-stdio-1.0
-  main-is:            Spec.hs
-  hs-source-dirs:     test
-  ghc-options:        -threaded -rtsopts
-  other-modules:      Integration.LoginLogoutSpec
-  build-tool-depends: hspec-discover:hspec-discover
+executable sashamud-integration-tests
+  import:         shared
+  main-is:        Spec.hs
+  hs-source-dirs: test
+  ghc-options:    -threaded -rtsopts
+  other-modules:  Integration.LoginLogoutSpec
   build-depends:
     , async
     , base                 >=4.7 && <5
     , containers
     , hspec
+    , hspec-discover
     , http-client
     , microlens-platform
     , sasha
