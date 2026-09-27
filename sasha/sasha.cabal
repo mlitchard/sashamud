@@ -140,6 +140,7 @@ executable sasha-tests
     Model.RandomPool
     Model.RichText
     Model.WireProtocol
+    ReifySpec
     SashaPrelude
     Server.App
     Server.Authentication

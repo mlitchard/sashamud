@@ -404,6 +404,7 @@
                 environment.systemPackages = [
                   inputs.self.packages.${system}.sasha-tests
                 ];
+                environment.variables = hintAttrs;
               };
               testScript = ''
                 machine.wait_for_unit("default.target")
