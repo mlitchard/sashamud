@@ -105,15 +105,15 @@ newtype AppM a = AppM { unAppM :: ReaderT AppCtx Handler a }
     )
 
 data AppCtx = AppCtx
-  { acInbound      :: TChan (Routed MessageTo)
-  , acOutbound     :: TChan (Routed MessageFrom)
-  , acJoinChan     :: TChan PlayerJoined
-  , acDSLChan      :: TChan (SashaLambdaDSL GameState)
-  , acSessions     :: MVar (Map SessionId SessionPhase)
-  , acKnownPlayers :: MVar (Map PlayerNameVAL (GID Agent))
-  , acNextAgentId  :: IORef PInt
+  { acInbound         :: TChan (Routed MessageTo)
+  , acOutbound        :: TChan (Routed MessageFrom)
+  , acJoinChan        :: TChan PlayerJoined
+  , acDSLChan         :: TChan (SashaLambdaDSL GameState)
+  , acSessions        :: MVar (Map SessionId SessionPhase)
+  , acKnownPlayers    :: MVar (Map PlayerNameVAL (GID Agent))
+  , acNextAgentId     :: IORef PInt
   , acBuilderCounters :: IORef BuilderCounters
-  , acGameLog      :: GameLog
+  , acGameLog         :: GameLog
   }
 
 newAppCtx :: GameLog -> BuilderCounters -> IO AppCtx

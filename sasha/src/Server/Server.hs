@@ -29,7 +29,9 @@ import qualified Data.Map.Strict (filter)
 import           Data.String (fromString)
 import           Data.UUID (toText)
 import           Data.UUID.V4 (nextRandom)
-import           DSL.Builder (WorldBuilderResult (resultCounters, resultGameState))
+import           DSL.Builder
+  ( WorldBuilderResult (resultCounters, resultGameState)
+  )
 import           DSL.Reify (reifyDSL)
 import           Engine.Simulation.SignalNetwork (gameLoop)
 import           GHC.IO (FilePath)
@@ -115,7 +117,7 @@ dslHandler (AuthenticatedUser sessionId) (DSLSource source) = do
         Left err ->
           throwError err400 { errBody = fromString (show err) }
         Right dsl -> do
-          liftIO $ atomically $ writeTChan (acDSLChan ctx) dsl
+          liftIO . atomically $ writeTChan (acDSLChan ctx) dsl
           pure NoContent
 
 deliverOutbound :: AppCtx -> IO ()

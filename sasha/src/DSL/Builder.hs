@@ -59,13 +59,13 @@ import           Server.App
   )
 
 data BuilderState = BuilderState
-  { bsGameState                  :: GameState
-  , bsCounters                   :: BuilderCounters
-  , bsWitnessMap                 :: WitnessMap
-  , bsEntityActionRegistry       :: EntityActionRegistry
-  , bsWorldOutcomeRegistry       :: WorldOutcomeRegistry
-  , bsNewUserStartScene          :: Maybe (GID Scene)
-  , bsNewUserMkAgent             :: Maybe (Text -> Agent)
+  { bsGameState            :: GameState
+  , bsCounters             :: BuilderCounters
+  , bsWitnessMap           :: WitnessMap
+  , bsEntityActionRegistry :: EntityActionRegistry
+  , bsWorldOutcomeRegistry :: WorldOutcomeRegistry
+  , bsNewUserStartScene    :: Maybe (GID Scene)
+  , bsNewUserMkAgent       :: Maybe (Text -> Agent)
   }
 
 type WorldBuilder = State BuilderState

@@ -13,6 +13,7 @@ import           SashaPrelude
   , Text
   , elem
   , fmap
+  , not
   , pure
   , stderr
   , ($)
@@ -30,9 +31,11 @@ import           API.Types
 import           Control.Concurrent (readMVar, threadDelay)
 import           Control.Concurrent.Async (async, cancel, race_)
 import           Control.Exception (SomeException, finally, try)
+import           Data.ByteString.Lazy (null)
 import           Data.Map.Strict (member)
 import           Data.Text (unlines)
 import           Data.Text.Encoding (encodeUtf8)
+import           DSL.Builder (WorldBuilderResult (resultCounters))
 import           Engine.Simulation.SignalNetwork (gameLoop)
 import           Lens.Micro.Platform (view)
 import           Model.Core (actionConsequence, presenceListing)
@@ -50,7 +53,6 @@ import           Network.WebSockets
   , runClientWith
   , sendTextData
   )
-import           DSL.Builder (WorldBuilderResult (resultCounters))
 import           SashaMudWorld (buildResult, gameState)
 import           Servant
   ( AuthProtect
@@ -59,6 +61,7 @@ import           Servant
   , ReqBody
   , type (:>)
   )
+import           Servant.API.WebSocket (SecWebSocketProtocol)
 import           Servant.Client
   ( BaseUrl (baseUrlPort)
   , ClientEnv
@@ -68,7 +71,6 @@ import           Servant.Client
   , parseBaseUrl
   , runClientM
   )
-import           Servant.API.WebSocket (SecWebSocketProtocol)
 import           Servant.Client.Core
   ( AuthClientData
   , AuthenticatedRequest
@@ -191,6 +193,11 @@ hasPresence :: Text -> MessageFrom -> Bool
 hasPresence name (GameNarration narr) =
   "Also here: " <> name `elem` fmap toPlainText (view presenceListing narr)
 hasPresence _ _ = False
+
+seesObjects :: Text -> MessageFrom -> Bool
+seesObjects line (GameNarration narr) =
+  line `elem` fmap toPlainText (view actionConsequence narr)
+seesObjects _ _ = False
 
 spec :: Spec
 spec = describe "Integration" . around withTestServer $ do
@@ -438,7 +445,7 @@ spec = describe "Integration" . around withTestServer $ do
         result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource "declareSceneGID")) env
         case result of
           Left (FailureResponse _ (Response (Status 400 _) _ _ body)) ->
-            body `shouldSatisfy` (/= "")
+            body `shouldSatisfy` (not . null)
           _ -> expectationFailure ("expected 400 with an error body, got: " <> show result)
 
   it "POST /api/game/dsl with the world source returns NoContent" $ \(_port, _ctx) -> do
@@ -449,6 +456,25 @@ spec = describe "Integration" . around withTestServer $ do
       Right (LoginResponse sid) -> do
         result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource worldSource)) env
         result `shouldBe` Right NoContent
+
+  it "a delivered submission appears in look after DSLTick" $ \(_port, _ctx) -> do
+    env <- testClientEnv
+    wizard <- runClientM (loginClient (PlayerNameUNV "Builder")) env
+    case wizard of
+      Left err -> expectationFailure ("login failed: " <> show err)
+      Right (LoginResponse wizardSid) -> do
+        posted <- runClientM (dslClient (makeAuthRequest wizardSid) (DSLSource studySource)) env
+        posted `shouldBe` Right NoContent
+        threadDelay 6000000
+        viewer <- runClientM (loginClient (PlayerNameUNV "Viewer")) env
+        case viewer of
+          Left err -> expectationFailure ("login failed: " <> show err)
+          Right (LoginResponse viewerSid) ->
+            connectWS viewerSid $ \conn -> do
+              narr <- receiveUntil conn 10000000 (seesObjects "You see: a ball, a cup")
+              case narr of
+                Nothing -> expectationFailure "look did not list the delivered cup"
+                Just _  -> pure ()
 
 worldSource :: Text
 worldSource = unlines
@@ -526,5 +552,21 @@ worldSource = unlines
   , "  linkWorldOutcomeEffect (ImplicitStimulusActionKey sceneLookGID) (NarrationEffect LookNarration)"
   , "  linkWorldOutcomeEffect (DirectionalStimulusActionKey ballLookAtGID) (NarrationEffect (LookAtNarration ballGID))"
   , "  linkWorldOutcomeEffect (DirectionalStimulusActionKey floorLookAtGID) (NarrationEffect (LookAtNarration floorGID))"
+  , "  finalizeGameState"
+  ]
+
+studySource :: Text
+studySource = unlines
+  [ "do"
+  , "  studyGID <- declareSceneGID \"study\""
+  , "  tableGID <- declareObjectGID"
+  , "  cupGID   <- declareObjectGID"
+  , "  registerObject tableGID (defaultObject & shortName \"table\")"
+  , "  registerObject cupGID   (defaultObject & shortName \"cup\")"
+  , "  registerObjectToScene studyGID tableGID \"TABLE\""
+  , "  registerObjectToScene studyGID cupGID   \"CUP\""
+  , "  registerSpatial (EntityObject cupGID)   (SupportedBy (EntityObject tableGID))"
+  , "  registerSpatial (EntityObject tableGID) (Supports (Data.Set.singleton (EntityObject cupGID)))"
+  , "  registerScene studyGID (defaultScene & title \"the study\")"
   , "  finalizeGameState"
   ]

@@ -72,6 +72,7 @@ executable sashamud-integration-tests
   build-depends:
     , async
     , base                 >=4.7 && <5
+    , bytestring
     , containers
     , hspec
     , hspec-discover

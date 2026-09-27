@@ -172,7 +172,7 @@ dslTickSF :: ClSF RhineM (IOClock RhineM DSLTick) () ()
 dslTickSF = constMCl $ do
   appCtx <- askAppCtx
   submissions <- liftIO $ drainChan (acDSLChan appCtx)
-  unless (null submissions) $ do
+  when (not (null submissions)) $ do
     gs <- lookGameState
     counters <- liftIO $ readIORef (acBuilderCounters appCtx)
     let runSubmission prev dsl =

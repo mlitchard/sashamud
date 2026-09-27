@@ -18,6 +18,7 @@ import           Data.String.Interpolate (i)
 import           Data.Text.Encoding (decodeUtf8')
 import qualified Data.Text.IO as TIO
 import           Data.Time.Clock.POSIX (getPOSIXTime)
+import           DSL.Builder (WorldBuilderResult (resultCounters))
 import           Engine.Simulation.SignalNetwork (gameLoop)
 import           GHC.IO (FilePath)
 import           Network.HTTP.Client
@@ -27,7 +28,6 @@ import           Network.HTTP.Client
   , responseTimeoutMicro
   )
 import           Network.Wai.Handler.Warp (testWithApplication)
-import           DSL.Builder (WorldBuilderResult (resultCounters))
 import           SashaMudWorld (buildResult, gameState)
 import           Server.App (AppCtx, GameLog (GameLog), newAppCtx)
 import           Server.Server (appWithStaticFiles, deliverOutbound)
