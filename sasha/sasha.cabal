@@ -80,6 +80,7 @@ library
     , deepseq
     , generic-arbitrary
     , hashable
+    , hint
     , microlens-platform
     , mmorph
     , monad-schedule

@@ -128,6 +128,12 @@
           legacyPackages =
             inputs.horizon-platform.legacyPackages.${system}.extend myOverlay;
 
+          hintGhc = legacyPackages.ghcWithPackages (p: [ p.sasha p.sasha-grammar ]);
+          hintAttrs = rec {
+            HINT_GHC_LIB_DIR = "${hintGhc}/lib/${hintGhc.meta.name}/lib";
+            HINT_GHC_PACKAGE_PATH = "${HINT_GHC_LIB_DIR}/package.conf.d";
+          };
+
           devtools = inputs.horizon-devtools.packages.${system};
           lu = lint-utils.linters.${system};
           lu-pkgs = lint-utils.packages.${system};
@@ -233,6 +239,9 @@
               devtools.haskell-language-server
             ];
             shellHook = ''
+              ${lib.concatStringsSep "\n" (
+                lib.mapAttrsToList (name: value: "export ${name}=${value}") hintAttrs
+              )}
               ${shelpersConfig.functions}
               shelp
             '';
