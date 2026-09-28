@@ -28,7 +28,7 @@ import           Control.Monad.Trans.Accum (AccumT, add, look, runAccumT)
 import           Control.Monad.Trans.Class (lift)
 import           Control.Monad.Trans.Reader (ReaderT (runReaderT), ask)
 import           Data.Functor.Identity (Identity, runIdentity)
-import           Data.IORef (atomicModifyIORef', readIORef, writeIORef)
+import           Data.IORef (readIORef, writeIORef)
 import           Data.Map.Strict
   ( Map
   , assocs
@@ -97,7 +97,7 @@ import           Model.Core
   , unNarrationMap
   , world
   )
-import           Model.GID (GID (GID))
+import           Model.GID (GID)
 import           Model.RichText
   ( RichText
   , TextColor (White)
@@ -109,12 +109,10 @@ import           Model.WireProtocol
   ( MessageFrom (ChatMessage, GameNarration, Pong, SystemMessage)
   )
 import           Server.App
-  ( AppCtx (acBuilderCounters, acDSLChan, acInbound, acJoinChan, acKnownPlayers, acNextAgentId, acOutbound, acSessions)
+  ( AppCtx (acBuilderCounters, acDSLChan, acInbound, acJoinChan, acKnownPlayers, acOutbound, acSessions)
   , SessionPhase (SessionPhase)
   , SessionState (AwaitingJoin, AwaitingSocket, InGame)
   , sessionGid
-  , succPInt
-  , unPInt
   )
 import           Server.Validator (PlayerNameVAL, unPlayerNameVAL)
 
@@ -193,12 +191,9 @@ playerTickBlock = constMCl $ do
   joins <- liftIO $ drainChan (acJoinChan appCtx)
   msgs <- liftIO $ drainChan (acInbound appCtx)
 
-  -- IO: pre-allocate GIDs for new players
-  newGIDs <- liftIO $ allocateNewGIDs appCtx known joins
-
   -- GENERATE: compose one big GameComputation
   let (pings, commandComp) = resolveCommands sessions msgs
-      (joinResults, joinComp) = processJoinsPure known newGIDs
+      (joinResults, joinComp) = processJoinsPure known joins
       leavesComp = processLeavesPure sessions known
       tickComp = composeTick leavesComp joinComp commandComp (joinGIDs joinResults)
 
@@ -263,15 +258,15 @@ processLeavesPure sessions known = do
   put (foldl' applyDeparture gs sceneDepartures)
 
 processJoinsPure :: Map PlayerNameVAL (GID Agent)
-                 -> [(PlayerJoined, GID Agent)]
+                 -> [PlayerJoined]
                  -> ([JoinResult], GameComputation Identity ())
-processJoinsPure known newGIDs = (joinResults, mapM_ joinComputation joinResults)
+processJoinsPure known joins = (joinResults, mapM_ joinComputation joinResults)
   where
-    joinResults = fmap classify newGIDs
-    classify (PlayerJoined sid name, allocatedGid) =
+    joinResults = fmap classify joins
+    classify (PlayerJoined sid name accountGid) =
       case lookup name known of
         Just gid -> ReturningPlayerJoined sid gid
-        Nothing  -> NewPlayerJoined sid name allocatedGid
+        Nothing  -> NewPlayerJoined sid name accountGid
     joinComputation (ReturningPlayerJoined _sid gid) = do
       gs <- get
       case lookup gid (view (world . agentMap . getAgentMap) gs) of
@@ -363,18 +358,6 @@ runPureComputation :: GameComputation Identity a
 runPureComputation comp gs =
   runIdentity (runStateT (runGameStateT (runExceptT (runGameComputation comp))) gs)
 
-allocateNewGIDs :: AppCtx
-                -> Map PlayerNameVAL (GID Agent)
-                -> [PlayerJoined]
-                -> IO [(PlayerJoined, GID Agent)]
-allocateNewGIDs appCtx known joins =
-  forM joins $ \joined@(PlayerJoined _ name) ->
-    case lookup name known of
-      Just gid -> pure (joined, gid)
-      Nothing -> do
-        nextId <- atomicModifyIORef' (acNextAgentId appCtx) (\p -> (succPInt p, p))
-        pure (joined, GID (unPInt nextId))
-
 resolveCommands :: Map SessionId SessionPhase
                 -> [Routed MessageTo]
                 -> ([SessionId], GameComputation Identity ())
@@ -392,20 +375,20 @@ executeJoinIO ctx (NewPlayerJoined sid name gid) = do
   modifyMVar_ (acKnownPlayers ctx) (pure . insert name gid)
   modifyMVar_ (acSessions ctx) $ \sessions ->
     pure $ case lookup sid sessions of
-      Just (SessionPhase n (AwaitingJoin send)) -> insert sid (SessionPhase n (InGame send gid)) sessions
-      Just (SessionPhase _ AwaitingSocket)      -> sessions
-      Just (SessionPhase _ (InGame _ _))        -> sessions
-      Nothing                                   -> sessions
+      Just (SessionPhase n g (AwaitingJoin send)) -> insert sid (SessionPhase n g (InGame send)) sessions
+      Just (SessionPhase _ _ AwaitingSocket)      -> sessions
+      Just (SessionPhase _ _ (InGame _))          -> sessions
+      Nothing                                     -> sessions
   atomically $
     writeTChan (acOutbound ctx)
       (Routed sid (ChatMessage ("Welcome, " <> view unPlayerNameVAL name <> "!")))
-executeJoinIO ctx (ReturningPlayerJoined sid gid) = do
+executeJoinIO ctx (ReturningPlayerJoined sid _gid) = do
   modifyMVar_ (acSessions ctx) $ \sessions ->
     pure $ case lookup sid sessions of
-      Just (SessionPhase n (AwaitingJoin send)) -> insert sid (SessionPhase n (InGame send gid)) sessions
-      Just (SessionPhase _ AwaitingSocket)      -> sessions
-      Just (SessionPhase _ (InGame _ _))        -> sessions
-      Nothing                                   -> sessions
+      Just (SessionPhase n g (AwaitingJoin send)) -> insert sid (SessionPhase n g (InGame send)) sessions
+      Just (SessionPhase _ _ AwaitingSocket)      -> sessions
+      Just (SessionPhase _ _ (InGame _))          -> sessions
+      Nothing                                     -> sessions
   atomically $
     writeTChan (acOutbound ctx)
       (Routed sid (ChatMessage "Welcome back!"))

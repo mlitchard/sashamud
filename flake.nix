@@ -37,9 +37,16 @@
       flake = false;
     };
 
+    local-postgres = {
+      url = "github:quelklef/local-postgres";
+      flake = false;
+    };
+
     deploys = {
       url = "git+https://gitlab.com/nix-infrastructure/deploys.git";
     };
+
+    authentik-nix.url = "github:nix-community/authentik-nix";
   };
 
   outputs =
@@ -71,8 +78,8 @@
               filter = path: type:
                 let baseName = baseNameOf path;
                 in pkgs.lib.hasSuffix ".hs" baseName
-                  || pkgs.lib.hasSuffix ".cabal" baseName
-                  || type == "directory";
+                || pkgs.lib.hasSuffix ".cabal" baseName
+                || type == "directory";
             };
 
           myOverlay = final: _prev: {
@@ -134,22 +141,77 @@
             HINT_GHC_PACKAGE_PATH = "${HINT_GHC_LIB_DIR}/package.conf.d";
           };
 
+          dbConnStr = "dbname=sashamud";
+          localPostgres = import inputs.local-postgres { inherit pkgs; };
+          pgDir = ".database";
+          migrationsDir = ./migrations;
+          oidcBaseUrl = "http://127.0.0.1:9000";
+          oidcClientId = "sashamud";
+          oidcClientSecret = "sashamud-dev";
+          oidcRedirectUri = "http://localhost:8081/api/auth/callback";
+
           dslServerUrl = "http://127.0.0.1:8081";
-          dslWizardName = "wizard";
           deployDsl = pkgs.writeShellScript "deploy-dsl" ''
             set -euo pipefail
             SRC="''${1:?usage: nix run .#deploy-dsl -- <file.dsl>}"
             URL="''${SASHA_URL:-${dslServerUrl}}"
-            NAME="''${SASHA_WIZARD:-${dslWizardName}}"
+            TOKEN="''${SASHA_TOKEN:?SASHA_TOKEN must hold a login token}"
             CURL="${pkgs.curl}/bin/curl"
             JQ="${pkgs.jq}/bin/jq"
-            SID=$($CURL --fail-with-body -sS -X POST "$URL/api/game/login" \
-              -H "Content-Type: application/json" \
-              --data "$($JQ -n --arg n "$NAME" '$n')" | $JQ -r '.')
             $JQ -Rs . < "$SRC" | $CURL --fail-with-body -sS -X POST "$URL/api/game/dsl" \
-              -H "Sec-WebSocket-Protocol: $SID" -H "Content-Type: application/json" \
+              -H "Sec-WebSocket-Protocol: $TOKEN" -H "Content-Type: application/json" \
               --data @-
             echo "deployed $SRC to $URL"
+          '';
+          fakeLogin = pkgs.writeShellScript "fake-login" ''
+            set -euo pipefail
+            URL="''${1:-${dslServerUrl}}"
+            USER="''${2:-wizard}"
+            CURL="${pkgs.curl}/bin/curl"
+            location() {
+              $CURL -sS -o /dev/null -D - "$1" | tr -d '\r' | ${pkgs.gawk}/bin/awk 'tolower($1) == "location:" { print $2 }'
+            }
+            AUTHORIZE=$(location "$URL/api/auth/start")
+            CALLBACK=$(location "$AUTHORIZE&fake_user=$USER")
+            FINAL=$(location "$CALLBACK")
+            echo "$FINAL" | ${pkgs.gnused}/bin/sed 's|^/#token=||'
+          '';
+          accountSigningKey = "\${HOME}/.ssh/sasha_sk";
+          accountSigners = pkgs.writeText "sashamud-allowed-signers" ''
+            sashamud-admin sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIGIQxWd6UuR8QMyqLQxTjSjrfrdOEAIcw7ilskEW5JDlAAAABHNzaDo=
+          '';
+          createAccountSql = pkgs.writeText "create-account.sql" ''
+            WITH new_user AS (
+              INSERT INTO users (status, role_id, activated_on)
+                SELECT 'active', role_id, now() FROM roles
+                  WHERE name = :'role'
+                    AND NOT EXISTS (SELECT 1 FROM credentials WHERE player_name = :'name')
+                RETURNING user_id)
+            INSERT INTO credentials (user_id, player_name, subject)
+              SELECT user_id, :'name', :'subject' FROM new_user
+              ON CONFLICT (player_name) DO NOTHING;
+          '';
+          createAccount = pkgs.writeShellScript "create-account" ''
+            set -euo pipefail
+            ACCOUNT="''${1:?usage: nix run .#create-account -- <account.json>}"
+            KEY="''${SASHA_ACCOUNT_KEY:-${accountSigningKey}}"
+            SIGNERS="''${SASHA_ACCOUNT_SIGNERS:-${accountSigners}}"
+            CONNSTR="''${SASHA_DB_CONNSTR:-${dbConnStr}}"
+            JQ="${pkgs.jq}/bin/jq"
+            KEYGEN="${pkgs.openssh}/bin/ssh-keygen"
+            PSQL="${pkgs.postgresql}/bin/psql"
+            NAME=$($JQ -r .player_name "$ACCOUNT")
+            SUBJECT=$($JQ -r .subject "$ACCOUNT")
+            ROLE=$($JQ -r .role "$ACCOUNT")
+            SIG=$(${pkgs.coreutils}/bin/mktemp)
+            trap 'rm -f "$SIG"' EXIT
+            $KEYGEN -Y sign -f "$KEY" -n sashamud-account < "$ACCOUNT" > "$SIG"
+            $KEYGEN -Y verify -f "$SIGNERS" -I sashamud-admin -n sashamud-account -s "$SIG" < "$ACCOUNT"
+            $PSQL "$CONNSTR" -v ON_ERROR_STOP=1 -v name="$NAME" -v subject="$SUBJECT" -v role="$ROLE" -f ${createAccountSql}
+            echo "account $NAME ($ROLE) is present"
+          '';
+          wizardAccount = pkgs.writeText "wizard-account.json" ''
+            { "player_name": "wizard", "subject": "sub-wizard", "role": "wizard" }
           '';
 
           devtools = inputs.horizon-devtools.packages.${system};
@@ -174,7 +236,7 @@
 
           shelpersConfig = (inputs.shelpers.lib pkgs).eval-shelpers [
             ({ shelp, ... }: {
-              instructions-order = [ "Info" "Validate" "Run" ];
+              instructions-order = [ "Info" "Validate" "Database" "Run" ];
               shelpers."." = {
                 "Info" = {
                   inherit shelp;
@@ -215,7 +277,71 @@
                     '';
                   };
                 };
+                "Database" = {
+                  create-db = {
+                    description = "create the local database cluster";
+                    internal = true;
+                    script = ''
+                      if [[ -e ${pgDir} ]]; then
+                        echo database has already been created
+                      else
+                        lpg make ${pgDir}
+                      fi
+                    '';
+                  };
+                  db-server-start = {
+                    description = "start the database server";
+                    script = ''
+                      if [[ -e ${pgDir} ]]; then
+                        lpg on ${pgDir} up
+                        export SASHA_DB_CONNSTR=$(lpg on ${pgDir} get-connstr)
+                      else
+                        echo 'No database exists, run `reset-db` and try again.'
+                      fi
+                    '';
+                  };
+                  db-server-stop = {
+                    description = "stop the database server";
+                    script = ''
+                      lpg on ${pgDir} down || true
+                      unset SASHA_DB_CONNSTR
+                    '';
+                  };
+                  db-shell = {
+                    description = "enter a psql shell for the local database";
+                    script = ''
+                      if [[ -e ${pgDir} ]]; then
+                        db-server-start
+                        lpg on ${pgDir} psql
+                      else
+                        echo 'No database exists, run `reset-db` and try again.'
+                      fi
+                    '';
+                  };
+                  reset-db = {
+                    description = "destroy (if it exists) and then recreate the local database";
+                    script = ''
+                      destroy-db
+                      create-db
+                    '';
+                  };
+                  destroy-db = {
+                    description = "destroy the local database";
+                    script = ''
+                      db-server-stop
+                      rm ${pgDir} -r || true
+                    '';
+                  };
+                };
                 "Run" = {
+                  hint-env = {
+                    description = "export HINT_GHC_LIB_DIR and HINT_GHC_PACKAGE_PATH into this shell";
+                    script = ''
+                      HINT_GHC=$(nix build --no-link --print-out-paths .#hint-ghc)
+                      export HINT_GHC_LIB_DIR="$HINT_GHC/lib/$(nix eval --raw .#hint-ghc.meta.name)/lib"
+                      export HINT_GHC_PACKAGE_PATH="$HINT_GHC_LIB_DIR/package.conf.d"
+                    '';
+                  };
                   start-sashamud = {
                     description = "generate TS client, build frontend, start full stack";
                     script = teardown
@@ -253,19 +379,20 @@
               pkgs.caddy
               pkgs.nodejs
               pkgs.typescript
+              pkgs.postgresql
+              localPostgres
             ] ++ lib.optionals (system == "x86_64-linux") [
               devtools.haskell-language-server
             ];
             shellHook = ''
-              ${lib.concatStringsSep "\n" (
-                lib.mapAttrsToList (name: value: "export ${name}=${value}") hintAttrs
-              )}
+              export SASHA_MIGRATIONS_DIR=${migrationsDir}
               ${shelpersConfig.functions}
               shelp
             '';
           });
 
           packages = {
+            hint-ghc = hintGhc;
             sasha-server = (hlib.overrideCabal
               (hlib.justStaticExecutables
                 (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sashamud-server "exe:sasha-server")))
@@ -275,13 +402,21 @@
               postFixup = (old.postFixup or "") + ''
                 wrapProgram $out/bin/sasha-server \
                   --set-default HINT_GHC_LIB_DIR ${hintAttrs.HINT_GHC_LIB_DIR} \
-                  --set-default HINT_GHC_PACKAGE_PATH ${hintAttrs.HINT_GHC_PACKAGE_PATH}
+                  --set-default HINT_GHC_PACKAGE_PATH ${hintAttrs.HINT_GHC_PACKAGE_PATH} \
+                  --set-default SASHA_DB_CONNSTR ${dbConnStr} \
+                  --set-default SASHA_MIGRATIONS_DIR ${migrationsDir} \
+                  --set-default SASHA_OIDC_BASE_URL ${oidcBaseUrl} \
+                  --set-default SASHA_OIDC_CLIENT_ID ${oidcClientId} \
+                  --set-default SASHA_OIDC_CLIENT_SECRET ${oidcClientSecret} \
+                  --set-default SASHA_OIDC_REDIRECT_URI ${oidcRedirectUri}
               '';
             });
             sasha-client-generator = (hlib.justStaticExecutables
               (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sasha "exe:sasha-client-generator"))).overrideAttrs { meta.mainProgram = "sasha-client-generator"; };
             sasha-tests = (hlib.justStaticExecutables
               (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sasha "exe:sasha-tests"))).overrideAttrs { meta.mainProgram = "sasha-tests"; };
+            sasha-fake-oidc = (hlib.justStaticExecutables
+              (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sashamud-server "exe:sasha-fake-oidc"))).overrideAttrs { meta.mainProgram = "sasha-fake-oidc"; };
             grammar-tests = (hlib.justStaticExecutables
               (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sasha-grammar "exe:grammar-tests"))).overrideAttrs { meta.mainProgram = "grammar-tests"; };
             sasha-e2e-tests = (hlib.justStaticExecutables
@@ -328,6 +463,16 @@
           apps.deploy-dsl = {
             type = "app";
             program = toString deployDsl;
+          };
+
+          apps.create-account = {
+            type = "app";
+            program = toString createAccount;
+          };
+
+          apps.authentik-vm = {
+            type = "app";
+            program = "${inputs.self.nixosConfigurations.authentik-local.config.system.build.vm}/bin/run-authentik-local-vm";
           };
 
           checks = {
@@ -438,10 +583,19 @@
             run-sasha-tests = pkgs.testers.runNixOSTest {
               name = "sasha-tests";
               nodes.machine = { pkgs, ... }: {
+                services.postgresql = {
+                  enable = true;
+                  ensureDatabases = [ "sashamud" ];
+                  ensureUsers = [{ name = "root"; ensureClauses.superuser = true; }];
+                  package = pkgs.postgresql;
+                };
                 environment.systemPackages = [
                   inputs.self.packages.${system}.sasha-tests
                 ];
-                environment.variables = hintAttrs;
+                environment.variables = hintAttrs // {
+                  SASHA_DB_CONNSTR = dbConnStr;
+                  SASHA_MIGRATIONS_DIR = "${migrationsDir}";
+                };
                 virtualisation = {
                   memorySize = 32768;
                   cores = 2;
@@ -455,12 +609,27 @@
             run-deploy-tests = pkgs.testers.runNixOSTest {
               name = "deploy-tests";
               nodes.machine = { pkgs, ... }: {
+                services.postgresql = {
+                  enable = true;
+                  ensureDatabases = [ "sashamud" ];
+                  ensureUsers = [{ name = "root"; ensureClauses.superuser = true; }];
+                  package = pkgs.postgresql;
+                };
                 systemd.services.sashamud = {
                   wantedBy = [ "multi-user.target" ];
-                  after = [ "network.target" ];
+                  after = [ "network.target" "postgresql.service" ];
+                  requires = [ "postgresql.service" ];
                   environment.SASHA_WEB_PORT = "8081";
                   serviceConfig = {
                     ExecStart = lib.getExe inputs.self.packages.${system}.sasha-server;
+                    Restart = "on-failure";
+                  };
+                };
+                systemd.services.sasha-fake-oidc = {
+                  wantedBy = [ "multi-user.target" ];
+                  after = [ "network.target" ];
+                  serviceConfig = {
+                    ExecStart = lib.getExe inputs.self.packages.${system}.sasha-fake-oidc;
                     Restart = "on-failure";
                   };
                 };
@@ -472,7 +641,13 @@
               testScript = ''
                 machine.wait_for_unit("sashamud.service")
                 machine.wait_for_open_port(8081)
-                print(machine.succeed("${deployDsl} ${./sashamud-server/test-e2e/study.dsl}"))
+                machine.wait_for_unit("sasha-fake-oidc.service")
+                machine.wait_for_open_port(9000)
+                machine.succeed('${pkgs.openssh}/bin/ssh-keygen -t ed25519 -N "" -f /root/account-key')
+                machine.succeed('echo "sashamud-admin $(cut -d" " -f1,2 /root/account-key.pub)" > /root/account-signers')
+                machine.succeed("SASHA_ACCOUNT_KEY=/root/account-key SASHA_ACCOUNT_SIGNERS=/root/account-signers ${createAccount} ${wizardAccount}")
+                token = machine.succeed("${fakeLogin} ${dslServerUrl} wizard").strip()
+                print(machine.succeed(f"SASHA_TOKEN={token} ${deployDsl} ${./sashamud-server/test-e2e/study.dsl}"))
               '';
             };
             run-end-to-end =
@@ -527,14 +702,25 @@
                       { match = "/api/*"; upstream = "localhost:8081"; }
                     ];
                   };
+                  services.postgresql = {
+                    enable = true;
+                    ensureDatabases = [ "sashamud" ];
+                    ensureUsers = [{ name = "root"; ensureClauses.superuser = true; }];
+                    package = pkgs.postgresql;
+                  };
                   systemd.services.sashamud = {
                     wantedBy = [ "multi-user.target" ];
-                    after = [ "network.target" "caddy.service" ];
+                    after = [ "network.target" "caddy.service" "postgresql.service" ];
+                    requires = [ "postgresql.service" ];
                     environment.SASHA_WEB_PORT = "8081";
                     serviceConfig = {
                       ExecStart = lib.getExe inputs.self.packages.${system}.sasha-server;
                       Restart = "on-failure";
                     };
+                  };
+                  environment.variables = {
+                    SASHA_DB_CONNSTR = dbConnStr;
+                    SASHA_MIGRATIONS_DIR = "${migrationsDir}";
                   };
                   environment.systemPackages = [
                     sasha-e2e-wrapped
@@ -561,5 +747,30 @@
               doCheck = true;
             });
           };
-        });
+        }) // {
+        nixosConfigurations.authentik-local = inputs.authentik-nix.inputs.nixpkgs.lib.nixosSystem {
+          system = "x86_64-linux";
+          modules = [
+            inputs.authentik-nix.nixosModules.default
+            {
+              networking.hostName = "authentik-local";
+              system.stateVersion = "25.05";
+              fileSystems."/" = { device = "/dev/vda1"; fsType = "ext4"; };
+              boot.loader.grub.devices = [ "/dev/vda" ];
+              services.authentik = {
+                enable = true;
+                environmentFile = "/etc/authentik.env";
+              };
+              systemd.tmpfiles.rules = [
+                "f /etc/authentik.env 0700 root root - AUTHENTIK_SECRET_KEY=sashamud-local-authentik-secret-key"
+              ];
+              virtualisation.vmVariant.virtualisation = {
+                memorySize = 3072;
+                cores = 3;
+                forwardPorts = [{ from = "host"; host.port = 9000; guest.port = 9000; }];
+              };
+            }
+          ];
+        };
+      };
 }

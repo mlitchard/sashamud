@@ -15,10 +15,10 @@ import           Test.Hspec (Spec, around, describe, it, sequential)
 spec :: Spec
 spec = describe "Look and Witness" . around withServer . sequential $ do
     it "look returns lobby description in narration" $ \ctx ->
-        webDriverTestWithClient ctx lookTest id
+        webDriverTestWithClient ctx [] lookTest id
 
     it "second player joining triggers witness narration for first player" $ \ctx ->
-        webDriverTestWithClient ctx witnessTest id
+        webDriverTestWithClient ctx ["witness"] witnessTest id
 
 lookTest :: String
 lookTest =
@@ -68,9 +68,8 @@ witnessTest =
     }
   });
 
-  // Login player 2 via the API, connect WS, send "look"
-  const player2Name = "witness" + Math.random().toString(36).replace(/[^a-z]/g, "").substring(0, 6);
-  const sid2: string = await API["/api/game/login(PlayerNameUNV)"](player2Name);
+  // Player 2 was logged in by the harness; connect WS, send "look"
+  const sid2: string = tokens["witness"];
   const sock2 = await API["/ws/game{Sec-WebSocket-Protocol}"](sid2);
   sock2.receive((msg: MessageFrom) => {});
   await new Promise(r => setTimeout(r, 2000));

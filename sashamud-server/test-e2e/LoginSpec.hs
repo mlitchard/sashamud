@@ -15,7 +15,7 @@ import           Test.Hspec (Spec, around, describe, it, sequential)
 spec :: Spec
 spec = describe "Login" . around withServer . sequential $ do
     it "login and receive heartbeat" $ \ctx ->
-        webDriverTestWithClient ctx loginHeartbeatTest id
+        webDriverTestWithClient ctx [] loginHeartbeatTest id
 
 loginHeartbeatTest :: String
 loginHeartbeatTest =

@@ -15,10 +15,10 @@ import           Test.Hspec (Spec, around, describe, it, sequential)
 spec :: Spec
 spec = describe "Look At Ball" . around withServer . sequential $ do
     it "look at ball returns ball description" $ \ctx ->
-        webDriverTestWithClient ctx lookAtBallTest id
+        webDriverTestWithClient ctx [] lookAtBallTest id
 
     it "second player sees witness narration for look at ball" $ \ctx ->
-        webDriverTestWithClient ctx lookAtBallWitnessTest id
+        webDriverTestWithClient ctx ["looker"] lookAtBallWitnessTest id
 
 lookAtBallTest :: String
 lookAtBallTest =
@@ -71,8 +71,7 @@ lookAtBallWitnessTest =
     }
   });
 
-  const player2Name = "looker" + Math.random().toString(36).replace(/[^a-z]/g, "").substring(0, 6);
-  const sid2: string = await API["/api/game/login(PlayerNameUNV)"](player2Name);
+  const sid2: string = tokens["looker"];
   const sock2 = await API["/ws/game{Sec-WebSocket-Protocol}"](sid2);
   sock2.receive((msg: MessageFrom) => {});
   await new Promise(r => setTimeout(r, 2000));

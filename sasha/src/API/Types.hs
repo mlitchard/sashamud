@@ -5,7 +5,6 @@ module API.Types
   ( SessionId (..)
   , MessageTo (..)
   , Routed (..)
-  , LoginResponse (..)
   , AuthenticatedUser (..)
   , DSLSource (..)
   , PlayerJoined (..)
@@ -16,7 +15,10 @@ import           SashaPrelude
 import           Control.DeepSeq (NFData)
 import           Data.Aeson (FromJSON, ToJSON)
 import           Data.Aeson.TypeScript (derivingTypeScriptDefinition)
-import           Model.Core (SessionId (SessionId))
+import           Model.Account (UserPermissions)
+import           Model.Core (Agent, SessionId (SessionId))
+import           Model.GID (GID)
+import           Model.Mid (Mid)
 import           Network.WebSockets (WebSocketsData)
 import           Servant.API.WebSocket (Aeson (Aeson))
 import           Server.Validator (PlayerNameVAL)
@@ -40,13 +42,6 @@ derivingTypeScriptDefinition ''MessageTo
 data Routed a = Routed SessionId a
   deriving stock (Eq, Generic, Ord, Show)
 
-newtype LoginResponse = LoginResponse { lrSessionId :: SessionId }
-  deriving stock (Generic, Show)
-  deriving newtype (Eq, FromJSON, ToJSON)
-  deriving anyclass (NFData)
-
-derivingTypeScriptDefinition ''LoginResponse
-
 newtype DSLSource = DSLSource { unDSLSource :: Text }
   deriving stock (Generic, Show)
   deriving newtype (Eq, FromJSON, ToJSON)
@@ -55,7 +50,9 @@ newtype DSLSource = DSLSource { unDSLSource :: Text }
 derivingTypeScriptDefinition ''DSLSource
 
 data AuthenticatedUser = AuthenticatedUser
-  { auSessionId :: SessionId
+  { auSessionId   :: SessionId
+  , auUserId      :: Mid AuthenticatedUser
+  , auPermissions :: UserPermissions
   }
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
@@ -63,11 +60,11 @@ data AuthenticatedUser = AuthenticatedUser
 data PlayerJoined = PlayerJoined
   { pjSessionId  :: SessionId
   , pjPlayerName :: PlayerNameVAL
+  , pjGid        :: GID Agent
   }
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
 #ifdef TESTING
 deriving via (GenericArbitrary MessageTo) instance Arbitrary MessageTo
-deriving newtype instance Arbitrary LoginResponse
 #endif

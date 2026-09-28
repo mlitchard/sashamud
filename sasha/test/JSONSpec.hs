@@ -4,9 +4,12 @@ import           Data.Aeson (FromJSON, ToJSON, decode, encode)
 import           Data.Kind (Type)
 import           SashaPrelude (Eq, Maybe (Just), Show, ($), (==))
 
-import           API.Types (LoginResponse, MessageTo)
+import           API.Types (MessageTo)
+import           Model.Account (AccountStatus, Subject, UserPermissions)
+import           Model.Authorization (Resource, ResourceAction, RoleStatus)
 import           Model.Core (Narration, SessionId)
 import           Model.GID (GID)
+import           Model.Mid (Mid)
 import           Model.RichText (RichText, StyledSpan, TextColor, TextStyle)
 import           Model.WireProtocol (AnalysisViewport, MessageFrom)
 import           Server.Validator (PlayerNameUNV, PlayerNameVAL)
@@ -34,9 +37,15 @@ spec = describe "JSON round trip" $ do
     prop "RichText" $ checkJSON @RichText
     prop "MessageFrom" $ checkJSON @MessageFrom
     prop "MessageTo" $ checkJSON @MessageTo
-    prop "LoginResponse" $ checkJSON @LoginResponse
     prop "PlayerNameUNV" $ checkJSON @PlayerNameUNV
     prop "PlayerNameVAL" $ checkJSON @PlayerNameVAL
     prop "Narration" $ checkJSON @Narration
     prop "GID" $ checkJSON @(GID ())
     prop "AnalysisViewport" $ checkJSON @AnalysisViewport
+    prop "Mid" $ checkJSON @(Mid ())
+    prop "Resource" $ checkJSON @Resource
+    prop "ResourceAction" $ checkJSON @ResourceAction
+    prop "RoleStatus" $ checkJSON @RoleStatus
+    prop "AccountStatus" $ checkJSON @AccountStatus
+    prop "Subject" $ checkJSON @Subject
+    prop "UserPermissions" $ checkJSON @UserPermissions

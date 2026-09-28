@@ -28,9 +28,11 @@ import           Test.QuickCheck.Instances.Text ()
 #endif
 import           Network.Wai (lazyRequestBody)
 import           Servant
-  ( HasServer (ServerT, hoistServerWithContext, route)
+  ( FromHttpApiData
+  , HasServer (ServerT, hoistServerWithContext, route)
   , Proxy (Proxy)
   , ServerError (errBody)
+  , ToHttpApiData
   , err400
   , type (:>)
   )
@@ -73,7 +75,7 @@ instance forall list unv val api ctx.
 
 newtype PlayerNameUNV = PlayerNameUNV { unPlayerNameUNV :: Text }
   deriving stock (Generic, Show)
-  deriving newtype (Eq, FromJSON, Ord, ToJSON)
+  deriving newtype (Eq, FromHttpApiData, FromJSON, Ord, ToHttpApiData, ToJSON)
   deriving anyclass (NFData)
 
 derivingTypeScriptDefinition ''PlayerNameUNV

@@ -58,8 +58,11 @@ library
     Engine.Simulation.Clocks
     Engine.Simulation.SignalNetwork
     Error
+    Model.Account
+    Model.Authorization
     Model.Core
     Model.GID
+    Model.Mid
     Model.RandomPool
     Model.RichText
     Model.WireProtocol
@@ -68,6 +71,7 @@ library
     Server.Authentication
     Server.GameWebSocket
     Server.Log
+    Server.Migration
     Server.Server
     Server.Validator
 
@@ -78,16 +82,24 @@ library
     , base                      >=4.7 && <5
     , bytestring
     , containers
+    , crypton
     , deepseq
     , generic-arbitrary
     , hashable
     , hint
+    , http-client
+    , http-client-tls
+    , http-types
+    , memory
     , microlens-platform
     , mmorph
     , monad-schedule
     , mtl
+    , postgresql-migration
+    , postgresql-simple
     , QuickCheck
     , quickcheck-instances
+    , resource-pool
     , rhine                     >=1.6
     , sasha-grammar
     , servant
@@ -96,6 +108,7 @@ library
     , servant-websockets
     , stm
     , text
+    , time
     , transformers
     , uuid
     , wai
@@ -135,8 +148,12 @@ executable sasha-tests
     Engine.Simulation.SignalNetwork
     Error
     JSONSpec
+    MigrationSpec
+    Model.Account
+    Model.Authorization
     Model.Core
     Model.GID
+    Model.Mid
     Model.RandomPool
     Model.RichText
     Model.WireProtocol
@@ -146,6 +163,7 @@ executable sasha-tests
     Server.Authentication
     Server.GameWebSocket
     Server.Log
+    Server.Migration
     Server.Server
     Server.Validator
 
@@ -156,6 +174,7 @@ executable sasha-tests
     , base                      >=4.7 && <5
     , bytestring
     , containers
+    , crypton
     , deepseq
     , generic-arbitrary
     , hashable
@@ -163,12 +182,19 @@ executable sasha-tests
     , hspec
     , hspec-core
     , hspec-discover
+    , http-client
+    , http-client-tls
+    , http-types
+    , memory
     , microlens-platform
     , mmorph
     , monad-schedule
     , mtl
+    , postgresql-migration
+    , postgresql-simple
     , QuickCheck
     , quickcheck-instances
+    , resource-pool
     , rhine                     >=1.6
     , sasha-grammar
     , servant
@@ -177,6 +203,7 @@ executable sasha-tests
     , servant-websockets
     , stm
     , text
+    , time
     , transformers
     , uuid
     , wai
