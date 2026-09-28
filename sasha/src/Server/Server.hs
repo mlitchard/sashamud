@@ -24,11 +24,18 @@ import           Control.Exception (Handler (Handler), SomeException, catches)
 import           Control.Monad (forever)
 import           Control.Monad.Except (throwError)
 import           Control.Monad.Reader (ask, runReaderT)
+import qualified Data.ByteString.Char8 (pack)
 import           Data.Map.Strict (delete, insert, lookup)
 import qualified Data.Map.Strict (filter)
 import           Data.String (fromString)
 import           Data.UUID (toText)
 import           Data.UUID.V4 (nextRandom)
+import           Database.PostgreSQL.Simple (close, connectPostgreSQL)
+import           Database.PostgreSQL.Simple.Migration
+  ( MigrationResult (MigrationError, MigrationSuccess)
+  , defaultOptions
+  , runMigrations
+  )
 import           DSL.Builder
   ( WorldBuilderResult (resultCounters, resultGameState)
   )
@@ -66,8 +73,10 @@ import           Server.Log
   ( LogEntry (PlayerLogin, SendDropped, SendError, SendFailed, ServerStart)
   , writeLog
   )
+import           Server.Migration (buildCommand)
 import           Server.Validator (PlayerNameVAL)
 import           System.Environment (lookupEnv)
+import           System.Exit (exitFailure)
 import           Text.Read (readMaybe)
 
 app :: AppCtx -> Application
@@ -139,6 +148,16 @@ deliverOutbound ctx = forever $ do
 startServer :: WorldBuilderResult -> IO ()
 startServer result = do
   port <- maybe 8081 readPort <$> lookupEnv "SASHA_WEB_PORT"
+  connStr <- fromMaybe "dbname=sashamud" <$> lookupEnv "SASHA_DB_CONNSTR"
+  migrationsDir <- fromMaybe "migrations" <$> lookupEnv "SASHA_MIGRATIONS_DIR"
+  conn <- connectPostgreSQL (Data.ByteString.Char8.pack connStr)
+  migrated <- runMigrations conn defaultOptions (buildCommand migrationsDir)
+  close conn
+  case migrated of
+    MigrationError err -> do
+      hPutStrLn stderr ("migration failed: " <> err)
+      exitFailure
+    MigrationSuccess -> pure ()
   let logCfg = GameLog stderr
   ctx <- newAppCtx logCfg (resultCounters result)
   writeLog logCfg (ServerStart port)

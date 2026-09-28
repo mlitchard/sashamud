@@ -68,6 +68,7 @@ library
     Server.Authentication
     Server.GameWebSocket
     Server.Log
+    Server.Migration
     Server.Server
     Server.Validator
 
@@ -141,6 +142,7 @@ executable sasha-tests
     Engine.Simulation.SignalNetwork
     Error
     JSONSpec
+    MigrationSpec
     Model.Core
     Model.GID
     Model.RandomPool
@@ -152,6 +154,7 @@ executable sasha-tests
     Server.Authentication
     Server.GameWebSocket
     Server.Log
+    Server.Migration
     Server.Server
     Server.Validator
 

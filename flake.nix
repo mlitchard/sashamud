@@ -142,6 +142,7 @@
           dbConnStr = "dbname=sashamud";
           localPostgres = import inputs.local-postgres { inherit pkgs; };
           pgDir = ".database";
+          migrationsDir = ./migrations;
 
           dslServerUrl = "http://127.0.0.1:8081";
           dslWizardName = "wizard";
@@ -281,6 +282,14 @@
                   };
                 };
                 "Run" = {
+                  hint-env = {
+                    description = "export HINT_GHC_LIB_DIR and HINT_GHC_PACKAGE_PATH into this shell";
+                    script = ''
+                      HINT_GHC=$(nix build --no-link --print-out-paths .#hint-ghc)
+                      export HINT_GHC_LIB_DIR="$HINT_GHC/lib/$(nix eval --raw .#hint-ghc.meta.name)/lib"
+                      export HINT_GHC_PACKAGE_PATH="$HINT_GHC_LIB_DIR/package.conf.d"
+                    '';
+                  };
                   start-sashamud = {
                     description = "generate TS client, build frontend, start full stack";
                     script = teardown
@@ -324,15 +333,14 @@
               devtools.haskell-language-server
             ];
             shellHook = ''
-              ${lib.concatStringsSep "\n" (
-                lib.mapAttrsToList (name: value: "export ${name}=${value}") hintAttrs
-              )}
+              export SASHA_MIGRATIONS_DIR=${migrationsDir}
               ${shelpersConfig.functions}
               shelp
             '';
           });
 
           packages = {
+            hint-ghc = hintGhc;
             sasha-server = (hlib.overrideCabal
               (hlib.justStaticExecutables
                 (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sashamud-server "exe:sasha-server")))
@@ -343,7 +351,8 @@
                 wrapProgram $out/bin/sasha-server \
                   --set-default HINT_GHC_LIB_DIR ${hintAttrs.HINT_GHC_LIB_DIR} \
                   --set-default HINT_GHC_PACKAGE_PATH ${hintAttrs.HINT_GHC_PACKAGE_PATH} \
-                  --set-default SASHA_DB_CONNSTR ${dbConnStr}
+                  --set-default SASHA_DB_CONNSTR ${dbConnStr} \
+                  --set-default SASHA_MIGRATIONS_DIR ${migrationsDir}
               '';
             });
             sasha-client-generator = (hlib.justStaticExecutables
@@ -506,10 +515,19 @@
             run-sasha-tests = pkgs.testers.runNixOSTest {
               name = "sasha-tests";
               nodes.machine = { pkgs, ... }: {
+                services.postgresql = {
+                  enable = true;
+                  ensureDatabases = [ "sashamud" ];
+                  ensureUsers = [{ name = "root"; ensureClauses.superuser = true; }];
+                  package = pkgs.postgresql;
+                };
                 environment.systemPackages = [
                   inputs.self.packages.${system}.sasha-tests
                 ];
-                environment.variables = hintAttrs;
+                environment.variables = hintAttrs // {
+                  SASHA_DB_CONNSTR = dbConnStr;
+                  SASHA_MIGRATIONS_DIR = "${migrationsDir}";
+                };
                 virtualisation = {
                   memorySize = 32768;
                   cores = 2;
@@ -531,7 +549,8 @@
                 };
                 systemd.services.sashamud = {
                   wantedBy = [ "multi-user.target" ];
-                  after = [ "network.target" ];
+                  after = [ "network.target" "postgresql.service" ];
+                  requires = [ "postgresql.service" ];
                   environment.SASHA_WEB_PORT = "8081";
                   serviceConfig = {
                     ExecStart = lib.getExe inputs.self.packages.${system}.sasha-server;
@@ -609,7 +628,8 @@
                   };
                   systemd.services.sashamud = {
                     wantedBy = [ "multi-user.target" ];
-                    after = [ "network.target" "caddy.service" ];
+                    after = [ "network.target" "caddy.service" "postgresql.service" ];
+                    requires = [ "postgresql.service" ];
                     environment.SASHA_WEB_PORT = "8081";
                     serviceConfig = {
                       ExecStart = lib.getExe inputs.self.packages.${system}.sasha-server;
