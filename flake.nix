@@ -78,8 +78,8 @@
               filter = path: type:
                 let baseName = baseNameOf path;
                 in pkgs.lib.hasSuffix ".hs" baseName
-                  || pkgs.lib.hasSuffix ".cabal" baseName
-                  || type == "directory";
+                || pkgs.lib.hasSuffix ".cabal" baseName
+                || type == "directory";
             };
 
           myOverlay = final: _prev: {
@@ -748,27 +748,29 @@
             });
           };
         }) // {
-          nixosConfigurations.authentik-local = inputs.authentik-nix.inputs.nixpkgs.lib.nixosSystem {
-            system = "x86_64-linux";
-            modules = [
-              inputs.authentik-nix.nixosModules.default
-              {
-                networking.hostName = "authentik-local";
-                system.stateVersion = "25.05";
-                services.authentik = {
-                  enable = true;
-                  environmentFile = "/etc/authentik.env";
-                };
-                systemd.tmpfiles.rules = [
-                  "f /etc/authentik.env 0700 root root - AUTHENTIK_SECRET_KEY=sashamud-local-authentik-secret-key"
-                ];
-                virtualisation.vmVariant.virtualisation = {
-                  memorySize = 3072;
-                  cores = 3;
-                  forwardPorts = [{ from = "host"; host.port = 9000; guest.port = 9000; }];
-                };
-              }
-            ];
-          };
+        nixosConfigurations.authentik-local = inputs.authentik-nix.inputs.nixpkgs.lib.nixosSystem {
+          system = "x86_64-linux";
+          modules = [
+            inputs.authentik-nix.nixosModules.default
+            {
+              networking.hostName = "authentik-local";
+              system.stateVersion = "25.05";
+              fileSystems."/" = { device = "/dev/vda1"; fsType = "ext4"; };
+              boot.loader.grub.devices = [ "/dev/vda" ];
+              services.authentik = {
+                enable = true;
+                environmentFile = "/etc/authentik.env";
+              };
+              systemd.tmpfiles.rules = [
+                "f /etc/authentik.env 0700 root root - AUTHENTIK_SECRET_KEY=sashamud-local-authentik-secret-key"
+              ];
+              virtualisation.vmVariant.virtualisation = {
+                memorySize = 3072;
+                cores = 3;
+                forwardPorts = [{ from = "host"; host.port = 9000; guest.port = 9000; }];
+              };
+            }
+          ];
         };
+      };
 }
