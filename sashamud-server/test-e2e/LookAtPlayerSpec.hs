@@ -15,26 +15,26 @@ import           Test.Hspec (Spec, around, describe, it, sequential)
 spec :: Spec
 spec = describe "Look At Player" . around withServer . sequential $ do
     it "look at player returns player description" $ \ctx ->
-        webDriverTestWithClient ctx lookAtPlayerTest id
+        webDriverTestWithClient ctx ["Sasha"] lookAtPlayerTest id
 
     it "target player sees witness narration for look at player" $ \ctx ->
-        webDriverTestWithClient ctx lookAtPlayerWitnessTest id
+        webDriverTestWithClient ctx ["Sasha"] lookAtPlayerWitnessTest id
 
     it "look at nonexistent player returns nobody-here narration" $ \ctx ->
-        webDriverTestWithClient ctx lookAtNobodyTest id
+        webDriverTestWithClient ctx ["Sasha"] lookAtNobodyTest id
 
     it "witness sees failed agent look narration" $ \ctx ->
-        webDriverTestWithClient ctx lookAtNobodyWitnessTest id
+        webDriverTestWithClient ctx ["Sasha"] lookAtNobodyWitnessTest id
 
     it "player can look at self" $ \ctx ->
-        webDriverTestWithClient ctx lookAtSelfTest id
+        webDriverTestWithClient ctx ["Sasha"] lookAtSelfTest id
 
 lookAtPlayerTest :: String
 lookAtPlayerTest =
     [i|(sessionId, sock, resolve) => {
   const messages: any[] = [];
 
-  const sid2: string = await API["/api/game/login(PlayerNameUNV)"]("Sasha");
+  const sid2: string = tokens["Sasha"];
   const sock2 = await API["/ws/game{Sec-WebSocket-Protocol}"](sid2);
   sock2.receive((msg: MessageFrom) => {});
   await new Promise(r => setTimeout(r, 2000));
@@ -101,7 +101,7 @@ lookAtPlayerWitnessTest =
     [i|(sessionId, sock, resolve) => {
   let gotWitness = false;
 
-  const sid2: string = await API["/api/game/login(PlayerNameUNV)"]("Sasha");
+  const sid2: string = tokens["Sasha"];
   const sock2 = await API["/ws/game{Sec-WebSocket-Protocol}"](sid2);
   sock2.receive((msg: MessageFrom) => {});
   await new Promise(r => setTimeout(r, 2000));
@@ -139,7 +139,7 @@ lookAtNobodyWitnessTest =
     [i|(sessionId, sock, resolve) => {
   let gotWitness = false;
 
-  const sid2: string = await API["/api/game/login(PlayerNameUNV)"]("Sasha");
+  const sid2: string = tokens["Sasha"];
   const sock2 = await API["/ws/game{Sec-WebSocket-Protocol}"](sid2);
   sock2.receive((msg: MessageFrom) => {});
   await new Promise(r => setTimeout(r, 2000));

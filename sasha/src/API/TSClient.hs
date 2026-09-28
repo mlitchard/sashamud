@@ -7,7 +7,7 @@ module API.TSClient (client) where
 import           SashaPrelude
 
 import           API.Routes (SashaAPI)
-import           API.Types (DSLSource, LoginResponse, MessageTo, SessionId)
+import           API.Types (DSLSource, MessageTo, SessionId)
 import           GHC.TypeLits (KnownSymbol)
 import           Model.Core (Narration)
 import           Model.RichText (RichText, StyledSpan, TextColor, TextStyle)
@@ -32,7 +32,6 @@ client = tsClient
     , TSDef MessageTo
     , TSDef PlayerNameUNV
     , TSDef PlayerNameVAL
-    , TSDef LoginResponse
     , TSDef DSLSource
     , TSDef TextColor
     , TSDef TextStyle

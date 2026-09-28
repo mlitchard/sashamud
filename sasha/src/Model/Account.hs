@@ -1,9 +1,25 @@
 module Model.Account
-  ( AccountStatus (Active, Inactive)
+  ( AccessToken (AccessToken)
+  , AccountStatus (Active, Inactive)
+  , AuthCode (AuthCode)
+  , ClientId (ClientId)
   , ClientSecret (ClientSecret)
+  , CodeVerifier (CodeVerifier)
+  , OidcBaseUrl (OidcBaseUrl)
+  , OidcState (OidcState)
+  , RedirectUri (RedirectUri)
   , Subject (Subject)
+  , TokenResponse (TokenResponse)
+  , UserInfo (UserInfo)
   , UserPermissions (PermissionsDisabled, Permissions)
+  , unAccessToken
+  , unAuthCode
+  , unClientId
   , unClientSecret
+  , unCodeVerifier
+  , unOidcBaseUrl
+  , unOidcState
+  , unRedirectUri
   , unSubject
   ) where
 
@@ -29,6 +45,8 @@ import           Database.PostgreSQL.Simple.ToField
   , inQuotes
   )
 import           Model.Authorization (Resource, ResourceAction)
+import           Servant (FromHttpApiData, ToHttpApiData)
+import           Server.Validator (PlayerNameUNV)
 #ifdef TESTING
 import           Test.QuickCheck (Arbitrary)
 import           Test.QuickCheck.Arbitrary.Generic
@@ -84,6 +102,38 @@ data UserPermissions = PermissionsDisabled
                      | Permissions (Map Resource (Set ResourceAction))
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (FromJSON, NFData, ToJSON)
+
+newtype OidcBaseUrl = OidcBaseUrl { unOidcBaseUrl :: Text }
+  deriving newtype (Eq, Show)
+
+newtype ClientId = ClientId { unClientId :: Text }
+  deriving newtype (Eq, Show)
+
+newtype RedirectUri = RedirectUri { unRedirectUri :: Text }
+  deriving newtype (Eq, Show)
+
+newtype OidcState = OidcState { unOidcState :: Text }
+  deriving newtype (Eq, FromHttpApiData, Ord, Show, ToHttpApiData)
+
+newtype AuthCode = AuthCode { unAuthCode :: Text }
+  deriving newtype (Eq, FromHttpApiData, Ord, Show, ToHttpApiData)
+
+newtype CodeVerifier = CodeVerifier { unCodeVerifier :: Text }
+  deriving newtype (Eq, FromHttpApiData, Show, ToHttpApiData)
+
+newtype AccessToken = AccessToken { unAccessToken :: Text }
+  deriving newtype (Eq, FromJSON, Show, ToJSON)
+
+newtype TokenResponse = TokenResponse { access_token :: AccessToken }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (FromJSON, ToJSON)
+
+data UserInfo = UserInfo
+  { sub                :: Subject
+  , preferred_username :: PlayerNameUNV
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (FromJSON, ToJSON)
 
 #ifdef TESTING
 deriving via (GenericArbitrary AccountStatus) instance Arbitrary AccountStatus

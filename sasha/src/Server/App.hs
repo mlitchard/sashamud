@@ -6,6 +6,7 @@ module Server.App
   , AppM (..)
   , BuilderCounters (BuilderCounters)
   , GameLog (..)
+  , OidcConfig (..)
   , PInt
   , SessionPhase (SessionPhase)
   , SessionState (AwaitingSocket, AwaitingJoin, InGame)
@@ -34,12 +35,22 @@ import           Control.Monad.Reader (MonadReader, ReaderT)
 import           Data.IORef (IORef, newIORef)
 import           Data.Map.Strict (Map)
 import           Data.Pool (Pool)
+import           Data.Time.Clock (UTCTime)
 import           Database.PostgreSQL.Simple (Connection)
 import           DSL.Model.EDSL.SashaLambdaDSL (SashaLambdaDSL)
 import           Lens.Micro.Platform (makeLenses)
+import           Model.Account
+  ( ClientId
+  , ClientSecret
+  , CodeVerifier
+  , OidcBaseUrl
+  , OidcState
+  , RedirectUri
+  )
 import           Model.Core (Agent, GameState)
 import           Model.GID (GID)
 import           Model.WireProtocol (MessageFrom)
+import           Network.HTTP.Client (Manager)
 import           Servant (Handler)
 import           Servant.Server (ServerError)
 import           Server.Validator (PlayerNameVAL)
@@ -106,6 +117,13 @@ newtype AppM a = AppM { unAppM :: ReaderT AppCtx Handler a }
     , MonadReader AppCtx
     )
 
+data OidcConfig = OidcConfig
+  { ocBaseUrl      :: OidcBaseUrl
+  , ocClientId     :: ClientId
+  , ocClientSecret :: ClientSecret
+  , ocRedirectUri  :: RedirectUri
+  }
+
 data AppCtx = AppCtx
   { acInbound         :: TChan (Routed MessageTo)
   , acOutbound        :: TChan (Routed MessageFrom)
@@ -116,11 +134,14 @@ data AppCtx = AppCtx
   , acNextAgentId     :: IORef PInt
   , acBuilderCounters :: IORef BuilderCounters
   , acDbPool          :: Pool Connection
+  , acOidcConfig      :: OidcConfig
+  , acHttpManager     :: Manager
+  , acOidcStates      :: MVar (Map OidcState (UTCTime, CodeVerifier))
   , acGameLog         :: GameLog
   }
 
-newAppCtx :: GameLog -> Pool Connection -> BuilderCounters -> IO AppCtx
-newAppCtx logCfg pool counters = do
+newAppCtx :: GameLog -> Pool Connection -> OidcConfig -> Manager -> BuilderCounters -> IO AppCtx
+newAppCtx logCfg pool oidcConfig manager counters = do
   inChan   <- newTChanIO
   outChan  <- newTChanIO
   joinChan <- newTChanIO
@@ -129,6 +150,7 @@ newAppCtx logCfg pool counters = do
   known    <- newMVar mempty
   nextId   <- newIORef firstPlayerId
   builderCounters <- newIORef counters
+  oidcStates <- newMVar mempty
   pure AppCtx
     { acInbound      = inChan
     , acOutbound     = outChan
@@ -139,6 +161,9 @@ newAppCtx logCfg pool counters = do
     , acNextAgentId  = nextId
     , acBuilderCounters = builderCounters
     , acDbPool       = pool
+    , acOidcConfig   = oidcConfig
+    , acHttpManager  = manager
+    , acOidcStates   = oidcStates
     , acGameLog      = logCfg
     }
 

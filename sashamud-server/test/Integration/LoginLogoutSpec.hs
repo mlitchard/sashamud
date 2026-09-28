@@ -15,6 +15,7 @@ import           SashaPrelude
   , fmap
   , fromMaybe
   , not
+  , pack
   , pure
   , stderr
   , ($)
@@ -22,10 +23,9 @@ import           SashaPrelude
   , (<>)
   )
 
-import           API.Routes (DSLAPI, LoginAPI, LogoutAPI)
+import           API.Routes (DSLAPI, LogoutAPI)
 import           API.Types
   ( DSLSource (DSLSource)
-  , LoginResponse (LoginResponse)
   , MessageTo (GameCommand, Ping)
   , SessionId (SessionId)
   )
@@ -34,20 +34,50 @@ import           Control.Concurrent.Async (async, cancel, race_)
 import           Control.Exception (SomeException, finally, try)
 import qualified Data.ByteString.Char8 (pack)
 import           Data.ByteString.Lazy (null)
+import           Data.List (lookup)
 import           Data.Map.Strict (member)
-import           Data.Pool (defaultPoolConfig, newPool)
-import           Data.Text (unlines)
-import           Data.Text.Encoding (encodeUtf8)
-import           Database.PostgreSQL.Simple (close, connectPostgreSQL)
+import           Data.Pool (defaultPoolConfig, newPool, withResource)
+import           Data.Text (isPrefixOf, unlines)
+import           Data.Text.Encoding (decodeUtf8', encodeUtf8)
+import           Database.PostgreSQL.Simple
+  ( Only (Only)
+  , close
+  , connectPostgreSQL
+  , execute
+  )
+import           Database.PostgreSQL.Simple.Migration
+  ( MigrationResult (MigrationSuccess)
+  , defaultOptions
+  , runMigrations
+  )
 import           DSL.Builder (WorldBuilderResult (resultCounters))
 import           Engine.Simulation.SignalNetwork (gameLoop)
+import           FakeProvider
+  ( fakeApp
+  , loginThroughFake
+  , newFakeState
+  , seedAccount
+  )
 import           Lens.Micro.Platform (view)
+import           Model.Account
+  ( ClientId (ClientId)
+  , ClientSecret (ClientSecret)
+  , OidcBaseUrl (OidcBaseUrl)
+  , RedirectUri (RedirectUri)
+  )
 import           Model.Core (actionConsequence, presenceListing)
 import           Model.RichText (toPlainText)
 import           Model.WireProtocol
   ( MessageFrom (GameNarration, Pong, SystemMessage)
   )
-import           Network.HTTP.Client (defaultManagerSettings, newManager)
+import           Network.HTTP.Client
+  ( Response (responseHeaders, responseStatus)
+  , defaultManagerSettings
+  , httpLbs
+  , newManager
+  , parseRequest
+  , redirectCount
+  )
 import           Network.HTTP.Types (Status (Status))
 import           Network.Wai.Handler.Warp (run)
 import           Network.WebSockets
@@ -58,13 +88,7 @@ import           Network.WebSockets
   , sendTextData
   )
 import           SashaMudWorld (buildResult, gameState)
-import           Servant
-  ( AuthProtect
-  , NoContent (NoContent)
-  , Proxy (Proxy)
-  , ReqBody
-  , type (:>)
-  )
+import           Servant (AuthProtect, NoContent (NoContent), Proxy (Proxy))
 import           Servant.API.WebSocket (SecWebSocketProtocol)
 import           Servant.Client
   ( BaseUrl (baseUrlPort)
@@ -79,24 +103,21 @@ import           Servant.Client.Core
   ( AuthClientData
   , AuthenticatedRequest
   , ClientError (FailureResponse)
-  , HasClient (Client, clientWithRoute, hoistClientMonad)
   , Request
   , ResponseF (Response)
-  , RunClient
   , addHeader
   , mkAuthenticatedRequest
   )
 import           Server.App
-  ( AppCtx (acKnownPlayers, acSessions)
+  ( AppCtx (acDbPool, acKnownPlayers, acSessions)
   , GameLog (GameLog)
+  , OidcConfig (OidcConfig)
   , newAppCtx
   )
+import           Server.Authentication (tokenDigest)
+import           Server.Migration (buildCommand)
 import           Server.Server (app, deliverOutbound)
-import           Server.Validator
-  ( PlayerNameUNV (PlayerNameUNV)
-  , PlayerNameVAL (PlayerNameVAL)
-  , ValidatedBody
-  )
+import           Server.Validator (PlayerNameVAL (PlayerNameVAL))
 import           System.Environment (lookupEnv)
 import           System.Timeout (timeout)
 import           Test.Hspec
@@ -108,16 +129,6 @@ import           Test.Hspec
   , shouldBe
   , shouldSatisfy
   )
-
--- Servant client adapter for ValidatedBody combinator
-instance (RunClient m, HasClient m (ReqBody list unv :> api))
-  => HasClient m (ValidatedBody list unv val :> api) where
-  type Client m (ValidatedBody list unv val :> api) = Client m (ReqBody list unv :> api)
-  clientWithRoute pm _ = clientWithRoute pm (Proxy @(ReqBody list unv :> api))
-  hoistClientMonad pm _ = hoistClientMonad pm (Proxy @(ReqBody list unv :> api))
-
-loginClient :: PlayerNameUNV -> ClientM LoginResponse
-loginClient = client (Proxy @LoginAPI)
 
 logoutClient :: SessionId -> ClientM NoContent
 logoutClient = client (Proxy @LogoutAPI)
@@ -143,6 +154,9 @@ isErrorCode _ _ = False
 testPort :: Int
 testPort = 14567
 
+fakePort :: Int
+fakePort = 14568
+
 testClientEnv :: IO ClientEnv
 testClientEnv = do
   mgr <- newManager defaultManagerSettings
@@ -153,13 +167,29 @@ withTestServer :: ((Int, AppCtx) -> IO ()) -> IO ()
 withTestServer action = do
   let logCfg = GameLog stderr
   connStr <- fmap (fromMaybe "dbname=sashamud") (lookupEnv "SASHA_DB_CONNSTR")
+  migrationsDir <- fmap (fromMaybe "migrations") (lookupEnv "SASHA_MIGRATIONS_DIR")
   pool <- newPool (defaultPoolConfig (connectPostgreSQL (Data.ByteString.Char8.pack connStr)) close 60 10)
-  ctx <- newAppCtx logCfg pool (resultCounters buildResult)
+  migrated <- withResource pool (\conn -> runMigrations conn defaultOptions (buildCommand migrationsDir))
+  migrated `shouldBe` MigrationSuccess
+  manager <- newManager defaultManagerSettings
+  fakeState <- newFakeState
+  let oidcConfig = OidcConfig
+        (OidcBaseUrl ("http://127.0.0.1:" <> pack (show fakePort)))
+        (ClientId "sashamud")
+        (ClientSecret "sashamud-dev")
+        (RedirectUri ("http://127.0.0.1:" <> pack (show testPort) <> "/api/auth/callback"))
+  ctx <- newAppCtx logCfg pool oidcConfig manager (resultCounters buildResult)
   serverThread <- async $ race_
     (race_ (gameLoop ctx gameState) (deliverOutbound ctx))
-    (run testPort (app ctx))
+    (race_ (run testPort (app ctx)) (run fakePort (fakeApp fakeState)))
   threadDelay 500000
   action (testPort, ctx) `finally` cancel serverThread
+
+loginAs :: AppCtx -> Text -> IO SessionId
+loginAs ctx name = do
+  seedAccount (acDbPool ctx) (PlayerNameVAL name)
+  manager <- newManager defaultManagerSettings
+  loginThroughFake manager testPort name
 
 connectWS :: SessionId -> (Connection -> IO a) -> IO a
 connectWS (SessionId sid) =
@@ -209,44 +239,59 @@ seesObjects _ _ = False
 spec :: Spec
 spec = describe "Integration" . around withTestServer $ do
 
-  it "POST /api/game/login with valid name returns sessionId" $ \(_port, _ctx) -> do
-    env <- testClientEnv
-    result <- runClientM (loginClient (PlayerNameUNV "TestPlayer")) env
-    case result of
-      Left err -> expectationFailure ("login failed: " <> show err)
-      Right (LoginResponse sid) ->
-        sid `shouldSatisfy` (/= SessionId "")
+  it "GET /api/auth/start redirects to the provider" $ \(_port, _ctx) -> do
+    manager <- newManager defaultManagerSettings
+    req <- parseRequest ("http://127.0.0.1:" <> show testPort <> "/api/auth/start")
+    resp <- httpLbs req { redirectCount = 0 } manager
+    case lookup "Location" (responseHeaders resp) of
+      Nothing -> expectationFailure "no Location header"
+      Just raw -> case decodeUtf8' raw of
+        Left _ -> expectationFailure "Location header is not UTF-8"
+        Right location ->
+          location `shouldSatisfy`
+            isPrefixOf ("http://127.0.0.1:" <> pack (show fakePort) <> "/application/o/authorize/")
 
-  it "POST /api/game/login with empty name returns error" $ \(_port, _ctx) -> do
-    env <- testClientEnv
-    result <- runClientM (loginClient (PlayerNameUNV "")) env
-    case result of
-      Left _  -> pure ()
-      Right _ -> expectationFailure "empty name should be rejected"
+  it "GET /api/auth/callback with an unknown state returns 401" $ \(_port, _ctx) -> do
+    manager <- newManager defaultManagerSettings
+    req <- parseRequest ("http://127.0.0.1:" <> show testPort <> "/api/auth/callback?code=wizard&state=bogus")
+    resp <- httpLbs req { redirectCount = 0 } manager
+    case responseStatus resp of
+      Status code _ -> code `shouldBe` 401
 
-  it "DELETE /api/game/logout removes session" $ \(_port, _ctx) -> do
-    env <- testClientEnv
-    loginResult <- runClientM (loginClient (PlayerNameUNV "TestPlayer")) env
-    case loginResult of
-      Left err -> expectationFailure ("login failed: " <> show err)
-      Right (LoginResponse sid) -> do
-        logoutResult <- runClientM (logoutClient sid) env
-        logoutResult `shouldBe` Right NoContent
+  it "login through the provider returns a token" $ \(_port, ctx) -> do
+    sid <- loginAs ctx "TestPlayer"
+    sid `shouldSatisfy` (/= SessionId "")
 
-  it "login after logout produces different sessionId" $ \(_port, _ctx) -> do
+  it "DELETE /api/game/logout removes session" $ \(_port, ctx) -> do
     env <- testClientEnv
-    r1 <- runClientM (loginClient (PlayerNameUNV "Roundtrip")) env
-    case r1 of
-      Left err -> expectationFailure ("first login failed: " <> show err)
-      Right (LoginResponse sid1) -> do
-        _ <- runClientM (logoutClient sid1) env
-        r2 <- runClientM (loginClient (PlayerNameUNV "Roundtrip")) env
-        case r2 of
-          Left err -> expectationFailure ("second login failed: " <> show err)
-          Right (LoginResponse sid2) ->
-            sid1 `shouldSatisfy` (/= sid2)
+    sid <- loginAs ctx "TestPlayer"
+    logoutResult <- runClientM (logoutClient sid) env
+    logoutResult `shouldBe` Right NoContent
 
-  it "invalid sessionId on WebSocket connect is rejected" $ \(_port, _ctx) -> do
+  it "login after logout produces a different token" $ \(_port, ctx) -> do
+    env <- testClientEnv
+    sid1 <- loginAs ctx "Roundtrip"
+    _ <- runClientM (logoutClient sid1) env
+    sid2 <- loginAs ctx "Roundtrip"
+    sid1 `shouldSatisfy` (/= sid2)
+
+  it "an expired token is rejected" $ \(_port, ctx) -> do
+    env <- testClientEnv
+    sid@(SessionId token) <- loginAs ctx "Expired"
+    _ <- withResource (acDbPool ctx) $ \conn ->
+      execute conn "UPDATE tokens SET expires_at = now() - interval '1 hour' WHERE token_digest = ?"
+        (Only (tokenDigest (encodeUtf8 token)))
+    result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource worldSource)) env
+    isErrorCode 401 result `shouldBe` True
+
+  it "logout stops the token working" $ \(_port, ctx) -> do
+    env <- testClientEnv
+    sid <- loginAs ctx "LoggedOut"
+    _ <- runClientM (logoutClient sid) env
+    result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource worldSource)) env
+    isErrorCode 401 result `shouldBe` True
+
+  it "invalid token on WebSocket connect is rejected" $ \(_port, _ctx) -> do
     result <- try @SomeException
       (runClientWith "127.0.0.1" testPort "/ws/game"
         defaultConnectionOptions [] (\_ -> pure ()))
@@ -255,233 +300,174 @@ spec = describe "Integration" . around withTestServer $ do
       Right _ -> expectationFailure "connection without session should be rejected"
 
   it "login creates agent in agentMap with correct agentShortName" $ \(_port, ctx) -> do
-    env <- testClientEnv
-    result <- runClientM (loginClient (PlayerNameUNV "AgentTest")) env
-    case result of
-      Left err -> expectationFailure ("login failed: " <> show err)
-      Right (LoginResponse sid) ->
-        connectWS sid $ \conn -> do
-          narr <- receiveUntil conn 10000000 isLookNarration
-          case narr of
-            Nothing -> expectationFailure "no auto-look narration received on login"
-            Just _  -> do
-              known <- readMVar (acKnownPlayers ctx)
-              member (PlayerNameVAL "AgentTest") known `shouldBe` True
+    sid <- loginAs ctx "AgentTest"
+    connectWS sid $ \conn -> do
+      narr <- receiveUntil conn 10000000 isLookNarration
+      case narr of
+        Nothing -> expectationFailure "no auto-look narration received on login"
+        Just _  -> do
+          known <- readMVar (acKnownPlayers ctx)
+          member (PlayerNameVAL "AgentTest") known `shouldBe` True
 
-  it "login assigns agent to lobby scene" $ \(_port, _ctx) -> do
-    env <- testClientEnv
-    r1 <- runClientM (loginClient (PlayerNameUNV "Alice")) env
-    r2 <- runClientM (loginClient (PlayerNameUNV "Bob")) env
-    case (r1, r2) of
-      (Right (LoginResponse sid1), Right (LoginResponse sid2)) ->
-        connectWS sid1 $ \conn1 -> do
-          _ <- try @SomeException (connectWS sid2 $ \_ -> threadDelay 3000000)
-          threadDelay 3000000
-          result <- receiveUntil conn1 10000000 (isDeparture "Bob")
-          case result of
-            Nothing -> expectationFailure "departure not received — agents not in same scene"
-            Just _  -> pure ()
-      _ -> expectationFailure "both logins should succeed"
+  it "login assigns agent to lobby scene" $ \(_port, ctx) -> do
+    sid1 <- loginAs ctx "Alice"
+    sid2 <- loginAs ctx "Bob"
+    connectWS sid1 $ \conn1 -> do
+      _ <- try @SomeException (connectWS sid2 $ \_ -> threadDelay 3000000)
+      threadDelay 3000000
+      result <- receiveUntil conn1 10000000 (isDeparture "Bob")
+      case result of
+        Nothing -> expectationFailure "departure not received — agents not in same scene"
+        Just _  -> pure ()
 
-  it "heartbeat delivery within timeout" $ \(_port, _ctx) -> do
-    env <- testClientEnv
-    result <- runClientM (loginClient (PlayerNameUNV "HeartbeatTest")) env
-    case result of
-      Left err -> expectationFailure ("login failed: " <> show err)
-      Right (LoginResponse sid) ->
-        connectWS sid $ \conn -> do
-          hb <- receiveUntil conn 10000000 isHeartbeat
-          case hb of
-            Nothing  -> expectationFailure "no heartbeat received within 10s"
-            Just msg -> msg `shouldSatisfy` isHeartbeat
+  it "heartbeat delivery within timeout" $ \(_port, ctx) -> do
+    sid <- loginAs ctx "HeartbeatTest"
+    connectWS sid $ \conn -> do
+      hb <- receiveUntil conn 10000000 isHeartbeat
+      case hb of
+        Nothing  -> expectationFailure "no heartbeat received within 10s"
+        Just msg -> msg `shouldSatisfy` isHeartbeat
 
   it "multi-player: two players login, both in lobby" $ \(_port, ctx) -> do
-    env <- testClientEnv
-    r1 <- runClientM (loginClient (PlayerNameUNV "Player1")) env
-    r2 <- runClientM (loginClient (PlayerNameUNV "Player2")) env
-    case (r1, r2) of
-      (Right (LoginResponse sid1), Right (LoginResponse sid2)) ->
-        connectWS sid1 $ \conn1 ->
-          connectWS sid2 $ \conn2 -> do
-            n1 <- receiveUntil conn1 10000000 isLookNarration
-            n2 <- receiveUntil conn2 10000000 isLookNarration
-            case (n1, n2) of
-              (Just _, Just _) -> do
-                known <- readMVar (acKnownPlayers ctx)
-                member (PlayerNameVAL "Player1") known `shouldBe` True
-                member (PlayerNameVAL "Player2") known `shouldBe` True
-              _ -> expectationFailure "both players should receive auto-look narration"
-      _ -> expectationFailure "both logins should succeed"
+    sid1 <- loginAs ctx "Player1"
+    sid2 <- loginAs ctx "Player2"
+    connectWS sid1 $ \conn1 ->
+      connectWS sid2 $ \conn2 -> do
+        n1 <- receiveUntil conn1 10000000 isLookNarration
+        n2 <- receiveUntil conn2 10000000 isLookNarration
+        case (n1, n2) of
+          (Just _, Just _) -> do
+            known <- readMVar (acKnownPlayers ctx)
+            member (PlayerNameVAL "Player1") known `shouldBe` True
+            member (PlayerNameVAL "Player2") known `shouldBe` True
+          _ -> expectationFailure "both players should receive auto-look narration"
 
-  it "multi-player: both clients receive heartbeats" $ \(_port, _ctx) -> do
-    env <- testClientEnv
-    r1 <- runClientM (loginClient (PlayerNameUNV "HB1")) env
-    r2 <- runClientM (loginClient (PlayerNameUNV "HB2")) env
-    case (r1, r2) of
-      (Right (LoginResponse sid1), Right (LoginResponse sid2)) ->
-        connectWS sid1 $ \conn1 ->
-          connectWS sid2 $ \conn2 -> do
-            hb1 <- receiveUntil conn1 10000000 isHeartbeat
-            hb2 <- receiveUntil conn2 10000000 isHeartbeat
-            case (hb1, hb2) of
-              (Just _, Just _) -> pure ()
-              _                -> expectationFailure "both players should receive heartbeats"
-      _ -> expectationFailure "both logins should succeed"
+  it "multi-player: both clients receive heartbeats" $ \(_port, ctx) -> do
+    sid1 <- loginAs ctx "HB1"
+    sid2 <- loginAs ctx "HB2"
+    connectWS sid1 $ \conn1 ->
+      connectWS sid2 $ \conn2 -> do
+        hb1 <- receiveUntil conn1 10000000 isHeartbeat
+        hb2 <- receiveUntil conn2 10000000 isHeartbeat
+        case (hb1, hb2) of
+          (Just _, Just _) -> pure ()
+          _                -> expectationFailure "both players should receive heartbeats"
 
   it "disconnect: agent removed from lobby scene but stays in agentMap" $ \(_port, ctx) -> do
-    env <- testClientEnv
-    r1 <- runClientM (loginClient (PlayerNameUNV "Stayer")) env
-    r2 <- runClientM (loginClient (PlayerNameUNV "Leaver")) env
-    case (r1, r2) of
-      (Right (LoginResponse sid1), Right (LoginResponse sid2)) ->
-        connectWS sid1 $ \conn1 -> do
-          _ <- try @SomeException (connectWS sid2 $ \_ -> threadDelay 3000000)
-          threadDelay 3000000
-          result <- receiveUntil conn1 10000000 (isDeparture "Leaver")
-          case result of
-            Nothing -> expectationFailure "departure not received"
-            Just _  -> do
-              known <- readMVar (acKnownPlayers ctx)
-              member (PlayerNameVAL "Leaver") known `shouldBe` True
-      _ -> expectationFailure "both logins should succeed"
+    sid1 <- loginAs ctx "Stayer"
+    sid2 <- loginAs ctx "Leaver"
+    connectWS sid1 $ \conn1 -> do
+      _ <- try @SomeException (connectWS sid2 $ \_ -> threadDelay 3000000)
+      threadDelay 3000000
+      result <- receiveUntil conn1 10000000 (isDeparture "Leaver")
+      case result of
+        Nothing -> expectationFailure "departure not received"
+        Just _  -> do
+          known <- readMVar (acKnownPlayers ctx)
+          member (PlayerNameVAL "Leaver") known `shouldBe` True
 
   it "logout: agent removed from lobby scene, stays in agentMap, maps cleaned" $ \(_port, ctx) -> do
     env <- testClientEnv
-    r1 <- runClientM (loginClient (PlayerNameUNV "Witness")) env
-    r2 <- runClientM (loginClient (PlayerNameUNV "LogoutTarget")) env
-    case (r1, r2) of
-      (Right (LoginResponse sid1), Right (LoginResponse sid2)) ->
-        connectWS sid1 $ \conn1 ->
-          connectWS sid2 $ \_ -> do
-            threadDelay 3000000
-            _ <- runClientM (logoutClient sid2) env
-            threadDelay 3000000
-            result <- receiveUntil conn1 10000000 (isDeparture "LogoutTarget")
-            case result of
-              Nothing -> expectationFailure "departure not received after logout"
-              Just _  -> do
-                known <- readMVar (acKnownPlayers ctx)
-                member (PlayerNameVAL "LogoutTarget") known `shouldBe` True
-                sessions <- readMVar (acSessions ctx)
-                member sid2 sessions `shouldBe` False
-      _ -> expectationFailure "both logins should succeed"
-
-  it "login auto-look delivers the lobby description" $ \(_port, _ctx) -> do
-    env <- testClientEnv
-    result <- runClientM (loginClient (PlayerNameUNV "LookOnLogin")) env
-    case result of
-      Left err -> expectationFailure ("login failed: " <> show err)
-      Right (LoginResponse sid) ->
-        connectWS sid $ \conn -> do
-          narr <- receiveUntil conn 10000000 isLookNarration
-          case narr of
-            Nothing -> expectationFailure "no auto-look narration received on login"
-            Just _  -> pure ()
-
-  it "auto-look survives a slow websocket connect" $ \(_port, _ctx) -> do
-    env <- testClientEnv
-    result <- runClientM (loginClient (PlayerNameUNV "SlowSocket")) env
-    case result of
-      Left err -> expectationFailure ("login failed: " <> show err)
-      Right (LoginResponse sid) -> do
+    sid1 <- loginAs ctx "Witness"
+    sid2 <- loginAs ctx "LogoutTarget"
+    connectWS sid1 $ \conn1 ->
+      connectWS sid2 $ \_ -> do
         threadDelay 3000000
-        connectWS sid $ \conn -> do
-          narr <- receiveUntil conn 10000000 isLookNarration
-          case narr of
-            Nothing -> expectationFailure "no auto-look narration after slow connect"
+        _ <- runClientM (logoutClient sid2) env
+        threadDelay 3000000
+        result <- receiveUntil conn1 10000000 (isDeparture "LogoutTarget")
+        case result of
+          Nothing -> expectationFailure "departure not received after logout"
+          Just _  -> do
+            known <- readMVar (acKnownPlayers ctx)
+            member (PlayerNameVAL "LogoutTarget") known `shouldBe` True
+            sessions <- readMVar (acSessions ctx)
+            member sid2 sessions `shouldBe` False
+
+  it "login auto-look delivers the lobby description" $ \(_port, ctx) -> do
+    sid <- loginAs ctx "LookOnLogin"
+    connectWS sid $ \conn -> do
+      narr <- receiveUntil conn 10000000 isLookNarration
+      case narr of
+        Nothing -> expectationFailure "no auto-look narration received on login"
+        Just _  -> pure ()
+
+  it "auto-look survives a slow websocket connect" $ \(_port, ctx) -> do
+    sid <- loginAs ctx "SlowSocket"
+    threadDelay 3000000
+    connectWS sid $ \conn -> do
+      narr <- receiveUntil conn 10000000 isLookNarration
+      case narr of
+        Nothing -> expectationFailure "no auto-look narration after slow connect"
+        Just _  -> pure ()
+
+  it "explicit look command repeats the lobby description" $ \(_port, ctx) -> do
+    sid <- loginAs ctx "LookAgain"
+    connectWS sid $ \conn -> do
+      first <- receiveUntil conn 10000000 isLookNarration
+      case first of
+        Nothing -> expectationFailure "no auto-look narration received on login"
+        Just _  -> do
+          sendTextData conn (GameCommand "look")
+          second <- receiveUntil conn 10000000 isLookNarration
+          case second of
+            Nothing -> expectationFailure "no narration received for explicit look"
             Just _  -> pure ()
 
-  it "explicit look command repeats the lobby description" $ \(_port, _ctx) -> do
-    env <- testClientEnv
-    result <- runClientM (loginClient (PlayerNameUNV "LookAgain")) env
-    case result of
-      Left err -> expectationFailure ("login failed: " <> show err)
-      Right (LoginResponse sid) ->
-        connectWS sid $ \conn -> do
-          first <- receiveUntil conn 10000000 isLookNarration
-          case first of
-            Nothing -> expectationFailure "no auto-look narration received on login"
-            Just _  -> do
-              sendTextData conn (GameCommand "look")
-              second <- receiveUntil conn 10000000 isLookNarration
-              case second of
-                Nothing -> expectationFailure "no narration received for explicit look"
-                Just _  -> pure ()
+  it "look presence listing names the other player" $ \(_port, ctx) -> do
+    sid1 <- loginAs ctx "Looker"
+    sid2 <- loginAs ctx "Seen"
+    connectWS sid1 $ \conn1 ->
+      connectWS sid2 $ \_ -> do
+        threadDelay 3000000
+        sendTextData conn1 (GameCommand "look")
+        result <- receiveUntil conn1 10000000 (hasPresence "Seen")
+        case result of
+          Nothing -> expectationFailure "presence listing did not name other player"
+          Just _  -> pure ()
 
-  it "look presence listing names the other player" $ \(_port, _ctx) -> do
-    env <- testClientEnv
-    r1 <- runClientM (loginClient (PlayerNameUNV "Looker")) env
-    r2 <- runClientM (loginClient (PlayerNameUNV "Seen")) env
-    case (r1, r2) of
-      (Right (LoginResponse sid1), Right (LoginResponse sid2)) ->
-        connectWS sid1 $ \conn1 ->
-          connectWS sid2 $ \_ -> do
-            threadDelay 3000000
-            sendTextData conn1 (GameCommand "look")
-            result <- receiveUntil conn1 10000000 (hasPresence "Seen")
-            case result of
-              Nothing -> expectationFailure "presence listing did not name other player"
-              Just _  -> pure ()
-      _ -> expectationFailure "both logins should succeed"
+  it "ping: client sends Ping, receives Pong through Rhine network" $ \(_port, ctx) -> do
+    sid <- loginAs ctx "PingTest"
+    connectWS sid $ \conn -> do
+      threadDelay 2000000
+      sendTextData conn Ping
+      pong <- receiveUntil conn 10000000 isPong
+      case pong of
+        Nothing  -> expectationFailure "no Pong received within 10s"
+        Just msg -> msg `shouldBe` Pong
 
-  it "ping: client sends Ping, receives Pong through Rhine network" $ \(_port, _ctx) -> do
-    env <- testClientEnv
-    result <- runClientM (loginClient (PlayerNameUNV "PingTest")) env
-    case result of
-      Left err -> expectationFailure ("login failed: " <> show err)
-      Right (LoginResponse sid) ->
-        connectWS sid $ \conn -> do
-          threadDelay 2000000
-          sendTextData conn Ping
-          pong <- receiveUntil conn 10000000 isPong
-          case pong of
-            Nothing  -> expectationFailure "no Pong received within 10s"
-            Just msg -> msg `shouldBe` Pong
-
-  it "POST /api/game/dsl with unknown session returns 401" $ \(_port, _ctx) -> do
+  it "POST /api/game/dsl with unknown token returns 401" $ \(_port, _ctx) -> do
     env <- testClientEnv
     result <- runClientM (dslClient (makeAuthRequest (SessionId "unknown")) (DSLSource worldSource)) env
     isErrorCode 401 result `shouldBe` True
 
-  it "POST /api/game/dsl with bad source returns 400 with an error body" $ \(_port, _ctx) -> do
+  it "POST /api/game/dsl with bad source returns 400 with an error body" $ \(_port, ctx) -> do
     env <- testClientEnv
-    loginResult <- runClientM (loginClient (PlayerNameUNV "BadWizard")) env
-    case loginResult of
-      Left err -> expectationFailure ("login failed: " <> show err)
-      Right (LoginResponse sid) -> do
-        result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource "declareSceneGID")) env
-        case result of
-          Left (FailureResponse _ (Response (Status 400 _) _ _ body)) ->
-            body `shouldSatisfy` (not . null)
-          _ -> expectationFailure ("expected 400 with an error body, got: " <> show result)
+    sid <- loginAs ctx "BadWizard"
+    result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource "declareSceneGID")) env
+    case result of
+      Left (FailureResponse _ (Response (Status 400 _) _ _ body)) ->
+        body `shouldSatisfy` (not . null)
+      _ -> expectationFailure ("expected 400 with an error body, got: " <> show result)
 
-  it "POST /api/game/dsl with the world source returns NoContent" $ \(_port, _ctx) -> do
+  it "POST /api/game/dsl with the world source returns NoContent" $ \(_port, ctx) -> do
     env <- testClientEnv
-    loginResult <- runClientM (loginClient (PlayerNameUNV "Wizard")) env
-    case loginResult of
-      Left err -> expectationFailure ("login failed: " <> show err)
-      Right (LoginResponse sid) -> do
-        result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource worldSource)) env
-        result `shouldBe` Right NoContent
+    sid <- loginAs ctx "Wizard"
+    result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource worldSource)) env
+    result `shouldBe` Right NoContent
 
-  it "a delivered submission appears in look after DSLTick" $ \(_port, _ctx) -> do
+  it "a delivered submission appears in look after DSLTick" $ \(_port, ctx) -> do
     env <- testClientEnv
-    wizard <- runClientM (loginClient (PlayerNameUNV "Builder")) env
-    case wizard of
-      Left err -> expectationFailure ("login failed: " <> show err)
-      Right (LoginResponse wizardSid) -> do
-        posted <- runClientM (dslClient (makeAuthRequest wizardSid) (DSLSource studySource)) env
-        posted `shouldBe` Right NoContent
-        threadDelay 6000000
-        viewer <- runClientM (loginClient (PlayerNameUNV "Viewer")) env
-        case viewer of
-          Left err -> expectationFailure ("login failed: " <> show err)
-          Right (LoginResponse viewerSid) ->
-            connectWS viewerSid $ \conn -> do
-              narr <- receiveUntil conn 10000000 (seesObjects "You see: a ball, a cup")
-              case narr of
-                Nothing -> expectationFailure "look did not list the delivered cup"
-                Just _  -> pure ()
+    wizardSid <- loginAs ctx "Builder"
+    posted <- runClientM (dslClient (makeAuthRequest wizardSid) (DSLSource studySource)) env
+    posted `shouldBe` Right NoContent
+    threadDelay 6000000
+    viewerSid <- loginAs ctx "Viewer"
+    connectWS viewerSid $ \conn -> do
+      narr <- receiveUntil conn 10000000 (seesObjects "You see: a ball, a cup")
+      case narr of
+        Nothing -> expectationFailure "look did not list the delivered cup"
+        Just _  -> pure ()
 
 worldSource :: Text
 worldSource = unlines

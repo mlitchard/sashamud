@@ -103,3 +103,10 @@ metadata:
   a plan names a library or tool with no pattern in quux, sashamud, or
   the sanctioned checkouts, ask him for the reference. Never grep
   ~/gitlab or ~/github for it, and never send an agent to.
+- NEVER STATE LIBRARY FACTS FROM MEMORY (2026-09-28, auth step 4, "'from
+  my own memory' i keep telling you over and over to not do this"):
+  claimed crypton depends on memory; his checkout showed no such
+  dependency. Any claim about what a library needs, exports, or is
+  named comes from a checkout he gave me, quoted, or I say I do not
+  know and ask. No "from memory" claims, no "I believe", no
+  alternatives built on unread sources.

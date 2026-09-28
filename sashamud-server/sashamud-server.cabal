@@ -31,12 +31,36 @@ executable sasha-server
     , sasha
     , sashamud-world
 
+executable sasha-fake-oidc
+  import:         shared
+  main-is:        Main.hs
+  hs-source-dirs: fake-oidc
+  ghc-options:    -threaded -rtsopts
+  other-modules:  FakeProvider
+  build-depends:
+    , base               >=4.7 && <5
+    , bytestring
+    , containers
+    , crypton
+    , http-api-data
+    , http-client
+    , http-types
+    , memory
+    , postgresql-simple
+    , resource-pool
+    , sasha
+    , servant
+    , servant-server
+    , text
+    , warp
+
 executable sasha-e2e-tests
   import:             shared
   main-is:            Spec.hs
-  hs-source-dirs:     test-e2e
+  hs-source-dirs:     test-e2e fake-oidc
   ghc-options:        -threaded -rtsopts
   other-modules:
+    FakeProvider
     LoginSpec
     LookAtBallSpec
     LookAtPlayerSpec
@@ -47,18 +71,26 @@ executable sasha-e2e-tests
   build-tool-depends: hspec-discover:hspec-discover
   build-depends:
     , async
-    , base                >=4.7 && <5
+    , base                  >=4.7 && <5
     , bytestring
+    , containers
+    , crypton
     , directory
     , filepath
     , hspec
+    , http-api-data
     , http-client
+    , http-types
+    , memory
+    , postgresql-migration
     , postgresql-simple
     , process
     , random
     , resource-pool
     , sasha
     , sashamud-world
+    , servant
+    , servant-server
     , string-interpolate
     , text
     , time
@@ -68,23 +100,31 @@ executable sasha-e2e-tests
 executable sashamud-integration-tests
   import:         shared
   main-is:        Spec.hs
-  hs-source-dirs: test
+  hs-source-dirs: test fake-oidc
   ghc-options:    -threaded -rtsopts
-  other-modules:  Integration.LoginLogoutSpec
+  other-modules:
+    FakeProvider
+    Integration.LoginLogoutSpec
+
   build-depends:
     , async
-    , base                 >=4.7 && <5
+    , base                  >=4.7 && <5
     , bytestring
     , containers
+    , crypton
     , hspec
     , hspec-discover
+    , http-api-data
     , http-client
     , http-types
+    , memory
     , microlens-platform
+    , postgresql-migration
     , postgresql-simple
     , resource-pool
     , sasha
     , sashamud-world
+    , servant
     , servant-client
     , servant-client-core
     , servant-server

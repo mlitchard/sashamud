@@ -22,7 +22,7 @@ import           Server.App
   )
 
 gameWebSocket :: AppCtx -> AuthenticatedUser -> ([MessageFrom] -> IO ()) -> IO (Handler MessageTo)
-gameWebSocket ctx (AuthenticatedUser sessionId) sendMsgs = do
+gameWebSocket ctx (AuthenticatedUser sessionId _ _) sendMsgs = do
   modifyMVar_ (acSessions ctx) $ \sessions ->
     case Map.lookup sessionId sessions of
       Just (SessionPhase name AwaitingSocket) -> do

@@ -1,7 +1,9 @@
 module Model.Authorization
   ( Resource (Dsl)
   , ResourceAction (Create)
+  , RoleId (RoleId)
   , RoleStatus (RoleActive, RoleInactive)
+  , unRoleId
   ) where
 
 import           SashaPrelude
@@ -134,6 +136,10 @@ instance FromField RoleStatus where
 instance ToField RoleStatus where
   toField RoleActive   = Plain ((inQuotes . byteString) "role_active")
   toField RoleInactive = Plain ((inQuotes . byteString) "role_inactive")
+
+newtype RoleId = RoleId { unRoleId :: Int }
+  deriving stock (Generic)
+  deriving newtype (Eq, FromField, NFData, Ord, Show, ToField)
 
 #ifdef TESTING
 deriving via (GenericArbitrary Resource) instance Arbitrary Resource

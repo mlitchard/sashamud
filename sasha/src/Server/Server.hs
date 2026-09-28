@@ -9,15 +9,14 @@ module Server.Server
 
 import           SashaPrelude
 
-import           API.Routes (SashaAPI)
+import           API.Routes (AuthAPI, SashaAPI)
 import           API.Types
   ( AuthenticatedUser (AuthenticatedUser)
   , DSLSource (DSLSource)
-  , LoginResponse (LoginResponse)
   , Routed (Routed)
   , SessionId (SessionId)
   )
-import           Control.Concurrent (modifyMVar, modifyMVar_, readMVar)
+import           Control.Concurrent (modifyMVar_, readMVar)
 import           Control.Concurrent.Async (race_)
 import           Control.Concurrent.STM (atomically, readTChan, writeTChan)
 import           Control.Exception (Handler (Handler), SomeException, catches)
@@ -25,13 +24,16 @@ import           Control.Monad (forever)
 import           Control.Monad.Except (throwError)
 import           Control.Monad.Reader (ask, runReaderT)
 import qualified Data.ByteString.Char8 (pack)
-import           Data.Map.Strict (delete, insert, lookup)
-import qualified Data.Map.Strict (filter)
+import           Data.Map.Strict (delete, lookup)
 import           Data.Pool (defaultPoolConfig, newPool, withResource)
 import           Data.String (fromString)
-import           Data.UUID (toText)
-import           Data.UUID.V4 (nextRandom)
-import           Database.PostgreSQL.Simple (close, connectPostgreSQL)
+import           Data.Text.Encoding (encodeUtf8)
+import           Database.PostgreSQL.Simple
+  ( Only (Only)
+  , close
+  , connectPostgreSQL
+  , execute
+  )
 import           Database.PostgreSQL.Simple.Migration
   ( MigrationResult (MigrationError, MigrationSuccess)
   , defaultOptions
@@ -43,6 +45,13 @@ import           DSL.Builder
 import           DSL.Reify (reifyDSL)
 import           Engine.Simulation.SignalNetwork (gameLoop)
 import           GHC.IO (FilePath)
+import           Model.Account
+  ( ClientId (ClientId)
+  , ClientSecret (ClientSecret)
+  , OidcBaseUrl (OidcBaseUrl)
+  , RedirectUri (RedirectUri)
+  )
+import           Network.HTTP.Client.TLS (newTlsManager)
 import           Network.Wai (Application)
 import           Network.Wai.Handler.Warp (run)
 import           Network.WebSockets (ConnectionException)
@@ -54,69 +63,57 @@ import           Servant
   , ServerError (errBody)
   , err400
   , err401
-  , err409
   , serveDirectoryFileServer
   , serveWithContext
   , type (:<|>) ((:<|>))
   )
 import           Server.App
-  ( AppCtx (acDSLChan, acGameLog, acOutbound, acSessions)
+  ( AppCtx (acDSLChan, acDbPool, acGameLog, acOutbound, acSessions)
   , AppM (..)
   , GameLog (GameLog)
-  , SessionPhase (SessionPhase)
-  , SessionState (AwaitingSocket)
+  , OidcConfig (OidcConfig)
   , newAppCtx
   , sessionSend
   )
-import           Server.Authentication (authProxy, sashaContext)
+import           Server.Authentication
+  ( authCallback
+  , authProxy
+  , authStart
+  , sashaContext
+  , tokenDigest
+  )
 import           Server.GameWebSocket (gameWebSocket)
 import           Server.Log
-  ( LogEntry (PlayerLogin, SendDropped, SendError, SendFailed, ServerStart)
+  ( LogEntry (SendDropped, SendError, SendFailed, ServerStart)
   , writeLog
   )
 import           Server.Migration (buildCommand)
-import           Server.Validator (PlayerNameVAL)
 import           System.Environment (lookupEnv)
 import           System.Exit (exitFailure)
 import           Text.Read (readMaybe)
 
 app :: AppCtx -> Application
-app ctx = serveWithContext (Proxy @SashaAPI) sashaContext
-  $ hoistServerWithContext (Proxy @SashaAPI) authProxy (flip runReaderT ctx . unAppM)
-    (loginHandler :<|> logoutHandler :<|> gameWebSocket ctx :<|> dslHandler)
+app ctx = serveWithContext withAuth (sashaContext ctx)
+  $ hoistServerWithContext withAuth authProxy (flip runReaderT ctx . unAppM)
+    ((logoutHandler :<|> gameWebSocket ctx :<|> dslHandler) :<|> (authStart :<|> authCallback))
+  where withAuth = Proxy @(SashaAPI :<|> AuthAPI)
 
 appWithStaticFiles :: AppCtx -> FilePath -> Application
-appWithStaticFiles ctx tmpDir = serveWithContext andRaw sashaContext
+appWithStaticFiles ctx tmpDir = serveWithContext andRaw (sashaContext ctx)
   $ hoistServerWithContext andRaw authProxy (flip runReaderT ctx . unAppM)
-    ((loginHandler :<|> logoutHandler :<|> gameWebSocket ctx :<|> dslHandler) :<|> serveDirectoryFileServer tmpDir)
-  where andRaw = Proxy @(SashaAPI :<|> Raw)
-
-loginHandler :: PlayerNameVAL -> AppM LoginResponse
-loginHandler playerName = do
-  ctx <- ask
-  sessionId <- liftIO (SessionId . toText <$> nextRandom)
-  alreadyActive <- liftIO . modifyMVar (acSessions ctx) $ \sessions ->
-    if any hasActiveSession sessions
-      then pure (sessions, True)
-      else pure (insert sessionId (SessionPhase playerName AwaitingSocket)
-                   (Data.Map.Strict.filter keepEntry sessions), False)
-  when alreadyActive (throwError err409)
-  liftIO $ writeLog (acGameLog ctx) (PlayerLogin playerName)
-  pure (LoginResponse sessionId)
-  where
-    hasActiveSession (SessionPhase _ AwaitingSocket) = False
-    hasActiveSession (SessionPhase n _)              = n == playerName
-    keepEntry (SessionPhase n AwaitingSocket) = n /= playerName
-    keepEntry _                               = True
+    ((logoutHandler :<|> gameWebSocket ctx :<|> dslHandler) :<|> (authStart :<|> authCallback) :<|> serveDirectoryFileServer tmpDir)
+  where andRaw = Proxy @(SashaAPI :<|> AuthAPI :<|> Raw)
 
 logoutHandler :: SessionId -> AppM NoContent
-logoutHandler sessionId = do
+logoutHandler sessionId@(SessionId token) = do
   ctx <- ask
+  _ <- liftIO . withResource (acDbPool ctx) $ \conn ->
+    execute conn "DELETE FROM tokens WHERE token_digest = ?" (Only (tokenDigest (encodeUtf8 token)))
   liftIO $ modifyMVar_ (acSessions ctx) (pure . delete sessionId)
   pure NoContent
 
 dslHandler :: AuthenticatedUser -> DSLSource -> AppM NoContent
-dslHandler (AuthenticatedUser sessionId) (DSLSource source) = do
+dslHandler (AuthenticatedUser sessionId _ _) (DSLSource source) = do
   ctx <- ask
   sessions <- liftIO $ readMVar (acSessions ctx)
   case lookup sessionId sessions of
@@ -158,8 +155,18 @@ startServer result = do
       hPutStrLn stderr ("migration failed: " <> err)
       exitFailure
     MigrationSuccess -> pure ()
+  oidcBaseUrl <- fromMaybe "http://127.0.0.1:9000" <$> lookupEnv "SASHA_OIDC_BASE_URL"
+  oidcClientId <- fromMaybe "sashamud" <$> lookupEnv "SASHA_OIDC_CLIENT_ID"
+  oidcClientSecret <- fromMaybe "sashamud-dev" <$> lookupEnv "SASHA_OIDC_CLIENT_SECRET"
+  oidcRedirectUri <- fromMaybe "http://localhost:8081/api/auth/callback" <$> lookupEnv "SASHA_OIDC_REDIRECT_URI"
+  let oidcConfig = OidcConfig
+        (OidcBaseUrl (pack oidcBaseUrl))
+        (ClientId (pack oidcClientId))
+        (ClientSecret (pack oidcClientSecret))
+        (RedirectUri (pack oidcRedirectUri))
+  manager <- newTlsManager
   let logCfg = GameLog stderr
-  ctx <- newAppCtx logCfg pool (resultCounters result)
+  ctx <- newAppCtx logCfg pool oidcConfig manager (resultCounters result)
   writeLog logCfg (ServerStart port)
   hPutStrLn stderr ("sasha-web server starting on port " <> show port)
   race_

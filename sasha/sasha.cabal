@@ -89,6 +89,8 @@ library
     , hint
     , http-client
     , http-client-tls
+    , http-types
+    , memory
     , microlens-platform
     , mmorph
     , monad-schedule
@@ -106,6 +108,7 @@ library
     , servant-websockets
     , stm
     , text
+    , time
     , transformers
     , uuid
     , wai
@@ -181,6 +184,8 @@ executable sasha-tests
     , hspec-discover
     , http-client
     , http-client-tls
+    , http-types
+    , memory
     , microlens-platform
     , mmorph
     , monad-schedule
@@ -198,6 +203,7 @@ executable sasha-tests
     , servant-websockets
     , stm
     , text
+    , time
     , transformers
     , uuid
     , wai

@@ -143,23 +143,46 @@
           localPostgres = import inputs.local-postgres { inherit pkgs; };
           pgDir = ".database";
           migrationsDir = ./migrations;
+          oidcBaseUrl = "http://127.0.0.1:9000";
+          oidcClientId = "sashamud";
+          oidcClientSecret = "sashamud-dev";
+          oidcRedirectUri = "http://localhost:8081/api/auth/callback";
 
           dslServerUrl = "http://127.0.0.1:8081";
-          dslWizardName = "wizard";
           deployDsl = pkgs.writeShellScript "deploy-dsl" ''
             set -euo pipefail
             SRC="''${1:?usage: nix run .#deploy-dsl -- <file.dsl>}"
             URL="''${SASHA_URL:-${dslServerUrl}}"
-            NAME="''${SASHA_WIZARD:-${dslWizardName}}"
+            TOKEN="''${SASHA_TOKEN:?SASHA_TOKEN must hold a login token}"
             CURL="${pkgs.curl}/bin/curl"
             JQ="${pkgs.jq}/bin/jq"
-            SID=$($CURL --fail-with-body -sS -X POST "$URL/api/game/login" \
-              -H "Content-Type: application/json" \
-              --data "$($JQ -n --arg n "$NAME" '$n')" | $JQ -r '.')
             $JQ -Rs . < "$SRC" | $CURL --fail-with-body -sS -X POST "$URL/api/game/dsl" \
-              -H "Sec-WebSocket-Protocol: $SID" -H "Content-Type: application/json" \
+              -H "Sec-WebSocket-Protocol: $TOKEN" -H "Content-Type: application/json" \
               --data @-
             echo "deployed $SRC to $URL"
+          '';
+          fakeLogin = pkgs.writeShellScript "fake-login" ''
+            set -euo pipefail
+            URL="''${1:-${dslServerUrl}}"
+            USER="''${2:-wizard}"
+            CURL="${pkgs.curl}/bin/curl"
+            location() {
+              $CURL -sS -o /dev/null -D - "$1" | tr -d '\r' | ${pkgs.gawk}/bin/awk 'tolower($1) == "location:" { print $2 }'
+            }
+            AUTHORIZE=$(location "$URL/api/auth/start")
+            CALLBACK=$(location "$AUTHORIZE&fake_user=$USER")
+            FINAL=$(location "$CALLBACK")
+            echo "$FINAL" | ${pkgs.gnused}/bin/sed 's|^/#token=||'
+          '';
+          seedWizard = pkgs.writeText "seed-wizard.sql" ''
+            WITH new_user AS (
+              INSERT INTO users (status, role_id, activated_on)
+                SELECT 'active', role_id, now() FROM roles
+                  WHERE name = 'wizard'
+                    AND NOT EXISTS (SELECT 1 FROM credentials WHERE player_name = 'wizard')
+                RETURNING user_id)
+            INSERT INTO credentials (user_id, player_name, subject)
+              SELECT user_id, 'wizard', 'sub-wizard' FROM new_user;
           '';
 
           devtools = inputs.horizon-devtools.packages.${system};
@@ -352,13 +375,19 @@
                   --set-default HINT_GHC_LIB_DIR ${hintAttrs.HINT_GHC_LIB_DIR} \
                   --set-default HINT_GHC_PACKAGE_PATH ${hintAttrs.HINT_GHC_PACKAGE_PATH} \
                   --set-default SASHA_DB_CONNSTR ${dbConnStr} \
-                  --set-default SASHA_MIGRATIONS_DIR ${migrationsDir}
+                  --set-default SASHA_MIGRATIONS_DIR ${migrationsDir} \
+                  --set-default SASHA_OIDC_BASE_URL ${oidcBaseUrl} \
+                  --set-default SASHA_OIDC_CLIENT_ID ${oidcClientId} \
+                  --set-default SASHA_OIDC_CLIENT_SECRET ${oidcClientSecret} \
+                  --set-default SASHA_OIDC_REDIRECT_URI ${oidcRedirectUri}
               '';
             });
             sasha-client-generator = (hlib.justStaticExecutables
               (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sasha "exe:sasha-client-generator"))).overrideAttrs { meta.mainProgram = "sasha-client-generator"; };
             sasha-tests = (hlib.justStaticExecutables
               (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sasha "exe:sasha-tests"))).overrideAttrs { meta.mainProgram = "sasha-tests"; };
+            sasha-fake-oidc = (hlib.justStaticExecutables
+              (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sashamud-server "exe:sasha-fake-oidc"))).overrideAttrs { meta.mainProgram = "sasha-fake-oidc"; };
             grammar-tests = (hlib.justStaticExecutables
               (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sasha-grammar "exe:grammar-tests"))).overrideAttrs { meta.mainProgram = "grammar-tests"; };
             sasha-e2e-tests = (hlib.justStaticExecutables
@@ -557,6 +586,14 @@
                     Restart = "on-failure";
                   };
                 };
+                systemd.services.sasha-fake-oidc = {
+                  wantedBy = [ "multi-user.target" ];
+                  after = [ "network.target" ];
+                  serviceConfig = {
+                    ExecStart = lib.getExe inputs.self.packages.${system}.sasha-fake-oidc;
+                    Restart = "on-failure";
+                  };
+                };
                 virtualisation = {
                   memorySize = 32768;
                   cores = 2;
@@ -565,7 +602,11 @@
               testScript = ''
                 machine.wait_for_unit("sashamud.service")
                 machine.wait_for_open_port(8081)
-                print(machine.succeed("${deployDsl} ${./sashamud-server/test-e2e/study.dsl}"))
+                machine.wait_for_unit("sasha-fake-oidc.service")
+                machine.wait_for_open_port(9000)
+                machine.succeed("psql -d sashamud -f ${seedWizard}")
+                token = machine.succeed("${fakeLogin} ${dslServerUrl} wizard").strip()
+                print(machine.succeed(f"SASHA_TOKEN={token} ${deployDsl} ${./sashamud-server/test-e2e/study.dsl}"))
               '';
             };
             run-end-to-end =
@@ -635,6 +676,10 @@
                       ExecStart = lib.getExe inputs.self.packages.${system}.sasha-server;
                       Restart = "on-failure";
                     };
+                  };
+                  environment.variables = {
+                    SASHA_DB_CONNSTR = dbConnStr;
+                    SASHA_MIGRATIONS_DIR = "${migrationsDir}";
                   };
                   environment.systemPackages = [
                     sasha-e2e-wrapped

@@ -12,18 +12,37 @@ module SeleniumHarness
 import           SashaPrelude
 
 import           API.TSClient (client)
+import           API.Types (SessionId (SessionId))
 import           Control.Concurrent.Async (mapConcurrently_, race_)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 (pack)
-import           Data.Pool (defaultPoolConfig, newPool)
+import           Data.Pool (defaultPoolConfig, newPool, withResource)
 import           Data.String.Interpolate (i)
+import           Data.Text (intercalate)
 import           Data.Text.Encoding (decodeUtf8')
 import qualified Data.Text.IO as TIO
 import           Data.Time.Clock.POSIX (getPOSIXTime)
 import           Database.PostgreSQL.Simple (close, connectPostgreSQL)
+import           Database.PostgreSQL.Simple.Migration
+  ( MigrationResult (MigrationError, MigrationSuccess)
+  , defaultOptions
+  , runMigrations
+  )
 import           DSL.Builder (WorldBuilderResult (resultCounters))
 import           Engine.Simulation.SignalNetwork (gameLoop)
+import           FakeProvider
+  ( fakeApp
+  , loginThroughFake
+  , newFakeState
+  , seedAccount
+  )
 import           GHC.IO (FilePath)
+import           Model.Account
+  ( ClientId (ClientId)
+  , ClientSecret (ClientSecret)
+  , OidcBaseUrl (OidcBaseUrl)
+  , RedirectUri (RedirectUri)
+  )
 import           Network.HTTP.Client
   ( defaultManagerSettings
   , managerResponseTimeout
@@ -32,8 +51,15 @@ import           Network.HTTP.Client
   )
 import           Network.Wai.Handler.Warp (testWithApplication)
 import           SashaMudWorld (buildResult, gameState)
-import           Server.App (AppCtx, GameLog (GameLog), newAppCtx)
+import           Server.App
+  ( AppCtx (acDbPool)
+  , GameLog (GameLog)
+  , OidcConfig (OidcConfig)
+  , newAppCtx
+  )
+import           Server.Migration (buildCommand)
 import           Server.Server (appWithStaticFiles, deliverOutbound)
+import           Server.Validator (PlayerNameVAL (PlayerNameVAL))
 import           System.Directory
   ( createDirectoryIfMissing
   , doesFileExist
@@ -74,11 +100,26 @@ withServer action = do
   hSetBuffering stdout LineBuffering
   let logCfg = GameLog stderr
   connStr <- fromMaybe "dbname=sashamud" <$> lookupEnv "SASHA_DB_CONNSTR"
+  migrationsDir <- fromMaybe "migrations" <$> lookupEnv "SASHA_MIGRATIONS_DIR"
   pool <- newPool (defaultPoolConfig (connectPostgreSQL (Data.ByteString.Char8.pack connStr)) close 60 10)
-  ctx <- newAppCtx logCfg pool (resultCounters buildResult)
-  race_
-    (race_ (gameLoop ctx gameState) (deliverOutbound ctx))
-    (action ctx)
+  migrated <- withResource pool (\conn -> runMigrations conn defaultOptions (buildCommand migrationsDir))
+  case migrated of
+    MigrationError err -> do
+      hPutStrLn stderr ("migration failed: " <> err)
+      exitFailure
+    MigrationSuccess -> pure ()
+  manager <- newManager defaultManagerSettings
+  fakeState <- newFakeState
+  testWithApplication (pure (fakeApp fakeState)) $ \fakePort -> do
+    let oidcConfig = OidcConfig
+          (OidcBaseUrl ("http://127.0.0.1:" <> pack (show fakePort)))
+          (ClientId "sashamud")
+          (ClientSecret "sashamud-dev")
+          (RedirectUri "http://127.0.0.1/api/auth/callback")
+    ctx <- newAppCtx logCfg pool oidcConfig manager (resultCounters buildResult)
+    race_
+      (race_ (gameLoop ctx gameState) (deliverOutbound ctx))
+      (action ctx)
 
 indexhtml :: FilePath -> String
 indexhtml path = [i|<html>
@@ -115,10 +156,11 @@ removeFileIfExists fp = do
   when exists $ removeFile fp
 
 webDriverTestWithClient :: AppCtx
+                        -> [Text]
                         -> String
                         -> (WD (Maybe String) -> WD (Maybe String))
                         -> IO ()
-webDriverTestWithClient ctx jstest test = do
+webDriverTestWithClient ctx players jstest test = do
   rand :: Int <- randomIO
   now <- getPOSIXTime
   tmpDir <- getTemporaryDirectory
@@ -138,12 +180,19 @@ webDriverTestWithClient ctx jstest test = do
   testWithApplication (pure (appWithStaticFiles ctx tmpDir))
     (\port -> do
 
+      loginManager <- newManager defaultManagerSettings
+      seedAccount (acDbPool ctx) (PlayerNameVAL "Raj")
+      SessionId rajToken <- loginThroughFake loginManager port "Raj"
+      extraTokens <- mapM (\name -> do
+          seedAccount (acDbPool ctx) (PlayerNameVAL name)
+          SessionId t <- loginThroughFake loginManager port name
+          pure ("\"" <> name <> "\": \"" <> t <> "\"")) players
+      let tokensLiteral = intercalate ", " extraTokens
+
       TIO.writeFile (tmpDir </> testPath <.> "ts") (pack [i|
          import {
            API,
-           LoginResponse,
            SessionId,
-           PlayerNameUNV,
            MessageFrom,
            MessageTo,
          } from "./client-#{testPath}.js";
@@ -151,17 +200,13 @@ webDriverTestWithClient ctx jstest test = do
          API.base = "http://127.0.0.1:#{port}";
          API.baseWS = "ws://127.0.0.1:#{port}";
 
+         const sessionId: string = "#{rajToken}";
+         const tokens: Record<string, string> = { #{tokensLiteral} };
+
          const testraw = async #{jstest}
 
          window["test"] = async resolve => {
            try {
-             const playerName = "Raj";
-             const sessionId: string = await API["/api/game/login(PlayerNameUNV)"](playerName);
-             if (!sessionId) {
-               resolve("Login failed: no SessionId returned");
-               return;
-             }
-
              const sock = await API["/ws/game{Sec-WebSocket-Protocol}"](sessionId);
 
              sock.receive((msg: MessageFrom) => {});
