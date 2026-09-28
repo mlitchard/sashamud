@@ -174,15 +174,42 @@
             FINAL=$(location "$CALLBACK")
             echo "$FINAL" | ${pkgs.gnused}/bin/sed 's|^/#token=||'
           '';
-          seedWizard = pkgs.writeText "seed-wizard.sql" ''
+          accountSigningKey = "\${HOME}/.ssh/sasha_sk";
+          accountSigners = pkgs.writeText "sashamud-allowed-signers" ''
+            sashamud-admin sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIGIQxWd6UuR8QMyqLQxTjSjrfrdOEAIcw7ilskEW5JDlAAAABHNzaDo=
+          '';
+          createAccountSql = pkgs.writeText "create-account.sql" ''
             WITH new_user AS (
               INSERT INTO users (status, role_id, activated_on)
                 SELECT 'active', role_id, now() FROM roles
-                  WHERE name = 'wizard'
-                    AND NOT EXISTS (SELECT 1 FROM credentials WHERE player_name = 'wizard')
+                  WHERE name = :'role'
+                    AND NOT EXISTS (SELECT 1 FROM credentials WHERE player_name = :'name')
                 RETURNING user_id)
             INSERT INTO credentials (user_id, player_name, subject)
-              SELECT user_id, 'wizard', 'sub-wizard' FROM new_user;
+              SELECT user_id, :'name', :'subject' FROM new_user
+              ON CONFLICT (player_name) DO NOTHING;
+          '';
+          createAccount = pkgs.writeShellScript "create-account" ''
+            set -euo pipefail
+            ACCOUNT="''${1:?usage: nix run .#create-account -- <account.json>}"
+            KEY="''${SASHA_ACCOUNT_KEY:-${accountSigningKey}}"
+            SIGNERS="''${SASHA_ACCOUNT_SIGNERS:-${accountSigners}}"
+            CONNSTR="''${SASHA_DB_CONNSTR:-${dbConnStr}}"
+            JQ="${pkgs.jq}/bin/jq"
+            KEYGEN="${pkgs.openssh}/bin/ssh-keygen"
+            PSQL="${pkgs.postgresql}/bin/psql"
+            NAME=$($JQ -r .player_name "$ACCOUNT")
+            SUBJECT=$($JQ -r .subject "$ACCOUNT")
+            ROLE=$($JQ -r .role "$ACCOUNT")
+            SIG=$(${pkgs.coreutils}/bin/mktemp)
+            trap 'rm -f "$SIG"' EXIT
+            $KEYGEN -Y sign -f "$KEY" -n sashamud-account < "$ACCOUNT" > "$SIG"
+            $KEYGEN -Y verify -f "$SIGNERS" -I sashamud-admin -n sashamud-account -s "$SIG" < "$ACCOUNT"
+            $PSQL "$CONNSTR" -v ON_ERROR_STOP=1 -v name="$NAME" -v subject="$SUBJECT" -v role="$ROLE" -f ${createAccountSql}
+            echo "account $NAME ($ROLE) is present"
+          '';
+          wizardAccount = pkgs.writeText "wizard-account.json" ''
+            { "player_name": "wizard", "subject": "sub-wizard", "role": "wizard" }
           '';
 
           devtools = inputs.horizon-devtools.packages.${system};
@@ -436,6 +463,11 @@
             program = toString deployDsl;
           };
 
+          apps.create-account = {
+            type = "app";
+            program = toString createAccount;
+          };
+
           checks = {
             nix-formatting = pkgs.runCommand "nix-formatting" { buildInputs = [ pkgs.nixpkgs-fmt ]; } ''
               nixpkgs-fmt --check ${./flake.nix}
@@ -604,7 +636,9 @@
                 machine.wait_for_open_port(8081)
                 machine.wait_for_unit("sasha-fake-oidc.service")
                 machine.wait_for_open_port(9000)
-                machine.succeed("psql -d sashamud -f ${seedWizard}")
+                machine.succeed('${pkgs.openssh}/bin/ssh-keygen -t ed25519 -N "" -f /root/account-key')
+                machine.succeed('echo "sashamud-admin $(cut -d" " -f1,2 /root/account-key.pub)" > /root/account-signers')
+                machine.succeed("SASHA_ACCOUNT_KEY=/root/account-key SASHA_ACCOUNT_SIGNERS=/root/account-signers ${createAccount} ${wizardAccount}")
                 token = machine.succeed("${fakeLogin} ${dslServerUrl} wizard").strip()
                 print(machine.succeed(f"SASHA_TOKEN={token} ${deployDsl} ${./sashamud-server/test-e2e/study.dsl}"))
               '';
