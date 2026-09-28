@@ -8369,6 +8369,22 @@
         "type": "github"
       }
     },
+    "local-postgres": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1707855589,
+        "narHash": "sha256-WXn1Im2P2/my4jy201ZSNfEtEtyGGrQXaqoYJzWXwqA=",
+        "owner": "quelklef",
+        "repo": "local-postgres",
+        "rev": "273b35e7eeac2ebd53f1cd947309b3e9e2b16358",
+        "type": "github"
+      },
+      "original": {
+        "owner": "quelklef",
+        "repo": "local-postgres",
+        "type": "github"
+      }
+    },
     "make-shell": {
       "locked": {
         "lastModified": 1634940815,
@@ -17426,6 +17442,7 @@
         "horizon-devtools": "horizon-devtools",
         "horizon-platform": "horizon-platform_3",
         "lint-utils": "lint-utils_5",
+        "local-postgres": "local-postgres",
         "nixpkgs": "nixpkgs_320",
         "servant-aeson-generics-typescript": "servant-aeson-generics-typescript_3",
         "servant-websockets": "servant-websockets_3",

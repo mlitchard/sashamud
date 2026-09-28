@@ -26,7 +26,9 @@
       "Read(//home/mlitchard/gitlab/deploys/**)",
       "WebFetch(domain:www.ldmud.eu)",
       "Bash(ghc --version)",
-      "Bash(ghc-pkg list *)"
+      "Bash(ghc-pkg list *)",
+      "Read(//home/mlitchard/gitlab/quux/server/migrations/build/**)",
+      "Read(//home/mlitchard/gitlab/quux/server/src/**)"
     ]
   },
   "hooks": {

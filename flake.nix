@@ -37,6 +37,11 @@
       flake = false;
     };
 
+    local-postgres = {
+      url = "github:quelklef/local-postgres";
+      flake = false;
+    };
+
     deploys = {
       url = "git+https://gitlab.com/nix-infrastructure/deploys.git";
     };
@@ -134,6 +139,10 @@
             HINT_GHC_PACKAGE_PATH = "${HINT_GHC_LIB_DIR}/package.conf.d";
           };
 
+          dbConnStr = "dbname=sashamud";
+          localPostgres = import inputs.local-postgres { inherit pkgs; };
+          pgDir = ".database";
+
           dslServerUrl = "http://127.0.0.1:8081";
           dslWizardName = "wizard";
           deployDsl = pkgs.writeShellScript "deploy-dsl" ''
@@ -174,7 +183,7 @@
 
           shelpersConfig = (inputs.shelpers.lib pkgs).eval-shelpers [
             ({ shelp, ... }: {
-              instructions-order = [ "Info" "Validate" "Run" ];
+              instructions-order = [ "Info" "Validate" "Database" "Run" ];
               shelpers."." = {
                 "Info" = {
                   inherit shelp;
@@ -212,6 +221,62 @@
                     description = "typecheck the TypeScript frontend";
                     script = ''
                       cd web && npm run typecheck
+                    '';
+                  };
+                };
+                "Database" = {
+                  create-db = {
+                    description = "create the local database cluster";
+                    internal = true;
+                    script = ''
+                      if [[ -e ${pgDir} ]]; then
+                        echo database has already been created
+                      else
+                        lpg make ${pgDir}
+                      fi
+                    '';
+                  };
+                  db-server-start = {
+                    description = "start the database server";
+                    script = ''
+                      if [[ -e ${pgDir} ]]; then
+                        lpg on ${pgDir} up
+                        export SASHA_DB_CONNSTR=$(lpg on ${pgDir} get-connstr)
+                      else
+                        echo 'No database exists, run `reset-db` and try again.'
+                      fi
+                    '';
+                  };
+                  db-server-stop = {
+                    description = "stop the database server";
+                    script = ''
+                      lpg on ${pgDir} down || true
+                      unset SASHA_DB_CONNSTR
+                    '';
+                  };
+                  db-shell = {
+                    description = "enter a psql shell for the local database";
+                    script = ''
+                      if [[ -e ${pgDir} ]]; then
+                        db-server-start
+                        lpg on ${pgDir} psql
+                      else
+                        echo 'No database exists, run `reset-db` and try again.'
+                      fi
+                    '';
+                  };
+                  reset-db = {
+                    description = "destroy (if it exists) and then recreate the local database";
+                    script = ''
+                      destroy-db
+                      create-db
+                    '';
+                  };
+                  destroy-db = {
+                    description = "destroy the local database";
+                    script = ''
+                      db-server-stop
+                      rm ${pgDir} -r || true
                     '';
                   };
                 };
@@ -253,6 +318,8 @@
               pkgs.caddy
               pkgs.nodejs
               pkgs.typescript
+              pkgs.postgresql
+              localPostgres
             ] ++ lib.optionals (system == "x86_64-linux") [
               devtools.haskell-language-server
             ];
@@ -275,7 +342,8 @@
               postFixup = (old.postFixup or "") + ''
                 wrapProgram $out/bin/sasha-server \
                   --set-default HINT_GHC_LIB_DIR ${hintAttrs.HINT_GHC_LIB_DIR} \
-                  --set-default HINT_GHC_PACKAGE_PATH ${hintAttrs.HINT_GHC_PACKAGE_PATH}
+                  --set-default HINT_GHC_PACKAGE_PATH ${hintAttrs.HINT_GHC_PACKAGE_PATH} \
+                  --set-default SASHA_DB_CONNSTR ${dbConnStr}
               '';
             });
             sasha-client-generator = (hlib.justStaticExecutables
@@ -455,6 +523,12 @@
             run-deploy-tests = pkgs.testers.runNixOSTest {
               name = "deploy-tests";
               nodes.machine = { pkgs, ... }: {
+                services.postgresql = {
+                  enable = true;
+                  ensureDatabases = [ "sashamud" ];
+                  ensureUsers = [{ name = "root"; ensureClauses.superuser = true; }];
+                  package = pkgs.postgresql;
+                };
                 systemd.services.sashamud = {
                   wantedBy = [ "multi-user.target" ];
                   after = [ "network.target" ];
@@ -526,6 +600,12 @@
                       { match = "/ws/*"; upstream = "localhost:8081"; }
                       { match = "/api/*"; upstream = "localhost:8081"; }
                     ];
+                  };
+                  services.postgresql = {
+                    enable = true;
+                    ensureDatabases = [ "sashamud" ];
+                    ensureUsers = [{ name = "root"; ensureClauses.superuser = true; }];
+                    package = pkgs.postgresql;
                   };
                   systemd.services.sashamud = {
                     wantedBy = [ "multi-user.target" ];
