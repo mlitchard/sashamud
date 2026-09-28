@@ -76,7 +76,8 @@ import           Server.App
   , sessionSend
   )
 import           Server.Authentication
-  ( authCallback
+  ( authAvailable
+  , authCallback
   , authProxy
   , authStart
   , sashaContext
@@ -95,13 +96,13 @@ import           Text.Read (readMaybe)
 app :: AppCtx -> Application
 app ctx = serveWithContext withAuth (sashaContext ctx)
   $ hoistServerWithContext withAuth authProxy (flip runReaderT ctx . unAppM)
-    ((logoutHandler :<|> gameWebSocket ctx :<|> dslHandler) :<|> (authStart :<|> authCallback))
+    ((logoutHandler :<|> gameWebSocket ctx :<|> dslHandler) :<|> (authStart :<|> authCallback :<|> authAvailable))
   where withAuth = Proxy @(SashaAPI :<|> AuthAPI)
 
 appWithStaticFiles :: AppCtx -> FilePath -> Application
 appWithStaticFiles ctx tmpDir = serveWithContext andRaw (sashaContext ctx)
   $ hoistServerWithContext andRaw authProxy (flip runReaderT ctx . unAppM)
-    ((logoutHandler :<|> gameWebSocket ctx :<|> dslHandler) :<|> (authStart :<|> authCallback) :<|> serveDirectoryFileServer tmpDir)
+    ((logoutHandler :<|> gameWebSocket ctx :<|> dslHandler) :<|> (authStart :<|> authCallback :<|> authAvailable) :<|> serveDirectoryFileServer tmpDir)
   where andRaw = Proxy @(SashaAPI :<|> AuthAPI :<|> Raw)
 
 logoutHandler :: SessionId -> AppM NoContent

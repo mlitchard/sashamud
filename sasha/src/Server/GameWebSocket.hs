@@ -25,13 +25,13 @@ gameWebSocket :: AppCtx -> AuthenticatedUser -> ([MessageFrom] -> IO ()) -> IO (
 gameWebSocket ctx (AuthenticatedUser sessionId _ _) sendMsgs = do
   modifyMVar_ (acSessions ctx) $ \sessions ->
     case Map.lookup sessionId sessions of
-      Just (SessionPhase name AwaitingSocket) -> do
-        atomically $ writeTChan (acJoinChan ctx) (PlayerJoined sessionId name)
-        pure (Map.insert sessionId (SessionPhase name (AwaitingJoin sendMsgs)) sessions)
-      Just (SessionPhase name (AwaitingJoin _)) ->
-        pure (Map.insert sessionId (SessionPhase name (AwaitingJoin sendMsgs)) sessions)
-      Just (SessionPhase name (InGame _ gid)) ->
-        pure (Map.insert sessionId (SessionPhase name (InGame sendMsgs gid)) sessions)
+      Just (SessionPhase name gid AwaitingSocket) -> do
+        atomically $ writeTChan (acJoinChan ctx) (PlayerJoined sessionId name gid)
+        pure (Map.insert sessionId (SessionPhase name gid (AwaitingJoin sendMsgs)) sessions)
+      Just (SessionPhase name gid (AwaitingJoin _)) ->
+        pure (Map.insert sessionId (SessionPhase name gid (AwaitingJoin sendMsgs)) sessions)
+      Just (SessionPhase name gid (InGame _)) ->
+        pure (Map.insert sessionId (SessionPhase name gid (InGame sendMsgs)) sessions)
       Nothing ->
         pure sessions
   pure Handler

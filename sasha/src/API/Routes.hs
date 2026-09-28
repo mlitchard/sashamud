@@ -5,6 +5,7 @@ module API.Routes
   , AuthAPI
   , StartAPI
   , CallbackAPI
+  , AvailableAPI
   , DSLAPI
   , LogoutAPI
   , WebSocketAPI
@@ -20,11 +21,13 @@ import           SashaPrelude (Text)
 import           Servant.API
   ( AuthProtect
   , DeleteNoContent
+  , GetNoContent
   , Header
   , Headers
   , JSON
   , NoContent
   , PostNoContent
+  , QueryParam
   , QueryParam'
   , ReqBody
   , Verb
@@ -39,11 +42,13 @@ import           Servant.API.WebSocket
   )
 import           Servant.Server.Experimental.Auth (AuthServerData)
 import           Server.Authentication (CanDo)
+import           Server.Validator (PlayerNameUNV)
 
 type instance AuthServerData (AuthProtect SecWebSocketProtocol) = AuthenticatedUser
 
 type StartAPI =
   "api" :> "auth" :> "start"
+  :> QueryParam "name" PlayerNameUNV
   :> Verb 'GET 302 '[JSON] (Headers '[Header "Location" Text] NoContent)
 
 type CallbackAPI =
@@ -52,9 +57,15 @@ type CallbackAPI =
   :> QueryParam' '[Required, Strict] "state" OidcState
   :> Verb 'GET 302 '[JSON] (Headers '[Header "Location" Text] NoContent)
 
+type AvailableAPI =
+  "api" :> "auth" :> "available"
+  :> QueryParam' '[Required, Strict] "name" PlayerNameUNV
+  :> GetNoContent
+
 type AuthAPI =
        StartAPI
   :<|> CallbackAPI
+  :<|> AvailableAPI
 
 type DSLAPI =
   "api" :> "game" :> "dsl"

@@ -5,6 +5,7 @@
 module FakeProvider
   ( FakeState
   , fakeApp
+  , finalLocationThroughFake
   , loginThroughFake
   , newFakeState
   , seedAccount
@@ -138,18 +139,18 @@ userinfo authorization =
     Nothing   -> throwError err401
     Just user -> pure (UserInfo (Subject ("sub-" <> user)) (PlayerNameUNV user))
 
-loginThroughFake :: Manager -> Int -> Text -> IO SessionId
-loginThroughFake manager port user = do
-  startReq <- parseRequest ("http://127.0.0.1:" <> show port <> "/api/auth/start")
+finalLocationThroughFake :: Manager -> Int -> Maybe Text -> Text -> IO Text
+finalLocationThroughFake manager port requestedName user = do
+  let startPath = case requestedName of
+        Nothing   -> "/api/auth/start"
+        Just name -> "/api/auth/start?name=" <> unpack name
+  startReq <- parseRequest ("http://127.0.0.1:" <> show port <> startPath)
   authorizeUrl <- locationOf =<< httpLbs startReq { redirectCount = 0 } manager
   authorizeReq <- parseRequest (unpack authorizeUrl <> "&fake_user=" <> unpack user)
   callbackUrl <- locationOf =<< httpLbs authorizeReq { redirectCount = 0 } manager
   let (_, callbackQuery) = breakOn "?" callbackUrl
   callbackReq <- parseRequest ("http://127.0.0.1:" <> show port <> "/api/auth/callback" <> unpack callbackQuery)
-  final <- locationOf =<< httpLbs callbackReq { redirectCount = 0 } manager
-  case stripPrefix "/#token=" final of
-    Just t  -> pure (SessionId t)
-    Nothing -> fail ("unexpected final location " <> unpack final)
+  locationOf =<< httpLbs callbackReq { redirectCount = 0 } manager
   where
     locationOf resp =
       case lookup "Location" (responseHeaders resp) of
@@ -157,6 +158,13 @@ loginThroughFake manager port user = do
         Just raw -> case decodeUtf8' raw of
           Left _  -> fail "Location header is not UTF-8"
           Right l -> pure l
+
+loginThroughFake :: Manager -> Int -> Text -> IO SessionId
+loginThroughFake manager port user = do
+  final <- finalLocationThroughFake manager port Nothing user
+  case stripPrefix "/#token=" final of
+    Just t  -> pure (SessionId t)
+    Nothing -> fail ("unexpected final location " <> unpack final)
 
 seedAccount :: Pool Connection -> RoleName -> PlayerNameVAL -> IO ()
 seedAccount pool role (PlayerNameVAL name) = withResource pool $ \conn -> do

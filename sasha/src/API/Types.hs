@@ -16,7 +16,8 @@ import           Control.DeepSeq (NFData)
 import           Data.Aeson (FromJSON, ToJSON)
 import           Data.Aeson.TypeScript (derivingTypeScriptDefinition)
 import           Model.Account (UserPermissions)
-import           Model.Core (SessionId (SessionId))
+import           Model.Core (Agent, SessionId (SessionId))
+import           Model.GID (GID)
 import           Model.Mid (Mid)
 import           Network.WebSockets (WebSocketsData)
 import           Servant.API.WebSocket (Aeson (Aeson))
@@ -59,6 +60,7 @@ data AuthenticatedUser = AuthenticatedUser
 data PlayerJoined = PlayerJoined
   { pjSessionId  :: SessionId
   , pjPlayerName :: PlayerNameVAL
+  , pjGid        :: GID Agent
   }
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)

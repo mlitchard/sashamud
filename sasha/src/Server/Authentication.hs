@@ -7,6 +7,7 @@ module Server.Authentication
   ( AuthenticatedUser (..)
   , CanDo
   , SashaContext
+  , authAvailable
   , authCallback
   , authProxy
   , authStart
@@ -21,6 +22,7 @@ import           API.Types
   , SessionId (SessionId)
   )
 import           Control.Concurrent (modifyMVar, modifyMVar_)
+import           Control.Exception (throwIO, try)
 import           Control.Monad.Reader (ask)
 import           Crypto.Hash (SHA256 (SHA256), hashWith)
 import           Crypto.Random (getRandomBytes)
@@ -31,6 +33,7 @@ import           Data.ByteArray.Encoding
   , convertToBase
   )
 import           Data.ByteString (ByteString)
+import           Data.ByteString.Lazy (fromStrict)
 import           Data.List (lookup)
 import qualified Data.Map.Strict (delete, filter, fromList, insert, lookup)
 import           Data.Maybe (catMaybes)
@@ -43,8 +46,11 @@ import           Data.Type.Equality (type (~))
 import           Database.PostgreSQL.Simple
   ( Binary (Binary)
   , Only (Only)
+  , SqlError (sqlState)
   , execute
   , query
+  , query_
+  , withTransaction
   )
 import           Database.PostgreSQL.Simple.SqlQQ (sql)
 import           Database.PostgreSQL.Simple.Types (PGArray (fromPGArray))
@@ -68,6 +74,8 @@ import           Model.Authorization
   , RoleId
   , RoleStatus (RoleActive, RoleInactive)
   )
+import           Model.Core (Agent)
+import           Model.GID (GID (GID))
 import           Model.Mid (Mid)
 import           Network.HTTP.Client
   ( Response (responseBody)
@@ -90,6 +98,7 @@ import           Servant
   , Proxy (Proxy)
   , ServerError (errBody)
   , addHeader
+  , err400
   , err401
   , err403
   , err409
@@ -116,7 +125,11 @@ import           Server.App
   , SessionState (AwaitingSocket)
   )
 import           Server.Log (LogEntry (PlayerLogin), writeLog)
-import           Server.Validator (PlayerNameVAL (PlayerNameVAL))
+import           Server.Validator
+  ( PlayerNameUNV
+  , PlayerNameVAL (PlayerNameVAL)
+  , Validate (validate)
+  )
 
 type SashaContext :: Type
 type SashaContext = Context '[AuthHandler Request AuthenticatedUser]
@@ -218,10 +231,28 @@ loadPermissions ctx roleId = do
     permissionsQuery =
       [sql| SELECT resource, allowed_actions FROM role_permissions WHERE role_id = ? |]
 
-authStart :: AppM (Headers '[Header "Location" Text] NoContent)
-authStart = do
+authAvailable :: PlayerNameUNV -> AppM NoContent
+authAvailable unv = do
+  ctx <- ask
+  PlayerNameVAL name <- case validate unv :: Either Text PlayerNameVAL of
+    Left reason -> throwError err400 { errBody = fromStrict (encodeUtf8 reason) }
+    Right val   -> pure val
+  rows :: [Only Int] <-
+    liftIO . withResource (acDbPool ctx) $ \conn ->
+      query conn [sql| SELECT 1 FROM credentials WHERE player_name = ? |] (Only name)
+  case rows of
+    [] -> pure NoContent
+    _  -> throwError err409 { errBody = fromStrict (encodeUtf8 (name <> " is taken")) }
+
+authStart :: Maybe PlayerNameUNV -> AppM (Headers '[Header "Location" Text] NoContent)
+authStart requestedName = do
   ctx <- ask
   let OidcConfig (OidcBaseUrl base) (ClientId clientId) _ (RedirectUri redirectUri) = acOidcConfig ctx
+  chosenName <- case requestedName of
+    Nothing  -> pure Nothing
+    Just unv -> case validate unv :: Either Text PlayerNameVAL of
+      Left reason -> throwError err400 { errBody = fromStrict (encodeUtf8 reason) }
+      Right val   -> pure (Just val)
   stateBytes :: ByteString <- liftIO (getRandomBytes 32)
   verifierBytes :: ByteString <- liftIO (getRandomBytes 32)
   now <- liftIO getCurrentTime
@@ -240,8 +271,8 @@ authStart = do
   case (decodeUtf8' state, decodeUtf8' verifier, decodeUtf8' location) of
     (Right stateText, Right verifierText, Right locationText) -> do
       liftIO . modifyMVar_ (acOidcStates ctx) $ \states ->
-        pure (Data.Map.Strict.insert (OidcState stateText) (now, CodeVerifier verifierText)
-                (Data.Map.Strict.filter (\(created, _) -> diffUTCTime now created <= 600) states))
+        pure (Data.Map.Strict.insert (OidcState stateText) (now, CodeVerifier verifierText, chosenName)
+                (Data.Map.Strict.filter (\(created, _, _) -> diffUTCTime now created <= 600) states))
       pure (addHeader locationText NoContent)
     _ -> throwError err500
 
@@ -252,9 +283,9 @@ authCallback (AuthCode code) state = do
   now <- liftIO getCurrentTime
   entry <- liftIO . modifyMVar (acOidcStates ctx) $ \states ->
     pure (Data.Map.Strict.delete state states, Data.Map.Strict.lookup state states)
-  CodeVerifier verifier <- case entry of
-    Just (created, v) | diffUTCTime now created <= 600 -> pure v
-    _                                                  -> throwError err401
+  (CodeVerifier verifier, chosenName) <- case entry of
+    Just (created, v, n) | diffUTCTime now created <= 600 -> pure (v, n)
+    _                                                     -> throwError err401
   tokenReq <- liftIO (parseRequest (unpack base <> "/application/o/token/"))
   tokenResp <- liftIO $ httpLbs
     (setRequestCheckStatus (urlEncodedBody
@@ -276,40 +307,71 @@ authCallback (AuthCode code) state = do
   UserInfo subject _ <- case eitherDecode (responseBody infoResp) of
     Left _  -> throwError err401
     Right r -> pure r
-  rows :: [(Mid AuthenticatedUser, Text)] <-
+  rows :: [(Mid AuthenticatedUser, Text, Int)] <-
     liftIO . withResource (acDbPool ctx) $ \conn ->
       query conn credentialsQuery (Only subject)
-  (userId, playerName) <- case rows of
-    [(uid, name)] -> pure (uid, PlayerNameVAL name)
-    _             -> throwError err401
-  tokenBytes :: ByteString <- liftIO (getRandomBytes 32)
-  let token = convertToBase Base64URLUnpadded tokenBytes :: ByteString
-  tokenText <- case decodeUtf8' token of
-    Left _  -> throwError err500
-    Right t -> pure t
-  _ <- liftIO . withResource (acDbPool ctx) $ \conn ->
-    execute conn insertToken (tokenDigest token, userId, userId, userId)
-  let sessionId = SessionId tokenText
-      hasActiveSession (SessionPhase _ AwaitingSocket) = False
-      hasActiveSession (SessionPhase n _)              = n == playerName
-      keepEntry (SessionPhase n AwaitingSocket) = n /= playerName
-      keepEntry _                               = True
-  alreadyActive <- liftIO . modifyMVar (acSessions ctx) $ \sessions ->
-    if any hasActiveSession sessions
-      then pure (sessions, True)
-      else pure (Data.Map.Strict.insert sessionId (SessionPhase playerName AwaitingSocket)
-                   (Data.Map.Strict.filter keepEntry sessions), False)
-  when alreadyActive (throwError err409)
-  liftIO $ writeLog (acGameLog ctx) (PlayerLogin playerName)
-  pure (addHeader ("/#token=" <> tokenText) NoContent)
+  existing <- case rows of
+    [(uid, name, gid)] -> pure (Just (uid, PlayerNameVAL name, GID gid))
+    []                 -> pure Nothing
+    _                  -> throwError err500
+  outcome <- case (existing, chosenName) of
+    (Just account, _)      -> pure (Right account)
+    (Nothing, Nothing)     -> pure (Left "/#new")
+    (Nothing, Just (PlayerNameVAL name)) -> do
+      created :: Either SqlError (Maybe (Mid AuthenticatedUser, PlayerNameVAL, GID Agent)) <-
+        liftIO . try . withResource (acDbPool ctx) $ \conn ->
+          withTransaction conn $ do
+            userRows :: [(Mid AuthenticatedUser, Int)] <- query_ conn insertUser
+            case userRows of
+              [(uid, gid)] -> do
+                _ <- execute conn insertCredentials (uid, name, subject)
+                pure (Just (uid, PlayerNameVAL name, GID gid))
+              _ -> pure Nothing
+      case created of
+        Left err
+          | sqlState err == "23505" -> pure (Left ("/#taken=" <> name))
+          | otherwise               -> liftIO (throwIO err)
+        Right Nothing        -> throwError err500
+        Right (Just account) -> pure (Right account)
+  case outcome of
+    Left location -> pure (addHeader location NoContent)
+    Right (userId, playerName, agentGid) -> do
+      tokenBytes :: ByteString <- liftIO (getRandomBytes 32)
+      let token = convertToBase Base64URLUnpadded tokenBytes :: ByteString
+      tokenText <- case decodeUtf8' token of
+        Left _  -> throwError err500
+        Right t -> pure t
+      _ <- liftIO . withResource (acDbPool ctx) $ \conn ->
+        execute conn insertToken (tokenDigest token, userId, userId, userId)
+      let sessionId = SessionId tokenText
+          hasActiveSession (SessionPhase _ _ AwaitingSocket) = False
+          hasActiveSession (SessionPhase n _ _)              = n == playerName
+          keepEntry (SessionPhase n _ AwaitingSocket) = n /= playerName
+          keepEntry _                                 = True
+      alreadyActive <- liftIO . modifyMVar (acSessions ctx) $ \sessions ->
+        if any hasActiveSession sessions
+          then pure (sessions, True)
+          else pure (Data.Map.Strict.insert sessionId (SessionPhase playerName agentGid AwaitingSocket)
+                       (Data.Map.Strict.filter keepEntry sessions), False)
+      when alreadyActive (throwError err409)
+      liftIO $ writeLog (acGameLog ctx) (PlayerLogin playerName)
+      pure (addHeader ("/#token=" <> tokenText) NoContent)
   where
     credentialsQuery =
       [sql|
-        SELECT credentials.user_id, credentials.player_name FROM credentials
+        SELECT credentials.user_id, credentials.player_name, users.agent_gid FROM credentials
           JOIN users ON users.user_id = credentials.user_id
           WHERE credentials.subject = ?
             AND users.status = 'active'
       |]
+    insertUser =
+      [sql|
+        INSERT INTO users (status, role_id, activated_on)
+          SELECT 'active', role_id, now() FROM roles WHERE name = 'wizard'
+          RETURNING user_id, agent_gid
+      |]
+    insertCredentials =
+      [sql| INSERT INTO credentials (user_id, player_name, subject) VALUES (?, ?, ?) |]
     insertToken =
       [sql|
         INSERT INTO tokens (token_digest, user_id, created, expires_at)

@@ -88,24 +88,24 @@ initialCounters = BuilderCounters
   , _nextWitnessId             = firstPlayerId
   }
 
-data SessionPhase = SessionPhase PlayerNameVAL SessionState
+data SessionPhase = SessionPhase PlayerNameVAL (GID Agent) SessionState
 
 data SessionState = AwaitingSocket
                   | AwaitingJoin ([MessageFrom] -> IO ())
-                  | InGame ([MessageFrom] -> IO ()) (GID Agent)
+                  | InGame ([MessageFrom] -> IO ())
 
 sessionPlayerName :: SessionPhase -> PlayerNameVAL
-sessionPlayerName (SessionPhase name _) = name
+sessionPlayerName (SessionPhase name _ _) = name
 
 sessionGid :: SessionPhase -> Maybe (GID Agent)
-sessionGid (SessionPhase _ AwaitingSocket)   = Nothing
-sessionGid (SessionPhase _ (AwaitingJoin _)) = Nothing
-sessionGid (SessionPhase _ (InGame _ gid))   = Just gid
+sessionGid (SessionPhase _ _ AwaitingSocket)   = Nothing
+sessionGid (SessionPhase _ _ (AwaitingJoin _)) = Nothing
+sessionGid (SessionPhase _ gid (InGame _))     = Just gid
 
 sessionSend :: SessionPhase -> Maybe ([MessageFrom] -> IO ())
-sessionSend (SessionPhase _ AwaitingSocket)      = Nothing
-sessionSend (SessionPhase _ (AwaitingJoin send)) = Just send
-sessionSend (SessionPhase _ (InGame send _))     = Just send
+sessionSend (SessionPhase _ _ AwaitingSocket)      = Nothing
+sessionSend (SessionPhase _ _ (AwaitingJoin send)) = Just send
+sessionSend (SessionPhase _ _ (InGame send))       = Just send
 
 newtype AppM a = AppM { unAppM :: ReaderT AppCtx Handler a }
   deriving newtype
@@ -125,19 +125,18 @@ data OidcConfig = OidcConfig
   }
 
 data AppCtx = AppCtx
-  { acInbound         :: TChan (Routed MessageTo)
-  , acOutbound        :: TChan (Routed MessageFrom)
-  , acJoinChan        :: TChan PlayerJoined
-  , acDSLChan         :: TChan (SashaLambdaDSL GameState)
-  , acSessions        :: MVar (Map SessionId SessionPhase)
-  , acKnownPlayers    :: MVar (Map PlayerNameVAL (GID Agent))
-  , acNextAgentId     :: IORef PInt
+  { acInbound :: TChan (Routed MessageTo)
+  , acOutbound :: TChan (Routed MessageFrom)
+  , acJoinChan :: TChan PlayerJoined
+  , acDSLChan :: TChan (SashaLambdaDSL GameState)
+  , acSessions :: MVar (Map SessionId SessionPhase)
+  , acKnownPlayers :: MVar (Map PlayerNameVAL (GID Agent))
   , acBuilderCounters :: IORef BuilderCounters
-  , acDbPool          :: Pool Connection
-  , acOidcConfig      :: OidcConfig
-  , acHttpManager     :: Manager
-  , acOidcStates      :: MVar (Map OidcState (UTCTime, CodeVerifier))
-  , acGameLog         :: GameLog
+  , acDbPool :: Pool Connection
+  , acOidcConfig :: OidcConfig
+  , acHttpManager :: Manager
+  , acOidcStates :: MVar (Map OidcState (UTCTime, CodeVerifier, Maybe PlayerNameVAL))
+  , acGameLog :: GameLog
   }
 
 newAppCtx :: GameLog -> Pool Connection -> OidcConfig -> Manager -> BuilderCounters -> IO AppCtx
@@ -148,7 +147,6 @@ newAppCtx logCfg pool oidcConfig manager counters = do
   dslChan  <- newTChanIO
   sessions <- newMVar mempty
   known    <- newMVar mempty
-  nextId   <- newIORef firstPlayerId
   builderCounters <- newIORef counters
   oidcStates <- newMVar mempty
   pure AppCtx
@@ -158,7 +156,6 @@ newAppCtx logCfg pool oidcConfig manager counters = do
     , acDSLChan      = dslChan
     , acSessions     = sessions
     , acKnownPlayers = known
-    , acNextAgentId  = nextId
     , acBuilderCounters = builderCounters
     , acDbPool       = pool
     , acOidcConfig   = oidcConfig

@@ -37,13 +37,14 @@ import           Data.ByteString.Lazy (null)
 import           Data.List (lookup)
 import           Data.Map.Strict (member)
 import           Data.Pool (defaultPoolConfig, newPool, withResource)
-import           Data.Text (isPrefixOf, unlines)
+import           Data.Text (isPrefixOf, stripPrefix, unlines)
 import           Data.Text.Encoding (decodeUtf8', encodeUtf8)
 import           Database.PostgreSQL.Simple
   ( Only (Only)
   , close
   , connectPostgreSQL
   , execute
+  , query
   )
 import           Database.PostgreSQL.Simple.Migration
   ( MigrationResult (MigrationSuccess)
@@ -54,6 +55,7 @@ import           DSL.Builder (WorldBuilderResult (resultCounters))
 import           Engine.Simulation.SignalNetwork (gameLoop)
 import           FakeProvider
   ( fakeApp
+  , finalLocationThroughFake
   , loginThroughFake
   , newFakeState
   , seedAccount
@@ -470,6 +472,64 @@ spec = describe "Integration" . around withTestServer $ do
     sid <- loginAs ctx (RoleName "player") "Peasant"
     result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource worldSource)) env
     isErrorCode 403 result `shouldBe` True
+
+  it "GET /api/auth/available answers 204 for a free name" $ \(_port, _ctx) -> do
+    manager <- newManager defaultManagerSettings
+    req <- parseRequest ("http://127.0.0.1:" <> show testPort <> "/api/auth/available?name=Freshname")
+    resp <- httpLbs req manager
+    case responseStatus resp of
+      Status code _ -> code `shouldBe` 204
+
+  it "GET /api/auth/available answers 409 for a taken name" $ \(_port, ctx) -> do
+    seedAccount (acDbPool ctx) (RoleName "wizard") (PlayerNameVAL "Taken")
+    manager <- newManager defaultManagerSettings
+    req <- parseRequest ("http://127.0.0.1:" <> show testPort <> "/api/auth/available?name=Taken")
+    resp <- httpLbs req manager
+    case responseStatus resp of
+      Status code _ -> code `shouldBe` 409
+
+  it "GET /api/auth/available answers 400 for an invalid name" $ \(_port, _ctx) -> do
+    manager <- newManager defaultManagerSettings
+    req <- parseRequest ("http://127.0.0.1:" <> show testPort <> "/api/auth/available?name=bad%20name")
+    resp <- httpLbs req manager
+    case responseStatus resp of
+      Status code _ -> code `shouldBe` 400
+
+  it "a new subject with a free name gets an account and keeps it" $ \(_port, ctx) -> do
+    manager <- newManager defaultManagerSettings
+    first <- finalLocationThroughFake manager testPort (Just "Newbie") "newbie"
+    first `shouldSatisfy` isPrefixOf "/#token="
+    rows1 :: [Only Int] <- withResource (acDbPool ctx) $ \conn ->
+      query conn "SELECT users.agent_gid FROM users JOIN credentials ON users.user_id = credentials.user_id WHERE credentials.subject = ?" (Only ("sub-newbie" :: Text))
+    case rows1 of
+      [Only _] -> pure ()
+      _        -> expectationFailure "expected exactly one account for the new subject"
+    second <- finalLocationThroughFake manager testPort Nothing "newbie"
+    second `shouldSatisfy` isPrefixOf "/#token="
+    rows2 :: [Only Int] <- withResource (acDbPool ctx) $ \conn ->
+      query conn "SELECT users.agent_gid FROM users JOIN credentials ON users.user_id = credentials.user_id WHERE credentials.subject = ?" (Only ("sub-newbie" :: Text))
+    rows2 `shouldBe` rows1
+
+  it "a new subject with a taken name is sent back to choose again" $ \(_port, ctx) -> do
+    seedAccount (acDbPool ctx) (RoleName "wizard") (PlayerNameVAL "Occupied")
+    manager <- newManager defaultManagerSettings
+    final <- finalLocationThroughFake manager testPort (Just "Occupied") "intruder"
+    final `shouldBe` "/#taken=Occupied"
+
+  it "a new subject without a name is sent to create an account" $ \(_port, _ctx) -> do
+    manager <- newManager defaultManagerSettings
+    final <- finalLocationThroughFake manager testPort Nothing "stranger"
+    final `shouldBe` "/#new"
+
+  it "an account created at login can submit DSL" $ \(_port, _ctx) -> do
+    env <- testClientEnv
+    manager <- newManager defaultManagerSettings
+    final <- finalLocationThroughFake manager testPort (Just "Builderborn") "builderborn"
+    case stripPrefix "/#token=" final of
+      Nothing -> expectationFailure ("expected a token, got " <> show final)
+      Just token -> do
+        result <- runClientM (dslClient (makeAuthRequest (SessionId token)) (DSLSource worldSource)) env
+        result `shouldBe` Right NoContent
 
   it "POST /api/game/dsl with the world source returns NoContent" $ \(_port, ctx) -> do
     env <- testClientEnv
