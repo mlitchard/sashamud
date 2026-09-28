@@ -10,7 +10,6 @@ module Engine.Resolution.ActionManagement
 import           SashaPrelude
 
 import           Control.Monad.Except (throwError)
-import           Control.Monad.Reader (asks)
 import           Data.Functor.Identity (Identity)
 import           Data.Map.Strict (lookup)
 import           Data.Maybe (listToMaybe)
@@ -44,11 +43,11 @@ import           Model.Core
   , agentMap
   , agentShortName
   , agentWitnessManagement
-  , ctxPossibilityGraph
   , description
   , getAgentMap
   , getGIDToDataMap
   , objectMap
+  , possibilityGraph
   , sceneAgents
   , sceneMap
   , shortName
@@ -70,7 +69,7 @@ processActionOutcomeRegistry actorGid actionKey = do
 -- | Lookup world outcomes for an action key
 lookupWorldOutcomes :: ActionEffectKey -> GameComputation Identity (Set WorldOutcome)
 lookupWorldOutcomes actionKey =
-  asks ((fromMaybe mempty . lookup actionKey) . view (ctxPossibilityGraph . worldOutcomeEffects))
+  fromMaybe mempty . lookup actionKey <$> use (possibilityGraph . worldOutcomeEffects)
 
 -- | Dispatch on WorldOutcome constructors
 processWorldOutcome :: GID Agent -> WorldOutcome -> GameComputation Identity ()
@@ -142,7 +141,7 @@ processWitnesses actorGid verbKey witnessCtx = do
   scene <- throwMaybeM ("Scene not found: " <> pack (show sceneGid))
              (lookup sceneGid sMap)
   aMap <- use (world . agentMap . getAgentMap)
-  wMap <- asks (view (ctxPossibilityGraph . witnessMap))
+  wMap <- use (possibilityGraph . witnessMap)
   let witnesses =
         [ (gid, agent)
         | gid <- toList (view sceneAgents scene)

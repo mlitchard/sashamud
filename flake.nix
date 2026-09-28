@@ -128,6 +128,30 @@
           legacyPackages =
             inputs.horizon-platform.legacyPackages.${system}.extend myOverlay;
 
+          hintGhc = legacyPackages.ghcWithPackages (p: [ p.sasha p.sasha-grammar ]);
+          hintAttrs = rec {
+            HINT_GHC_LIB_DIR = "${hintGhc}/lib/${hintGhc.meta.name}/lib";
+            HINT_GHC_PACKAGE_PATH = "${HINT_GHC_LIB_DIR}/package.conf.d";
+          };
+
+          dslServerUrl = "http://127.0.0.1:8081";
+          dslWizardName = "wizard";
+          deployDsl = pkgs.writeShellScript "deploy-dsl" ''
+            set -euo pipefail
+            SRC="''${1:?usage: nix run .#deploy-dsl -- <file.dsl>}"
+            URL="''${SASHA_URL:-${dslServerUrl}}"
+            NAME="''${SASHA_WIZARD:-${dslWizardName}}"
+            CURL="${pkgs.curl}/bin/curl"
+            JQ="${pkgs.jq}/bin/jq"
+            SID=$($CURL --fail-with-body -sS -X POST "$URL/api/game/login" \
+              -H "Content-Type: application/json" \
+              --data "$($JQ -n --arg n "$NAME" '$n')" | $JQ -r '.')
+            $JQ -Rs . < "$SRC" | $CURL --fail-with-body -sS -X POST "$URL/api/game/dsl" \
+              -H "Sec-WebSocket-Protocol: $SID" -H "Content-Type: application/json" \
+              --data @-
+            echo "deployed $SRC to $URL"
+          '';
+
           devtools = inputs.horizon-devtools.packages.${system};
           lu = lint-utils.linters.${system};
           lu-pkgs = lint-utils.packages.${system};
@@ -233,14 +257,27 @@
               devtools.haskell-language-server
             ];
             shellHook = ''
+              ${lib.concatStringsSep "\n" (
+                lib.mapAttrsToList (name: value: "export ${name}=${value}") hintAttrs
+              )}
               ${shelpersConfig.functions}
               shelp
             '';
           });
 
           packages = {
-            sasha-server = (hlib.justStaticExecutables
-              (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sashamud-server "exe:sasha-server"))).overrideAttrs { meta.mainProgram = "sasha-server"; };
+            sasha-server = (hlib.overrideCabal
+              (hlib.justStaticExecutables
+                (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sashamud-server "exe:sasha-server")))
+              (drv: { disallowGhcReference = false; })).overrideAttrs (old: {
+              meta.mainProgram = "sasha-server";
+              nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ pkgs.makeWrapper ];
+              postFixup = (old.postFixup or "") + ''
+                wrapProgram $out/bin/sasha-server \
+                  --set-default HINT_GHC_LIB_DIR ${hintAttrs.HINT_GHC_LIB_DIR} \
+                  --set-default HINT_GHC_PACKAGE_PATH ${hintAttrs.HINT_GHC_PACKAGE_PATH}
+              '';
+            });
             sasha-client-generator = (hlib.justStaticExecutables
               (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sasha "exe:sasha-client-generator"))).overrideAttrs { meta.mainProgram = "sasha-client-generator"; };
             sasha-tests = (hlib.justStaticExecutables
@@ -286,6 +323,11 @@
             program = toString (pkgs.writeShellScript "fmt" ''
               find "''${1:-.}" -name '*.nix' -not -path '*/node_modules/*' -exec ${pkgs.nixpkgs-fmt}/bin/nixpkgs-fmt {} +
             '');
+          };
+
+          apps.deploy-dsl = {
+            type = "app";
+            program = toString deployDsl;
           };
 
           checks = {
@@ -383,6 +425,10 @@
                 environment.systemPackages = [
                   inputs.self.packages.${system}.grammar-tests
                 ];
+                virtualisation = {
+                  memorySize = 32768;
+                  cores = 2;
+                };
               };
               testScript = ''
                 machine.wait_for_unit("default.target")
@@ -395,10 +441,38 @@
                 environment.systemPackages = [
                   inputs.self.packages.${system}.sasha-tests
                 ];
+                environment.variables = hintAttrs;
+                virtualisation = {
+                  memorySize = 32768;
+                  cores = 2;
+                };
               };
               testScript = ''
                 machine.wait_for_unit("default.target")
                 print(machine.succeed("sasha-tests"))
+              '';
+            };
+            run-deploy-tests = pkgs.testers.runNixOSTest {
+              name = "deploy-tests";
+              nodes.machine = { pkgs, ... }: {
+                systemd.services.sashamud = {
+                  wantedBy = [ "multi-user.target" ];
+                  after = [ "network.target" ];
+                  environment.SASHA_WEB_PORT = "8081";
+                  serviceConfig = {
+                    ExecStart = lib.getExe inputs.self.packages.${system}.sasha-server;
+                    Restart = "on-failure";
+                  };
+                };
+                virtualisation = {
+                  memorySize = 32768;
+                  cores = 2;
+                };
+              };
+              testScript = ''
+                machine.wait_for_unit("sashamud.service")
+                machine.wait_for_open_port(8081)
+                print(machine.succeed("${deployDsl} ${./sashamud-server/test-e2e/study.dsl}"))
               '';
             };
             run-end-to-end =
@@ -471,7 +545,7 @@
                     pkgs.typescript
                   ];
                   virtualisation = {
-                    memorySize = 4096;
+                    memorySize = 32768;
                     cores = 2;
                   };
                 };

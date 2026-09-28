@@ -23,7 +23,10 @@
       "Bash(find . -name \"*.hs\" -type f -exec grep -l \"proximityAdjacent\\\\|proximityDistant\" {})",
       "WebFetch(domain:hackage-content.haskell.org)",
       "Bash(grep:*)",
-      "Read(//home/mlitchard/gitlab/deploys/**)"
+      "Read(//home/mlitchard/gitlab/deploys/**)",
+      "WebFetch(domain:www.ldmud.eu)",
+      "Bash(ghc --version)",
+      "Bash(ghc-pkg list *)"
     ]
   },
   "hooks": {

@@ -3,7 +3,7 @@ module DSL.Builder
   , runWorldBuilder
   , initialBuilderState
   , WorldBuilder
-  , WorldBuilderResult (WorldBuilderResult, resultGameState, resultPossibilityGraph)
+  , WorldBuilderResult (WorldBuilderResult, resultCounters, resultGameState)
   ) where
 
 import           SashaPrelude
@@ -12,7 +12,7 @@ import           Control.Monad.State (State, get, gets, put, runState)
 import           Data.Map.Strict (insert)
 import qualified Data.Set (insert)
 import           DSL.Model.EDSL.SashaLambdaDSL (SashaLambdaDSL (..))
-import           Lens.Micro.Platform (at, non, (%~), (.~))
+import           Lens.Micro.Platform (at, non, view, (%~), (.~))
 import           Model.Core
   ( ActionManagement (DSAManagementKey, ISAManagementKey)
   , Agent
@@ -28,55 +28,63 @@ import           Model.Core
   , agentWitnessManagement
   , description
   , directionalStimulusMap
+  , entityActionEffects
   , getGIDToDataMap
   , globalSemanticMap
   , implicitStimulusMap
+  , newUserMkAgent
+  , newUserStartScene
   , objectActionManagement
   , objectMap
+  , possibilityGraph
   , sceneActionManagement
   , sceneMap
   , shortName
   , spatialRelationshipMap
   , unSpatialRelationshipMap
+  , witnessMap
   , world
+  , worldOutcomeEffects
   )
 import           Model.GID (GID (GID))
+import           Server.App
+  ( BuilderCounters
+  , nextDirectionalStimulusId
+  , nextImplicitStimulusId
+  , nextObjectId
+  , nextSceneId
+  , nextWitnessId
+  , succPInt
+  , unPInt
+  )
 
 data BuilderState = BuilderState
-  { bsGameState                  :: GameState
-  , bsNextSceneGID               :: Int
-  , bsNextObjectGID              :: Int
-  , bsNextImplicitStimulusGID    :: Int
-  , bsNextDirectionalStimulusGID :: Int
-  , bsNextWitnessGID             :: Int
-  , bsWitnessMap                 :: WitnessMap
-  , bsEntityActionRegistry       :: EntityActionRegistry
-  , bsWorldOutcomeRegistry       :: WorldOutcomeRegistry
-  , bsNewUserStartScene          :: Maybe (GID Scene)
-  , bsNewUserMkAgent             :: Maybe (Text -> Agent)
+  { bsGameState            :: GameState
+  , bsCounters             :: BuilderCounters
+  , bsWitnessMap           :: WitnessMap
+  , bsEntityActionRegistry :: EntityActionRegistry
+  , bsWorldOutcomeRegistry :: WorldOutcomeRegistry
+  , bsNewUserStartScene    :: Maybe (GID Scene)
+  , bsNewUserMkAgent       :: Maybe (Text -> Agent)
   }
 
 type WorldBuilder = State BuilderState
 
 type WorldBuilderResult :: Type
 data WorldBuilderResult = WorldBuilderResult
-  { resultGameState        :: GameState
-  , resultPossibilityGraph :: PossibilityGraph
+  { resultGameState :: GameState
+  , resultCounters  :: BuilderCounters
   }
 
-initialBuilderState :: GameState -> BuilderState
-initialBuilderState gs = BuilderState
-  { bsGameState                    = gs
-  , bsNextSceneGID                 = 0
-  , bsNextObjectGID                = 0
-  , bsNextImplicitStimulusGID      = 0
-  , bsNextDirectionalStimulusGID   = 0
-  , bsNextWitnessGID               = 0
-  , bsWitnessMap              = mempty
-  , bsEntityActionRegistry    = mempty
-  , bsWorldOutcomeRegistry    = mempty
-  , bsNewUserStartScene       = Nothing
-  , bsNewUserMkAgent         = Nothing
+initialBuilderState :: GameState -> BuilderCounters -> BuilderState
+initialBuilderState gs counters = BuilderState
+  { bsGameState               = gs
+  , bsCounters                = counters
+  , bsWitnessMap              = view (possibilityGraph . witnessMap) gs
+  , bsEntityActionRegistry    = view (possibilityGraph . entityActionEffects) gs
+  , bsWorldOutcomeRegistry    = view (possibilityGraph . worldOutcomeEffects) gs
+  , bsNewUserStartScene       = view (possibilityGraph . newUserStartScene) gs
+  , bsNewUserMkAgent          = view (possibilityGraph . newUserMkAgent) gs
   }
 
 interpretDSL :: SashaLambdaDSL a -> WorldBuilder a
@@ -85,8 +93,8 @@ interpretDSL (Bind m f) = interpretDSL m >>= (interpretDSL . f)
 
 interpretDSL (DeclareSceneGID _name) = do
   st <- get
-  let gid = GID (bsNextSceneGID st)
-  put st { bsNextSceneGID = bsNextSceneGID st + 1 }
+  let gid = GID (unPInt (view nextSceneId (bsCounters st)))
+  put st { bsCounters = bsCounters st & nextSceneId %~ succPInt }
   pure gid
 
 interpretDSL (RegisterScene gid sceneBuilder) = do
@@ -101,8 +109,8 @@ interpretDSL (SceneDescription rt scene) = pure scene { _sceneDescription = rt }
 
 interpretDSL DeclareObjectGID = do
   st <- get
-  let gid = GID (bsNextObjectGID st)
-  put st { bsNextObjectGID = bsNextObjectGID st + 1 }
+  let gid = GID (unPInt (view nextObjectId (bsCounters st)))
+  put st { bsCounters = bsCounters st & nextObjectId %~ succPInt }
   pure gid
 
 interpretDSL (RegisterObject gid objBuilder) = do
@@ -130,9 +138,9 @@ interpretDSL (RegisterSpatial entityID spatialRel) = do
 
 interpretDSL (DeclareImplicitStimulusGID actionF) = do
   st <- get
-  let gid = GID (bsNextImplicitStimulusGID st)
+  let gid = GID (unPInt (view nextImplicitStimulusId (bsCounters st)))
       gs' = bsGameState st & actionMaps . implicitStimulusMap %~ insert gid actionF
-  put st { bsNextImplicitStimulusGID = bsNextImplicitStimulusGID st + 1
+  put st { bsCounters = bsCounters st & nextImplicitStimulusId %~ succPInt
          , bsGameState = gs'
          }
   pure gid
@@ -141,9 +149,9 @@ interpretDSL (CreateISAManagement verb gid) = pure (ISAManagementKey verb gid)
 
 interpretDSL (DeclareDirectionalStimulusGID actionF) = do
   st <- get
-  let gid = GID (bsNextDirectionalStimulusGID st)
+  let gid = GID (unPInt (view nextDirectionalStimulusId (bsCounters st)))
       gs' = bsGameState st & actionMaps . directionalStimulusMap %~ insert gid actionF
-  put st { bsNextDirectionalStimulusGID = bsNextDirectionalStimulusGID st + 1
+  put st { bsCounters = bsCounters st & nextDirectionalStimulusId %~ succPInt
          , bsGameState = gs'
          }
   pure gid
@@ -152,8 +160,8 @@ interpretDSL (CreateDSAManagement verb gid) = pure (DSAManagementKey verb gid)
 
 interpretDSL (DeclareWitnessGID witnessFn) = do
   st <- get
-  let gid = GID (bsNextWitnessGID st)
-  put st { bsNextWitnessGID = bsNextWitnessGID st + 1
+  let gid = GID (unPInt (view nextWitnessId (bsCounters st)))
+  put st { bsCounters = bsCounters st & nextWitnessId %~ succPInt
          , bsWitnessMap = insert gid witnessFn (bsWitnessMap st)
          }
   pure gid
@@ -184,18 +192,14 @@ interpretDSL FinalizeGameState =
 runWorldBuilder :: WorldBuilder GameState -> BuilderState -> WorldBuilderResult
 runWorldBuilder builder initState =
   let (gs, finalState) = runState builder initState
-      possibilityGraph = PossibilityGraph
+      pg = PossibilityGraph
         { _entityActionEffects = bsEntityActionRegistry finalState
         , _worldOutcomeEffects = bsWorldOutcomeRegistry finalState
         , _witnessMap          = bsWitnessMap finalState
-        , _newUserStartScene   = fromMaybe
-            (error "runWorldBuilder: world declared no newUser start scene")
-            (bsNewUserStartScene finalState)
-        , _newUserMkAgent      = fromMaybe
-            (error "runWorldBuilder: world declared no newUser agent template")
-            (bsNewUserMkAgent finalState)
+        , _newUserStartScene   = bsNewUserStartScene finalState
+        , _newUserMkAgent      = bsNewUserMkAgent finalState
         }
   in WorldBuilderResult
-       { resultGameState        = gs
-       , resultPossibilityGraph = possibilityGraph
+       { resultGameState = gs & possibilityGraph .~ pg
+       , resultCounters  = bsCounters finalState
        }

@@ -25,7 +25,6 @@ module Model.Core
   , GameStateT (GameStateT, runGameStateT)
   , PossibilityGraph (..)
     -- * GameComputation
-  , ComputationContext (..)
   , GameComputation (GameComputation, runGameComputation)
     -- * Action Management
   , ActionManagement (DSAManagementKey, ISAManagementKey)
@@ -93,11 +92,11 @@ module Model.Core
   , evaluation
   , agentLocationMap
   , actionMaps
+  , possibilityGraph
   , entityActionEffects
   , worldOutcomeEffects
   , newUserStartScene
   , newUserMkAgent
-  , ctxPossibilityGraph
   ) where
 
 import           SashaPrelude
@@ -105,7 +104,6 @@ import           SashaPrelude
 import           Control.DeepSeq (NFData (rnf))
 import           Control.Monad.Except (ExceptT, MonadError)
 import           Control.Monad.Morph (MFunctor)
-import           Control.Monad.Reader (MonadReader, ReaderT)
 import           Control.Monad.State (MonadState, StateT)
 import           Control.Monad.Trans (MonadTrans (lift))
 import           Data.Aeson (FromJSON, ToJSON)
@@ -365,6 +363,7 @@ data GameState = GameState
   , _evaluation       :: Map (GID Agent) Evaluator
   , _agentLocationMap :: Map (GID Agent) (GID Scene)
   , _actionMaps       :: ActionMaps
+  , _possibilityGraph :: PossibilityGraph
   }
 
 type GameStateT :: (Type -> Type) -> Type -> Type
@@ -383,24 +382,18 @@ instance MonadTrans GameStateT where
 
 -- GameComputation
 
-type ComputationContext :: Type
-data ComputationContext = ComputationContext
-  { _ctxPossibilityGraph :: PossibilityGraph
-  }
-
 type GameComputation :: (Type -> Type) -> Type -> Type
-newtype GameComputation m a = GameComputation { runGameComputation :: ReaderT ComputationContext (ExceptT Text (GameStateT m)) a }
+newtype GameComputation m a = GameComputation { runGameComputation :: ExceptT Text (GameStateT m) a }
   deriving newtype
     ( Applicative
     , Functor
     , Monad
     , MonadError Text
-    , MonadReader ComputationContext
     , MonadState GameState
     )
 
 instance MonadTrans GameComputation where
-  lift = GameComputation . lift . lift . lift
+  lift = GameComputation . lift . lift
 
 -- PossibilityGraph
 
@@ -409,8 +402,8 @@ data PossibilityGraph = PossibilityGraph
   { _entityActionEffects :: EntityActionRegistry
   , _worldOutcomeEffects :: WorldOutcomeRegistry
   , _witnessMap          :: WitnessMap
-  , _newUserStartScene   :: GID Scene
-  , _newUserMkAgent      :: Text -> Agent
+  , _newUserStartScene   :: Maybe (GID Scene)
+  , _newUserMkAgent      :: Maybe (Text -> Agent)
   }
 
 -- Defaults
@@ -455,7 +448,6 @@ makeLenses ''Narration
 makeLenses ''NarrationMap
 makeLenses ''Evaluator
 makeLenses ''GameState
-makeLenses ''ComputationContext
 makeLenses ''ActionMaps
 makeLenses ''PossibilityGraph
 

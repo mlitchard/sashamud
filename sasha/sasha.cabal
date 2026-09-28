@@ -47,6 +47,7 @@ library
     ConstraintRefinement.Actions
     DSL.Builder
     DSL.Model.EDSL.SashaLambdaDSL
+    DSL.Reify
     DSL.Vocabulary
     Engine.ActionDiscovery.Instances
     Engine.ActionDiscovery.Percieve.Look
@@ -80,6 +81,7 @@ library
     , deepseq
     , generic-arbitrary
     , hashable
+    , hint
     , microlens-platform
     , mmorph
     , monad-schedule
@@ -121,6 +123,7 @@ executable sasha-tests
     ConstraintRefinement.Actions
     DSL.Builder
     DSL.Model.EDSL.SashaLambdaDSL
+    DSL.Reify
     DSL.Vocabulary
     Engine.ActionDiscovery.Instances
     Engine.ActionDiscovery.Percieve.Look
@@ -137,6 +140,7 @@ executable sasha-tests
     Model.RandomPool
     Model.RichText
     Model.WireProtocol
+    ReifySpec
     SashaPrelude
     Server.App
     Server.Authentication
@@ -155,6 +159,7 @@ executable sasha-tests
     , deepseq
     , generic-arbitrary
     , hashable
+    , hint
     , hspec
     , hspec-core
     , hspec-discover

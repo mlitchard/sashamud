@@ -1,8 +1,8 @@
 module SashaMudWorld
-  ( sashaMudWorld
+  ( buildResult
+  , sashaMudWorld
   , defaultDenizen
   , gameState
-  , possibilityGraph
   ) where
 
 import           SashaPrelude
@@ -10,7 +10,7 @@ import           SashaPrelude
 import           ConstraintRefinement.Actions (lookAtF, lookF, witnessF)
 import qualified Data.Set (singleton)
 import           DSL.Builder
-  ( WorldBuilderResult (resultGameState, resultPossibilityGraph)
+  ( WorldBuilderResult (resultGameState)
   , initialBuilderState
   , interpretDSL
   , runWorldBuilder
@@ -57,11 +57,11 @@ import           Model.Core
   , Agent (Agent, _agentActionManagement, _agentDescription, _agentKind, _agentShortName, _agentTitle, _agentWitnessManagement)
   , AgentKind (Denizen)
   , EntityID (EntityObject)
-  , GameState (GameState, _actionMaps, _agentLocationMap, _evaluation, _narrationMap, _world)
+  , GameState (GameState, _actionMaps, _agentLocationMap, _evaluation, _narrationMap, _possibilityGraph, _world)
   , NarrationComputation (LookAtNarration, LookNarration)
   , NarrationMap (NarrationMap)
   , Object
-  , PossibilityGraph
+  , PossibilityGraph (PossibilityGraph, _entityActionEffects, _newUserMkAgent, _newUserStartScene, _witnessMap, _worldOutcomeEffects)
   , Scene
   , SpatialRelationship (SupportedBy, Supports)
   , WorldOutcome (NarrationEffect)
@@ -71,6 +71,7 @@ import           Model.Core
   , emptyActionMaps
   )
 import           Model.RichText (TextColor (White), colored, plain)
+import           Server.App (initialCounters)
 
 buildLobby :: ActionManagement -> ActionManagement -> SashaLambdaDSL Scene
 buildLobby sceneLookKey sceneLookAtKey =
@@ -164,13 +165,17 @@ defaultGameState = GameState
   , _evaluation       = mempty
   , _agentLocationMap = mempty
   , _actionMaps      = emptyActionMaps
+  , _possibilityGraph = PossibilityGraph
+      { _entityActionEffects = mempty
+      , _worldOutcomeEffects = mempty
+      , _witnessMap          = mempty
+      , _newUserStartScene   = Nothing
+      , _newUserMkAgent      = Nothing
+      }
   }
 
 buildResult :: WorldBuilderResult
-buildResult = runWorldBuilder (interpretDSL sashaMudWorld) (initialBuilderState defaultGameState)
+buildResult = runWorldBuilder (interpretDSL sashaMudWorld) (initialBuilderState defaultGameState initialCounters)
 
 gameState :: GameState
 gameState = resultGameState buildResult
-
-possibilityGraph :: PossibilityGraph
-possibilityGraph = resultPossibilityGraph buildResult

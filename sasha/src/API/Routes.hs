@@ -3,11 +3,17 @@
 module API.Routes
   ( SashaAPI
   , LoginAPI
+  , DSLAPI
   , LogoutAPI
   , WebSocketAPI
   ) where
 
-import           API.Types (AuthenticatedUser, LoginResponse, MessageTo)
+import           API.Types
+  ( AuthenticatedUser
+  , DSLSource
+  , LoginResponse
+  , MessageTo
+  )
 import           Model.Core (SessionId)
 import           Model.WireProtocol (MessageFrom)
 import           Servant.API
@@ -15,6 +21,7 @@ import           Servant.API
   , DeleteNoContent
   , JSON
   , Post
+  , PostNoContent
   , ReqBody
   , type (:<|>)
   , type (:>)
@@ -34,6 +41,12 @@ type LoginAPI =
   :> ValidatedBody '[JSON] PlayerNameUNV PlayerNameVAL
   :> Post '[JSON] LoginResponse
 
+type DSLAPI =
+  "api" :> "game" :> "dsl"
+  :> AuthProtect SecWebSocketProtocol
+  :> ReqBody '[JSON] DSLSource
+  :> PostNoContent
+
 type LogoutAPI =
   "api" :> "game" :> "logout"
   :> ReqBody '[JSON] SessionId
@@ -48,3 +61,4 @@ type SashaAPI =
        LoginAPI
   :<|> LogoutAPI
   :<|> WebSocketAPI
+  :<|> DSLAPI

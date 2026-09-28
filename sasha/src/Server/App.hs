@@ -4,12 +4,19 @@
 module Server.App
   ( AppCtx (..)
   , AppM (..)
+  , BuilderCounters (BuilderCounters)
   , GameLog (..)
   , PInt
   , SessionPhase (SessionPhase)
   , SessionState (AwaitingSocket, AwaitingJoin, InGame)
   , firstPlayerId
+  , initialCounters
   , newAppCtx
+  , nextDirectionalStimulusId
+  , nextImplicitStimulusId
+  , nextObjectId
+  , nextSceneId
+  , nextWitnessId
   , sessionGid
   , sessionPlayerName
   , sessionSend
@@ -26,7 +33,9 @@ import           Control.Monad.Except (MonadError)
 import           Control.Monad.Reader (MonadReader, ReaderT)
 import           Data.IORef (IORef, newIORef)
 import           Data.Map.Strict (Map)
-import           Model.Core (Agent)
+import           DSL.Model.EDSL.SashaLambdaDSL (SashaLambdaDSL)
+import           Lens.Micro.Platform (makeLenses)
+import           Model.Core (Agent, GameState)
 import           Model.GID (GID)
 import           Model.WireProtocol (MessageFrom)
 import           Servant (Handler)
@@ -47,7 +56,24 @@ unPInt :: PInt -> Int
 unPInt (PInt n) = n
 
 firstPlayerId :: PInt
-firstPlayerId = PInt 1000
+firstPlayerId = PInt 0
+
+data BuilderCounters = BuilderCounters
+  { _nextSceneId               :: PInt
+  , _nextObjectId              :: PInt
+  , _nextImplicitStimulusId    :: PInt
+  , _nextDirectionalStimulusId :: PInt
+  , _nextWitnessId             :: PInt
+  }
+
+initialCounters :: BuilderCounters
+initialCounters = BuilderCounters
+  { _nextSceneId               = firstPlayerId
+  , _nextObjectId              = firstPlayerId
+  , _nextImplicitStimulusId    = firstPlayerId
+  , _nextDirectionalStimulusId = firstPlayerId
+  , _nextWitnessId             = firstPlayerId
+  }
 
 data SessionPhase = SessionPhase PlayerNameVAL SessionState
 
@@ -79,29 +105,37 @@ newtype AppM a = AppM { unAppM :: ReaderT AppCtx Handler a }
     )
 
 data AppCtx = AppCtx
-  { acInbound      :: TChan (Routed MessageTo)
-  , acOutbound     :: TChan (Routed MessageFrom)
-  , acJoinChan     :: TChan PlayerJoined
-  , acSessions     :: MVar (Map SessionId SessionPhase)
-  , acKnownPlayers :: MVar (Map PlayerNameVAL (GID Agent))
-  , acNextAgentId  :: IORef PInt
-  , acGameLog      :: GameLog
+  { acInbound         :: TChan (Routed MessageTo)
+  , acOutbound        :: TChan (Routed MessageFrom)
+  , acJoinChan        :: TChan PlayerJoined
+  , acDSLChan         :: TChan (SashaLambdaDSL GameState)
+  , acSessions        :: MVar (Map SessionId SessionPhase)
+  , acKnownPlayers    :: MVar (Map PlayerNameVAL (GID Agent))
+  , acNextAgentId     :: IORef PInt
+  , acBuilderCounters :: IORef BuilderCounters
+  , acGameLog         :: GameLog
   }
 
-newAppCtx :: GameLog -> IO AppCtx
-newAppCtx logCfg = do
+newAppCtx :: GameLog -> BuilderCounters -> IO AppCtx
+newAppCtx logCfg counters = do
   inChan   <- newTChanIO
   outChan  <- newTChanIO
   joinChan <- newTChanIO
+  dslChan  <- newTChanIO
   sessions <- newMVar mempty
   known    <- newMVar mempty
   nextId   <- newIORef firstPlayerId
+  builderCounters <- newIORef counters
   pure AppCtx
     { acInbound      = inChan
     , acOutbound     = outChan
     , acJoinChan     = joinChan
+    , acDSLChan      = dslChan
     , acSessions     = sessions
     , acKnownPlayers = known
     , acNextAgentId  = nextId
+    , acBuilderCounters = builderCounters
     , acGameLog      = logCfg
     }
+
+makeLenses ''BuilderCounters
