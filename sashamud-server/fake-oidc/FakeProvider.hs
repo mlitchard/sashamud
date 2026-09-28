@@ -39,6 +39,7 @@ import           Model.Account
   , unAuthCode
   , unOidcState
   )
+import           Model.Authorization (RoleName)
 import           Network.HTTP.Client
   ( Manager
   , Request (redirectCount)
@@ -157,9 +158,9 @@ loginThroughFake manager port user = do
           Left _  -> fail "Location header is not UTF-8"
           Right l -> pure l
 
-seedAccount :: Pool Connection -> PlayerNameVAL -> IO ()
-seedAccount pool (PlayerNameVAL name) = withResource pool $ \conn -> do
-  _ <- execute conn seedQuery (name, name, "sub-" <> name)
+seedAccount :: Pool Connection -> RoleName -> PlayerNameVAL -> IO ()
+seedAccount pool role (PlayerNameVAL name) = withResource pool $ \conn -> do
+  _ <- execute conn seedQuery (role, name, name, "sub-" <> name)
   pure ()
   where
     seedQuery =
@@ -167,7 +168,7 @@ seedAccount pool (PlayerNameVAL name) = withResource pool $ \conn -> do
         WITH new_user AS (
           INSERT INTO users (status, role_id, activated_on)
             SELECT 'active', role_id, now() FROM roles
-              WHERE name = 'wizard'
+              WHERE name = ?
                 AND NOT EXISTS (SELECT 1 FROM credentials WHERE player_name = ?)
             RETURNING user_id)
         INSERT INTO credentials (user_id, player_name, subject)

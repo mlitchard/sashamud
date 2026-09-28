@@ -12,6 +12,7 @@ module API.Routes
 
 import           API.Types (AuthenticatedUser, DSLSource, MessageTo)
 import           Model.Account (AuthCode, OidcState)
+import           Model.Authorization (Resource (Dsl), ResourceAction (Create))
 import           Model.Core (SessionId)
 import           Model.WireProtocol (MessageFrom)
 import           Network.HTTP.Types.Method (StdMethod (GET))
@@ -37,6 +38,7 @@ import           Servant.API.WebSocket
   , TypedWebSocket
   )
 import           Servant.Server.Experimental.Auth (AuthServerData)
+import           Server.Authentication (CanDo)
 
 type instance AuthServerData (AuthProtect SecWebSocketProtocol) = AuthenticatedUser
 
@@ -56,7 +58,7 @@ type AuthAPI =
 
 type DSLAPI =
   "api" :> "game" :> "dsl"
-  :> AuthProtect SecWebSocketProtocol
+  :> CanDo 'Dsl 'Create
   :> ReqBody '[JSON] DSLSource
   :> PostNoContent
 

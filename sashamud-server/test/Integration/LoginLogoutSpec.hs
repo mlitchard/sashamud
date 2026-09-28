@@ -65,6 +65,7 @@ import           Model.Account
   , OidcBaseUrl (OidcBaseUrl)
   , RedirectUri (RedirectUri)
   )
+import           Model.Authorization (RoleName (RoleName))
 import           Model.Core (actionConsequence, presenceListing)
 import           Model.RichText (toPlainText)
 import           Model.WireProtocol
@@ -88,7 +89,12 @@ import           Network.WebSockets
   , sendTextData
   )
 import           SashaMudWorld (buildResult, gameState)
-import           Servant (AuthProtect, NoContent (NoContent), Proxy (Proxy))
+import           Servant
+  ( AuthProtect
+  , NoContent (NoContent)
+  , Proxy (Proxy)
+  , type (:>)
+  )
 import           Servant.API.WebSocket (SecWebSocketProtocol)
 import           Servant.Client
   ( BaseUrl (baseUrlPort)
@@ -103,8 +109,10 @@ import           Servant.Client.Core
   ( AuthClientData
   , AuthenticatedRequest
   , ClientError (FailureResponse)
+  , HasClient (Client, clientWithRoute, hoistClientMonad)
   , Request
   , ResponseF (Response)
+  , RunClient
   , addHeader
   , mkAuthenticatedRequest
   )
@@ -114,7 +122,7 @@ import           Server.App
   , OidcConfig (OidcConfig)
   , newAppCtx
   )
-import           Server.Authentication (tokenDigest)
+import           Server.Authentication (CanDo, tokenDigest)
 import           Server.Migration (buildCommand)
 import           Server.Server (app, deliverOutbound)
 import           Server.Validator (PlayerNameVAL (PlayerNameVAL))
@@ -129,6 +137,13 @@ import           Test.Hspec
   , shouldBe
   , shouldSatisfy
   )
+
+-- Servant client adapter for the CanDo combinator
+instance (RunClient m, HasClient m (AuthProtect SecWebSocketProtocol :> api))
+  => HasClient m (CanDo r a :> api) where
+  type Client m (CanDo r a :> api) = Client m (AuthProtect SecWebSocketProtocol :> api)
+  clientWithRoute pm _ = clientWithRoute pm (Proxy @(AuthProtect SecWebSocketProtocol :> api))
+  hoistClientMonad pm _ = hoistClientMonad pm (Proxy @(AuthProtect SecWebSocketProtocol :> api))
 
 logoutClient :: SessionId -> ClientM NoContent
 logoutClient = client (Proxy @LogoutAPI)
@@ -185,9 +200,9 @@ withTestServer action = do
   threadDelay 500000
   action (testPort, ctx) `finally` cancel serverThread
 
-loginAs :: AppCtx -> Text -> IO SessionId
-loginAs ctx name = do
-  seedAccount (acDbPool ctx) (PlayerNameVAL name)
+loginAs :: AppCtx -> RoleName -> Text -> IO SessionId
+loginAs ctx role name = do
+  seedAccount (acDbPool ctx) role (PlayerNameVAL name)
   manager <- newManager defaultManagerSettings
   loginThroughFake manager testPort name
 
@@ -259,25 +274,25 @@ spec = describe "Integration" . around withTestServer $ do
       Status code _ -> code `shouldBe` 401
 
   it "login through the provider returns a token" $ \(_port, ctx) -> do
-    sid <- loginAs ctx "TestPlayer"
+    sid <- loginAs ctx (RoleName "wizard") "TestPlayer"
     sid `shouldSatisfy` (/= SessionId "")
 
   it "DELETE /api/game/logout removes session" $ \(_port, ctx) -> do
     env <- testClientEnv
-    sid <- loginAs ctx "TestPlayer"
+    sid <- loginAs ctx (RoleName "wizard") "TestPlayer"
     logoutResult <- runClientM (logoutClient sid) env
     logoutResult `shouldBe` Right NoContent
 
   it "login after logout produces a different token" $ \(_port, ctx) -> do
     env <- testClientEnv
-    sid1 <- loginAs ctx "Roundtrip"
+    sid1 <- loginAs ctx (RoleName "wizard") "Roundtrip"
     _ <- runClientM (logoutClient sid1) env
-    sid2 <- loginAs ctx "Roundtrip"
+    sid2 <- loginAs ctx (RoleName "wizard") "Roundtrip"
     sid1 `shouldSatisfy` (/= sid2)
 
   it "an expired token is rejected" $ \(_port, ctx) -> do
     env <- testClientEnv
-    sid@(SessionId token) <- loginAs ctx "Expired"
+    sid@(SessionId token) <- loginAs ctx (RoleName "wizard") "Expired"
     _ <- withResource (acDbPool ctx) $ \conn ->
       execute conn "UPDATE tokens SET expires_at = now() - interval '1 hour' WHERE token_digest = ?"
         (Only (tokenDigest (encodeUtf8 token)))
@@ -286,7 +301,7 @@ spec = describe "Integration" . around withTestServer $ do
 
   it "logout stops the token working" $ \(_port, ctx) -> do
     env <- testClientEnv
-    sid <- loginAs ctx "LoggedOut"
+    sid <- loginAs ctx (RoleName "wizard") "LoggedOut"
     _ <- runClientM (logoutClient sid) env
     result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource worldSource)) env
     isErrorCode 401 result `shouldBe` True
@@ -300,7 +315,7 @@ spec = describe "Integration" . around withTestServer $ do
       Right _ -> expectationFailure "connection without session should be rejected"
 
   it "login creates agent in agentMap with correct agentShortName" $ \(_port, ctx) -> do
-    sid <- loginAs ctx "AgentTest"
+    sid <- loginAs ctx (RoleName "wizard") "AgentTest"
     connectWS sid $ \conn -> do
       narr <- receiveUntil conn 10000000 isLookNarration
       case narr of
@@ -310,8 +325,8 @@ spec = describe "Integration" . around withTestServer $ do
           member (PlayerNameVAL "AgentTest") known `shouldBe` True
 
   it "login assigns agent to lobby scene" $ \(_port, ctx) -> do
-    sid1 <- loginAs ctx "Alice"
-    sid2 <- loginAs ctx "Bob"
+    sid1 <- loginAs ctx (RoleName "wizard") "Alice"
+    sid2 <- loginAs ctx (RoleName "wizard") "Bob"
     connectWS sid1 $ \conn1 -> do
       _ <- try @SomeException (connectWS sid2 $ \_ -> threadDelay 3000000)
       threadDelay 3000000
@@ -321,7 +336,7 @@ spec = describe "Integration" . around withTestServer $ do
         Just _  -> pure ()
 
   it "heartbeat delivery within timeout" $ \(_port, ctx) -> do
-    sid <- loginAs ctx "HeartbeatTest"
+    sid <- loginAs ctx (RoleName "wizard") "HeartbeatTest"
     connectWS sid $ \conn -> do
       hb <- receiveUntil conn 10000000 isHeartbeat
       case hb of
@@ -329,8 +344,8 @@ spec = describe "Integration" . around withTestServer $ do
         Just msg -> msg `shouldSatisfy` isHeartbeat
 
   it "multi-player: two players login, both in lobby" $ \(_port, ctx) -> do
-    sid1 <- loginAs ctx "Player1"
-    sid2 <- loginAs ctx "Player2"
+    sid1 <- loginAs ctx (RoleName "wizard") "Player1"
+    sid2 <- loginAs ctx (RoleName "wizard") "Player2"
     connectWS sid1 $ \conn1 ->
       connectWS sid2 $ \conn2 -> do
         n1 <- receiveUntil conn1 10000000 isLookNarration
@@ -343,8 +358,8 @@ spec = describe "Integration" . around withTestServer $ do
           _ -> expectationFailure "both players should receive auto-look narration"
 
   it "multi-player: both clients receive heartbeats" $ \(_port, ctx) -> do
-    sid1 <- loginAs ctx "HB1"
-    sid2 <- loginAs ctx "HB2"
+    sid1 <- loginAs ctx (RoleName "wizard") "HB1"
+    sid2 <- loginAs ctx (RoleName "wizard") "HB2"
     connectWS sid1 $ \conn1 ->
       connectWS sid2 $ \conn2 -> do
         hb1 <- receiveUntil conn1 10000000 isHeartbeat
@@ -354,8 +369,8 @@ spec = describe "Integration" . around withTestServer $ do
           _                -> expectationFailure "both players should receive heartbeats"
 
   it "disconnect: agent removed from lobby scene but stays in agentMap" $ \(_port, ctx) -> do
-    sid1 <- loginAs ctx "Stayer"
-    sid2 <- loginAs ctx "Leaver"
+    sid1 <- loginAs ctx (RoleName "wizard") "Stayer"
+    sid2 <- loginAs ctx (RoleName "wizard") "Leaver"
     connectWS sid1 $ \conn1 -> do
       _ <- try @SomeException (connectWS sid2 $ \_ -> threadDelay 3000000)
       threadDelay 3000000
@@ -368,8 +383,8 @@ spec = describe "Integration" . around withTestServer $ do
 
   it "logout: agent removed from lobby scene, stays in agentMap, maps cleaned" $ \(_port, ctx) -> do
     env <- testClientEnv
-    sid1 <- loginAs ctx "Witness"
-    sid2 <- loginAs ctx "LogoutTarget"
+    sid1 <- loginAs ctx (RoleName "wizard") "Witness"
+    sid2 <- loginAs ctx (RoleName "wizard") "LogoutTarget"
     connectWS sid1 $ \conn1 ->
       connectWS sid2 $ \_ -> do
         threadDelay 3000000
@@ -385,7 +400,7 @@ spec = describe "Integration" . around withTestServer $ do
             member sid2 sessions `shouldBe` False
 
   it "login auto-look delivers the lobby description" $ \(_port, ctx) -> do
-    sid <- loginAs ctx "LookOnLogin"
+    sid <- loginAs ctx (RoleName "wizard") "LookOnLogin"
     connectWS sid $ \conn -> do
       narr <- receiveUntil conn 10000000 isLookNarration
       case narr of
@@ -393,7 +408,7 @@ spec = describe "Integration" . around withTestServer $ do
         Just _  -> pure ()
 
   it "auto-look survives a slow websocket connect" $ \(_port, ctx) -> do
-    sid <- loginAs ctx "SlowSocket"
+    sid <- loginAs ctx (RoleName "wizard") "SlowSocket"
     threadDelay 3000000
     connectWS sid $ \conn -> do
       narr <- receiveUntil conn 10000000 isLookNarration
@@ -402,7 +417,7 @@ spec = describe "Integration" . around withTestServer $ do
         Just _  -> pure ()
 
   it "explicit look command repeats the lobby description" $ \(_port, ctx) -> do
-    sid <- loginAs ctx "LookAgain"
+    sid <- loginAs ctx (RoleName "wizard") "LookAgain"
     connectWS sid $ \conn -> do
       first <- receiveUntil conn 10000000 isLookNarration
       case first of
@@ -415,8 +430,8 @@ spec = describe "Integration" . around withTestServer $ do
             Just _  -> pure ()
 
   it "look presence listing names the other player" $ \(_port, ctx) -> do
-    sid1 <- loginAs ctx "Looker"
-    sid2 <- loginAs ctx "Seen"
+    sid1 <- loginAs ctx (RoleName "wizard") "Looker"
+    sid2 <- loginAs ctx (RoleName "wizard") "Seen"
     connectWS sid1 $ \conn1 ->
       connectWS sid2 $ \_ -> do
         threadDelay 3000000
@@ -427,7 +442,7 @@ spec = describe "Integration" . around withTestServer $ do
           Just _  -> pure ()
 
   it "ping: client sends Ping, receives Pong through Rhine network" $ \(_port, ctx) -> do
-    sid <- loginAs ctx "PingTest"
+    sid <- loginAs ctx (RoleName "wizard") "PingTest"
     connectWS sid $ \conn -> do
       threadDelay 2000000
       sendTextData conn Ping
@@ -443,26 +458,32 @@ spec = describe "Integration" . around withTestServer $ do
 
   it "POST /api/game/dsl with bad source returns 400 with an error body" $ \(_port, ctx) -> do
     env <- testClientEnv
-    sid <- loginAs ctx "BadWizard"
+    sid <- loginAs ctx (RoleName "wizard") "BadWizard"
     result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource "declareSceneGID")) env
     case result of
       Left (FailureResponse _ (Response (Status 400 _) _ _ body)) ->
         body `shouldSatisfy` (not . null)
       _ -> expectationFailure ("expected 400 with an error body, got: " <> show result)
 
+  it "POST /api/game/dsl by a player without dsl/create returns 403" $ \(_port, ctx) -> do
+    env <- testClientEnv
+    sid <- loginAs ctx (RoleName "player") "Peasant"
+    result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource worldSource)) env
+    isErrorCode 403 result `shouldBe` True
+
   it "POST /api/game/dsl with the world source returns NoContent" $ \(_port, ctx) -> do
     env <- testClientEnv
-    sid <- loginAs ctx "Wizard"
+    sid <- loginAs ctx (RoleName "wizard") "Wizard"
     result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource worldSource)) env
     result `shouldBe` Right NoContent
 
   it "a delivered submission appears in look after DSLTick" $ \(_port, ctx) -> do
     env <- testClientEnv
-    wizardSid <- loginAs ctx "Builder"
+    wizardSid <- loginAs ctx (RoleName "wizard") "Builder"
     posted <- runClientM (dslClient (makeAuthRequest wizardSid) (DSLSource studySource)) env
     posted `shouldBe` Right NoContent
     threadDelay 6000000
-    viewerSid <- loginAs ctx "Viewer"
+    viewerSid <- loginAs ctx (RoleName "wizard") "Viewer"
     connectWS viewerSid $ \conn -> do
       narr <- receiveUntil conn 10000000 (seesObjects "You see: a ball, a cup")
       case narr of

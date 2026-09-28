@@ -1,9 +1,12 @@
 module Model.Authorization
-  ( Resource (Dsl)
+  ( Permission (DemotedPermission, ShowPermission, demotePermission)
+  , Resource (Dsl)
   , ResourceAction (Create)
   , RoleId (RoleId)
+  , RoleName (RoleName)
   , RoleStatus (RoleActive, RoleInactive)
   , unRoleId
+  , unRoleName
   ) where
 
 import           SashaPrelude
@@ -19,6 +22,7 @@ import           Data.Aeson
 import           Data.Aeson.Types (toJSONKeyText)
 import           Data.ByteString.Builder (byteString)
 import qualified Data.ByteString.Char8 (unpack)
+import           Data.Proxy (Proxy)
 import           Database.PostgreSQL.Simple
   ( ResultError (ConversionFailed, errHaskellType, errMessage, errSQLField, errSQLTableOid, errSQLType)
   )
@@ -32,6 +36,7 @@ import           Database.PostgreSQL.Simple.ToField
   , ToField (toField)
   , inQuotes
   )
+import           GHC.TypeLits (Symbol)
 #ifdef TESTING
 import           Test.QuickCheck (Arbitrary)
 import           Test.QuickCheck.Arbitrary.Generic
@@ -140,6 +145,26 @@ instance ToField RoleStatus where
 newtype RoleId = RoleId { unRoleId :: Int }
   deriving stock (Generic)
   deriving newtype (Eq, FromField, NFData, Ord, Show, ToField)
+
+newtype RoleName = RoleName { unRoleName :: Text }
+  deriving stock (Generic)
+  deriving newtype (Eq, FromField, NFData, Ord, Show, ToField)
+
+type Permission :: k -> Constraint
+class Permission a where
+  type DemotedPermission a :: Type
+  type ShowPermission a :: Symbol
+  demotePermission :: Proxy a -> DemotedPermission a
+
+instance Permission 'Dsl where
+  type DemotedPermission 'Dsl = Resource
+  type ShowPermission 'Dsl = "Dsl"
+  demotePermission _ = Dsl
+
+instance Permission 'Create where
+  type DemotedPermission 'Create = ResourceAction
+  type ShowPermission 'Create = "Create"
+  demotePermission _ = Create
 
 #ifdef TESTING
 deriving via (GenericArbitrary Resource) instance Arbitrary Resource

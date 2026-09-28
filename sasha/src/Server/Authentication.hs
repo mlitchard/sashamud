@@ -1,7 +1,11 @@
-{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE QuasiQuotes       #-}
+
+{-# LANGUAGE FlexibleContexts  #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 module Server.Authentication
   ( AuthenticatedUser (..)
+  , CanDo
   , SashaContext
   , authCallback
   , authProxy
@@ -13,7 +17,7 @@ module Server.Authentication
 import           SashaPrelude
 
 import           API.Types
-  ( AuthenticatedUser (AuthenticatedUser)
+  ( AuthenticatedUser (AuthenticatedUser, auUserId)
   , SessionId (SessionId)
   )
 import           Control.Concurrent (modifyMVar, modifyMVar_)
@@ -31,9 +35,11 @@ import           Data.List (lookup)
 import qualified Data.Map.Strict (delete, filter, fromList, insert, lookup)
 import           Data.Maybe (catMaybes)
 import           Data.Pool (withResource)
-import qualified Data.Set (fromList)
+import qualified Data.Set (fromList, member)
+import           Data.String (fromString)
 import           Data.Text.Encoding (decodeUtf8', encodeUtf8)
 import           Data.Time.Clock (diffUTCTime, getCurrentTime)
+import           Data.Type.Equality (type (~))
 import           Database.PostgreSQL.Simple
   ( Binary (Binary)
   , Only (Only)
@@ -56,7 +62,8 @@ import           Model.Account
   , UserPermissions (Permissions, PermissionsDisabled)
   )
 import           Model.Authorization
-  ( Resource
+  ( Permission (DemotedPermission, demotePermission)
+  , Resource
   , ResourceAction
   , RoleId
   , RoleStatus (RoleActive, RoleInactive)
@@ -75,17 +82,32 @@ import           Network.Wai (Request, requestHeaders)
 import           Servant
   ( Context (EmptyContext, (:.))
   , Handler
+  , HasContextEntry (getContextEntry)
+  , HasServer (ServerT, hoistServerWithContext, route)
   , Header
   , Headers
   , NoContent (NoContent)
   , Proxy (Proxy)
+  , ServerError (errBody)
   , addHeader
   , err401
+  , err403
   , err409
   , err500
   , throwError
+  , type (:>)
   )
-import           Servant.Server.Experimental.Auth (AuthHandler, mkAuthHandler)
+import           Servant.Server.Experimental.Auth
+  ( AuthHandler (unAuthHandler)
+  , mkAuthHandler
+  )
+import           Servant.Server.Internal.Delayed (addAuthCheck)
+import           Servant.Server.Internal.DelayedIO
+  ( DelayedIO
+  , delayedFailFatal
+  , withRequest
+  )
+import           Servant.Server.Internal.Handler (runHandler)
 import           Server.App
   ( AppCtx (acDbPool, acGameLog, acHttpManager, acOidcConfig, acOidcStates, acSessions)
   , AppM
@@ -107,6 +129,49 @@ sashaContext ctx = mkAuthHandler (authHandler ctx) :. EmptyContext
 
 tokenDigest :: ByteString -> Binary ByteString
 tokenDigest bytes = Binary (convert (hashWith SHA256 bytes))
+
+type CanDo :: Resource -> ResourceAction -> Type
+data CanDo resource action
+
+instance forall r a xs context.
+  ( HasServer xs context
+  , HasContextEntry context (AuthHandler Request AuthenticatedUser)
+  , Permission r
+  , DemotedPermission r ~ Resource
+  , Permission a
+  , DemotedPermission a ~ ResourceAction
+  ) =>
+  HasServer (CanDo r a :> xs) context
+  where
+  type ServerT (CanDo r a :> xs) m = AuthenticatedUser -> ServerT xs m
+  hoistServerWithContext _ pc nt server =
+    hoistServerWithContext (Proxy @xs) pc nt . server
+  route _ context subserver =
+    route (Proxy @xs) context (subserver `addAuthCheck` withRequest authCheck)
+    where
+      resource = demotePermission (Proxy @r)
+      action = demotePermission (Proxy @a)
+      authCheck :: Request -> DelayedIO AuthenticatedUser
+      authCheck req = do
+        result <- liftIO (runHandler (unAuthHandler (getContextEntry context) req))
+        case result of
+          Left err -> delayedFailFatal err
+          Right user
+            | canDo resource action user -> pure user
+            | otherwise -> delayedFailFatal err403
+                { errBody = fromString
+                    ("User " <> show (auUserId user) <> " may not perform "
+                      <> show action <> " on " <> show resource)
+                }
+
+canDo :: Resource -> ResourceAction -> AuthenticatedUser -> Bool
+canDo resource action (AuthenticatedUser _ _ permissions) =
+  case permissions of
+    PermissionsDisabled -> False
+    Permissions granted ->
+      case Data.Map.Strict.lookup resource granted of
+        Just actions -> Data.Set.member action actions
+        Nothing      -> False
 
 authHandler :: AppCtx -> Request -> Handler AuthenticatedUser
 authHandler ctx req =
