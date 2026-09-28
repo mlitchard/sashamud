@@ -27,6 +27,7 @@ import           Control.Monad.Reader (ask, runReaderT)
 import qualified Data.ByteString.Char8 (pack)
 import           Data.Map.Strict (delete, insert, lookup)
 import qualified Data.Map.Strict (filter)
+import           Data.Pool (defaultPoolConfig, newPool, withResource)
 import           Data.String (fromString)
 import           Data.UUID (toText)
 import           Data.UUID.V4 (nextRandom)
@@ -150,16 +151,15 @@ startServer result = do
   port <- maybe 8081 readPort <$> lookupEnv "SASHA_WEB_PORT"
   connStr <- fromMaybe "dbname=sashamud" <$> lookupEnv "SASHA_DB_CONNSTR"
   migrationsDir <- fromMaybe "migrations" <$> lookupEnv "SASHA_MIGRATIONS_DIR"
-  conn <- connectPostgreSQL (Data.ByteString.Char8.pack connStr)
-  migrated <- runMigrations conn defaultOptions (buildCommand migrationsDir)
-  close conn
+  pool <- newPool (defaultPoolConfig (connectPostgreSQL (Data.ByteString.Char8.pack connStr)) close 60 10)
+  migrated <- withResource pool (\conn -> runMigrations conn defaultOptions (buildCommand migrationsDir))
   case migrated of
     MigrationError err -> do
       hPutStrLn stderr ("migration failed: " <> err)
       exitFailure
     MigrationSuccess -> pure ()
   let logCfg = GameLog stderr
-  ctx <- newAppCtx logCfg (resultCounters result)
+  ctx <- newAppCtx logCfg pool (resultCounters result)
   writeLog logCfg (ServerStart port)
   hPutStrLn stderr ("sasha-web server starting on port " <> show port)
   race_

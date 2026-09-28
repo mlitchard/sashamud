@@ -13,6 +13,7 @@ import           SashaPrelude
   , Text
   , elem
   , fmap
+  , fromMaybe
   , not
   , pure
   , stderr
@@ -31,10 +32,13 @@ import           API.Types
 import           Control.Concurrent (readMVar, threadDelay)
 import           Control.Concurrent.Async (async, cancel, race_)
 import           Control.Exception (SomeException, finally, try)
+import qualified Data.ByteString.Char8 (pack)
 import           Data.ByteString.Lazy (null)
 import           Data.Map.Strict (member)
+import           Data.Pool (defaultPoolConfig, newPool)
 import           Data.Text (unlines)
 import           Data.Text.Encoding (encodeUtf8)
+import           Database.PostgreSQL.Simple (close, connectPostgreSQL)
 import           DSL.Builder (WorldBuilderResult (resultCounters))
 import           Engine.Simulation.SignalNetwork (gameLoop)
 import           Lens.Micro.Platform (view)
@@ -93,6 +97,7 @@ import           Server.Validator
   , PlayerNameVAL (PlayerNameVAL)
   , ValidatedBody
   )
+import           System.Environment (lookupEnv)
 import           System.Timeout (timeout)
 import           Test.Hspec
   ( Spec
@@ -147,7 +152,9 @@ testClientEnv = do
 withTestServer :: ((Int, AppCtx) -> IO ()) -> IO ()
 withTestServer action = do
   let logCfg = GameLog stderr
-  ctx <- newAppCtx logCfg (resultCounters buildResult)
+  connStr <- fmap (fromMaybe "dbname=sashamud") (lookupEnv "SASHA_DB_CONNSTR")
+  pool <- newPool (defaultPoolConfig (connectPostgreSQL (Data.ByteString.Char8.pack connStr)) close 60 10)
+  ctx <- newAppCtx logCfg pool (resultCounters buildResult)
   serverThread <- async $ race_
     (race_ (gameLoop ctx gameState) (deliverOutbound ctx))
     (run testPort (app ctx))

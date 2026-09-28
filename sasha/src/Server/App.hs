@@ -33,6 +33,8 @@ import           Control.Monad.Except (MonadError)
 import           Control.Monad.Reader (MonadReader, ReaderT)
 import           Data.IORef (IORef, newIORef)
 import           Data.Map.Strict (Map)
+import           Data.Pool (Pool)
+import           Database.PostgreSQL.Simple (Connection)
 import           DSL.Model.EDSL.SashaLambdaDSL (SashaLambdaDSL)
 import           Lens.Micro.Platform (makeLenses)
 import           Model.Core (Agent, GameState)
@@ -113,11 +115,12 @@ data AppCtx = AppCtx
   , acKnownPlayers    :: MVar (Map PlayerNameVAL (GID Agent))
   , acNextAgentId     :: IORef PInt
   , acBuilderCounters :: IORef BuilderCounters
+  , acDbPool          :: Pool Connection
   , acGameLog         :: GameLog
   }
 
-newAppCtx :: GameLog -> BuilderCounters -> IO AppCtx
-newAppCtx logCfg counters = do
+newAppCtx :: GameLog -> Pool Connection -> BuilderCounters -> IO AppCtx
+newAppCtx logCfg pool counters = do
   inChan   <- newTChanIO
   outChan  <- newTChanIO
   joinChan <- newTChanIO
@@ -135,6 +138,7 @@ newAppCtx logCfg counters = do
     , acKnownPlayers = known
     , acNextAgentId  = nextId
     , acBuilderCounters = builderCounters
+    , acDbPool       = pool
     , acGameLog      = logCfg
     }
 

@@ -53,8 +53,10 @@ executable sasha-e2e-tests
     , filepath
     , hspec
     , http-client
+    , postgresql-simple
     , process
     , random
+    , resource-pool
     , sasha
     , sashamud-world
     , string-interpolate
@@ -79,6 +81,8 @@ executable sashamud-integration-tests
     , http-client
     , http-types
     , microlens-platform
+    , postgresql-simple
+    , resource-pool
     , sasha
     , sashamud-world
     , servant-client

@@ -14,10 +14,13 @@ import           SashaPrelude
 import           API.TSClient (client)
 import           Control.Concurrent.Async (mapConcurrently_, race_)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 (pack)
+import           Data.Pool (defaultPoolConfig, newPool)
 import           Data.String.Interpolate (i)
 import           Data.Text.Encoding (decodeUtf8')
 import qualified Data.Text.IO as TIO
 import           Data.Time.Clock.POSIX (getPOSIXTime)
+import           Database.PostgreSQL.Simple (close, connectPostgreSQL)
 import           DSL.Builder (WorldBuilderResult (resultCounters))
 import           Engine.Simulation.SignalNetwork (gameLoop)
 import           GHC.IO (FilePath)
@@ -37,6 +40,7 @@ import           System.Directory
   , getTemporaryDirectory
   , removeFile
   )
+import           System.Environment (lookupEnv)
 import           System.Exit (ExitCode (ExitFailure), exitFailure)
 import           System.FilePath ((<.>), (</>))
 import           System.IO
@@ -69,7 +73,9 @@ withServer action = do
   hSetEncoding stdout utf8
   hSetBuffering stdout LineBuffering
   let logCfg = GameLog stderr
-  ctx <- newAppCtx logCfg (resultCounters buildResult)
+  connStr <- fromMaybe "dbname=sashamud" <$> lookupEnv "SASHA_DB_CONNSTR"
+  pool <- newPool (defaultPoolConfig (connectPostgreSQL (Data.ByteString.Char8.pack connStr)) close 60 10)
+  ctx <- newAppCtx logCfg pool (resultCounters buildResult)
   race_
     (race_ (gameLoop ctx gameState) (deliverOutbound ctx))
     (action ctx)

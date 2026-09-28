@@ -58,8 +58,11 @@ library
     Engine.Simulation.Clocks
     Engine.Simulation.SignalNetwork
     Error
+    Model.Account
+    Model.Authorization
     Model.Core
     Model.GID
+    Model.Mid
     Model.RandomPool
     Model.RichText
     Model.WireProtocol
@@ -143,8 +146,11 @@ executable sasha-tests
     Error
     JSONSpec
     MigrationSpec
+    Model.Account
+    Model.Authorization
     Model.Core
     Model.GID
+    Model.Mid
     Model.RandomPool
     Model.RichText
     Model.WireProtocol

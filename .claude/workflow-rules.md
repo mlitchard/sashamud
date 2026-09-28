@@ -98,3 +98,8 @@ metadata:
   code"): documentation over deduction means local sources only — old
   code, sanctioned checkouts, his stated facts. No WebFetch, no WebSearch,
   no Hackage. Unknown = say unknown and ask him.
+- NO SWEEPING HIS OTHER REPOS (2026-09-28, auth steps 1-3, "you keep
+  wanting to search mlitchard and mlitchard/gitlab for no reason"): when
+  a plan names a library or tool with no pattern in quux, sashamud, or
+  the sanctioned checkouts, ask him for the reference. Never grep
+  ~/gitlab or ~/github for it, and never send an agent to.
