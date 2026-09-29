@@ -43,7 +43,7 @@ import           Model.Account
   , OidcBaseUrl (OidcBaseUrl)
   , RedirectUri (RedirectUri)
   )
-import           Model.Authorization (RoleName (RoleName))
+import           Model.Authorization (RoleName (Wizard))
 import           Network.HTTP.Client
   ( defaultManagerSettings
   , managerResponseTimeout
@@ -182,10 +182,10 @@ webDriverTestWithClient ctx players jstest test = do
     (\port -> do
 
       loginManager <- newManager defaultManagerSettings
-      seedAccount (acDbPool ctx) (RoleName "wizard") (PlayerNameVAL "Raj")
+      seedAccount (acDbPool ctx) Wizard (PlayerNameVAL "Raj")
       SessionId rajToken <- loginThroughFake loginManager port "Raj"
       extraTokens <- mapM (\name -> do
-          seedAccount (acDbPool ctx) (RoleName "wizard") (PlayerNameVAL name)
+          seedAccount (acDbPool ctx) Wizard (PlayerNameVAL name)
           SessionId t <- loginThroughFake loginManager port name
           pure ("\"" <> name <> "\": \"" <> t <> "\"")) players
       let tokensLiteral = intercalate ", " extraTokens

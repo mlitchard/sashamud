@@ -5,6 +5,7 @@
 module FakeProvider
   ( FakeState
   , fakeApp
+  , fakeAuthentikUserId
   , finalLocationThroughFake
   , loginThroughFake
   , newFakeState
@@ -21,20 +22,22 @@ import           Data.ByteArray.Encoding
   , convertToBase
   )
 import           Data.ByteString (ByteString)
+import qualified Data.ByteString (unpack)
 import           Data.List (lookup)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict (insert, lookup)
 import           Data.Pool (Pool, withResource)
 import           Data.Text (breakOn, stripPrefix)
 import           Data.Text.Encoding (decodeUtf8', encodeUtf8)
+import           Data.UUID.V5 (generateNamed, namespaceOID)
 import           Database.PostgreSQL.Simple (Connection, execute)
 import           Database.PostgreSQL.Simple.SqlQQ (sql)
 import           Model.Account
   ( AccessToken (AccessToken)
   , AuthCode (AuthCode)
+  , AuthentikUserId (AuthentikUserId)
   , CodeVerifier (CodeVerifier)
   , OidcState
-  , Subject (Subject)
   , TokenResponse (TokenResponse)
   , UserInfo (UserInfo)
   , unAuthCode
@@ -137,7 +140,11 @@ userinfo :: Text -> Handler UserInfo
 userinfo authorization =
   case stripPrefix "Bearer " authorization of
     Nothing   -> throwError err401
-    Just user -> pure (UserInfo (Subject ("sub-" <> user)) (PlayerNameUNV user))
+    Just user -> pure (UserInfo (fakeAuthentikUserId user) (PlayerNameUNV user))
+
+fakeAuthentikUserId :: Text -> AuthentikUserId
+fakeAuthentikUserId user =
+  AuthentikUserId (generateNamed namespaceOID (Data.ByteString.unpack (encodeUtf8 user)))
 
 finalLocationThroughFake :: Manager -> Int -> Maybe Text -> Text -> IO Text
 finalLocationThroughFake manager port requestedName user = do
@@ -168,7 +175,7 @@ loginThroughFake manager port user = do
 
 seedAccount :: Pool Connection -> RoleName -> PlayerNameVAL -> IO ()
 seedAccount pool role (PlayerNameVAL name) = withResource pool $ \conn -> do
-  _ <- execute conn seedQuery (role, name, name, "sub-" <> name)
+  _ <- execute conn seedQuery (role, name, name, fakeAuthentikUserId name)
   pure ()
   where
     seedQuery =
@@ -179,6 +186,6 @@ seedAccount pool role (PlayerNameVAL name) = withResource pool $ \conn -> do
               WHERE name = ?
                 AND NOT EXISTS (SELECT 1 FROM credentials WHERE player_name = ?)
             RETURNING user_id)
-        INSERT INTO credentials (user_id, player_name, subject)
+        INSERT INTO credentials (user_id, player_name, authentik_user_id)
           SELECT user_id, ?, ? FROM new_user
       |]

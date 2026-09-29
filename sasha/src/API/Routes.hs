@@ -13,7 +13,7 @@ module API.Routes
 
 import           API.Types (AuthenticatedUser, DSLSource, MessageTo)
 import           Model.Account (AuthCode, OidcState)
-import           Model.Authorization (Resource (Dsl), ResourceAction (Create))
+import           Model.Authorization (AllowedAction (Dsl))
 import           Model.Core (SessionId)
 import           Model.WireProtocol (MessageFrom)
 import           Network.HTTP.Types.Method (StdMethod (GET))
@@ -69,7 +69,7 @@ type AuthAPI =
 
 type DSLAPI =
   "api" :> "game" :> "dsl"
-  :> CanDo 'Dsl 'Create
+  :> CanDo 'Dsl
   :> ReqBody '[JSON] DSLSource
   :> PostNoContent
 

@@ -35,8 +35,7 @@ import           Data.ByteArray.Encoding
 import           Data.ByteString (ByteString)
 import           Data.ByteString.Lazy (fromStrict)
 import           Data.List (lookup)
-import qualified Data.Map.Strict (delete, filter, fromList, insert, lookup)
-import           Data.Maybe (catMaybes)
+import qualified Data.Map.Strict (delete, filter, insert, lookup)
 import           Data.Pool (withResource)
 import qualified Data.Set (fromList, member)
 import           Data.String (fromString)
@@ -68,15 +67,13 @@ import           Model.Account
   , UserPermissions (Permissions, PermissionsDisabled)
   )
 import           Model.Authorization
-  ( Permission (DemotedPermission, demotePermission)
-  , Resource
-  , ResourceAction
+  ( AllowedAction
+  , Permission (DemotedPermission, demotePermission)
   , RoleId
-  , RoleStatus (RoleActive, RoleInactive)
   )
 import           Model.Core (Agent)
 import           Model.GID (GID (GID))
-import           Model.Mid (Mid)
+import           Model.Mid (Mid, unMid)
 import           Network.HTTP.Client
   ( Response (responseBody)
   , applyBearerAuth
@@ -143,26 +140,23 @@ sashaContext ctx = mkAuthHandler (authHandler ctx) :. EmptyContext
 tokenDigest :: ByteString -> Binary ByteString
 tokenDigest bytes = Binary (convert (hashWith SHA256 bytes))
 
-type CanDo :: Resource -> ResourceAction -> Type
-data CanDo resource action
+type CanDo :: AllowedAction -> Type
+data CanDo action
 
-instance forall r a xs context.
+instance forall a xs context.
   ( HasServer xs context
   , HasContextEntry context (AuthHandler Request AuthenticatedUser)
-  , Permission r
-  , DemotedPermission r ~ Resource
   , Permission a
-  , DemotedPermission a ~ ResourceAction
+  , DemotedPermission a ~ AllowedAction
   ) =>
-  HasServer (CanDo r a :> xs) context
+  HasServer (CanDo a :> xs) context
   where
-  type ServerT (CanDo r a :> xs) m = AuthenticatedUser -> ServerT xs m
+  type ServerT (CanDo a :> xs) m = AuthenticatedUser -> ServerT xs m
   hoistServerWithContext _ pc nt server =
     hoistServerWithContext (Proxy @xs) pc nt . server
   route _ context subserver =
     route (Proxy @xs) context (subserver `addAuthCheck` withRequest authCheck)
     where
-      resource = demotePermission (Proxy @r)
       action = demotePermission (Proxy @a)
       authCheck :: Request -> DelayedIO AuthenticatedUser
       authCheck req = do
@@ -170,21 +164,17 @@ instance forall r a xs context.
         case result of
           Left err -> delayedFailFatal err
           Right user
-            | canDo resource action user -> pure user
+            | canDo action user -> pure user
             | otherwise -> delayedFailFatal err403
                 { errBody = fromString
-                    ("User " <> show (auUserId user) <> " may not perform "
-                      <> show action <> " on " <> show resource)
+                    ("User " <> show (auUserId user) <> " may not perform " <> show action)
                 }
 
-canDo :: Resource -> ResourceAction -> AuthenticatedUser -> Bool
-canDo resource action (AuthenticatedUser _ _ permissions) =
+canDo :: AllowedAction -> AuthenticatedUser -> Bool
+canDo action (AuthenticatedUser _ _ permissions) =
   case permissions of
     PermissionsDisabled -> False
-    Permissions granted ->
-      case Data.Map.Strict.lookup resource granted of
-        Just actions -> Data.Set.member action actions
-        Nothing      -> False
+    Permissions granted -> Data.Set.member action granted
 
 authHandler :: AppCtx -> Request -> Handler AuthenticatedUser
 authHandler ctx req =
@@ -213,23 +203,14 @@ authHandler ctx req =
 
 loadPermissions :: AppCtx -> RoleId -> Handler UserPermissions
 loadPermissions ctx roleId = do
-  statuses :: [Only RoleStatus] <-
+  rows :: [Only (Maybe (PGArray AllowedAction))] <-
     liftIO . withResource (acDbPool ctx) $ \conn ->
-      query conn [sql| SELECT status FROM roles WHERE role_id = ? |] (Only roleId)
-  case statuses of
-    [Only RoleActive] -> do
-      rows :: [Maybe (Resource, PGArray ResourceAction)] <-
-        liftIO . withResource (acDbPool ctx) $ \conn ->
-          query conn permissionsQuery (Only roleId)
-      pure (Permissions (Data.Map.Strict.fromList
-        [ (resource, Data.Set.fromList (fromPGArray actions))
-        | (resource, actions) <- catMaybes rows
-        ]))
-    [Only RoleInactive] -> pure PermissionsDisabled
-    _ -> throwError err500
+      query conn permissionsQuery (Only roleId)
+  pure (Permissions (Data.Set.fromList
+    [ action | Only (Just actions) <- rows, action <- fromPGArray actions ]))
   where
     permissionsQuery =
-      [sql| SELECT resource, allowed_actions FROM role_permissions WHERE role_id = ? |]
+      [sql| SELECT role_permissions FROM roles WHERE role_id = ? |]
 
 authAvailable :: PlayerNameUNV -> AppM NoContent
 authAvailable unv = do
@@ -304,16 +285,16 @@ authCallback (AuthCode code) state = do
   infoResp <- liftIO $ httpLbs
     (setRequestCheckStatus (applyBearerAuth (encodeUtf8 accessToken) infoReq))
     (acHttpManager ctx)
-  UserInfo subject _ <- case eitherDecode (responseBody infoResp) of
+  UserInfo authentikUserId _ <- case eitherDecode (responseBody infoResp) of
     Left _  -> throwError err401
     Right r -> pure r
-  rows :: [(Mid AuthenticatedUser, Text, Int)] <-
+  rows :: [(Mid AuthenticatedUser, Text)] <-
     liftIO . withResource (acDbPool ctx) $ \conn ->
-      query conn credentialsQuery (Only subject)
+      query conn credentialsQuery (Only authentikUserId)
   existing <- case rows of
-    [(uid, name, gid)] -> pure (Just (uid, PlayerNameVAL name, GID gid))
-    []                 -> pure Nothing
-    _                  -> throwError err500
+    [(uid, name)] -> pure (Just (uid, PlayerNameVAL name, GID (unMid uid)))
+    []            -> pure Nothing
+    _             -> throwError err500
   outcome <- case (existing, chosenName) of
     (Just account, _)      -> pure (Right account)
     (Nothing, Nothing)     -> pure (Left "/#new")
@@ -321,11 +302,11 @@ authCallback (AuthCode code) state = do
       created :: Either SqlError (Maybe (Mid AuthenticatedUser, PlayerNameVAL, GID Agent)) <-
         liftIO . try . withResource (acDbPool ctx) $ \conn ->
           withTransaction conn $ do
-            userRows :: [(Mid AuthenticatedUser, Int)] <- query_ conn insertUser
+            userRows :: [Only (Mid AuthenticatedUser)] <- query_ conn insertUser
             case userRows of
-              [(uid, gid)] -> do
-                _ <- execute conn insertCredentials (uid, name, subject)
-                pure (Just (uid, PlayerNameVAL name, GID gid))
+              [Only uid] -> do
+                _ <- execute conn insertCredentials (uid, name, authentikUserId)
+                pure (Just (uid, PlayerNameVAL name, GID (unMid uid)))
               _ -> pure Nothing
       case created of
         Left err
@@ -359,19 +340,19 @@ authCallback (AuthCode code) state = do
   where
     credentialsQuery =
       [sql|
-        SELECT credentials.user_id, credentials.player_name, users.agent_gid FROM credentials
+        SELECT credentials.user_id, credentials.player_name FROM credentials
           JOIN users ON users.user_id = credentials.user_id
-          WHERE credentials.subject = ?
+          WHERE credentials.authentik_user_id = ?
             AND users.status = 'active'
       |]
     insertUser =
       [sql|
         INSERT INTO users (status, role_id, activated_on)
           SELECT 'active', role_id, now() FROM roles WHERE name = 'wizard'
-          RETURNING user_id, agent_gid
+          RETURNING user_id
       |]
     insertCredentials =
-      [sql| INSERT INTO credentials (user_id, player_name, subject) VALUES (?, ?, ?) |]
+      [sql| INSERT INTO credentials (user_id, player_name, authentik_user_id) VALUES (?, ?, ?) |]
     insertToken =
       [sql|
         INSERT INTO tokens (token_digest, user_id, created, expires_at)
