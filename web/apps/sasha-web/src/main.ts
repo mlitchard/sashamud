@@ -129,7 +129,7 @@ function addLogoutButton(conn: GameConnection, viewports: ViewportManager): void
     if (!sessionId) return;
 
     btn.disabled = true;
-    API["/api/game/logout(SessionId)"](sessionId)
+    API["/api/game/logout{BEARER}"](sessionId)
       .then(() => {
         conn.disconnect();
         viewports.destroy();

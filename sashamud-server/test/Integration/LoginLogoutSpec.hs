@@ -1,3 +1,5 @@
+{-# LANGUAGE DataKinds   #-}
+{-# LANGUAGE QuasiQuotes #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 module Integration.LoginLogoutSpec (spec) where
@@ -21,6 +23,7 @@ import           SashaPrelude
   , ($)
   , (.)
   , (<>)
+  , (=<<)
   )
 
 import           API.Routes (DSLAPI, LogoutAPI)
@@ -37,10 +40,12 @@ import           Data.ByteString.Lazy (null)
 import           Data.List (lookup)
 import           Data.Map.Strict (member)
 import           Data.Pool (defaultPoolConfig, newPool, withResource)
-import           Data.Text (isPrefixOf, stripPrefix, unlines)
+import           Data.Text (isPrefixOf, unlines)
 import           Data.Text.Encoding (decodeUtf8', encodeUtf8)
+import           Data.Time.Clock (secondsToNominalDiffTime)
 import           Database.PostgreSQL.Simple
   ( Only (Only)
+  , Query
   , close
   , connectPostgreSQL
   , execute
@@ -51,25 +56,35 @@ import           Database.PostgreSQL.Simple.Migration
   , defaultOptions
   , runMigrations
   )
+import           Database.PostgreSQL.Simple.SqlQQ (sql)
 import           DSL.Builder (WorldBuilderResult (resultCounters))
 import           Engine.Simulation.SignalNetwork (gameLoop)
 import           FakeProvider
-  ( fakeApp
+  ( callbackThroughFake
+  , fakeApp
   , fakeAuthentikUserId
   , finalLocationThroughFake
   , loginThroughFake
   , newFakeState
   , seedAccount
+  , sessionFromCookie
   )
 import           Lens.Micro.Platform (view)
 import           Model.Account
-  ( ClientId (ClientId)
+  ( AccessToken (AccessToken)
+  , ClientId (ClientId)
   , ClientSecret (ClientSecret)
   , OidcBaseUrl (OidcBaseUrl)
   , RedirectUri (RedirectUri)
   )
 import           Model.Authorization (RoleName (Player, Wizard))
 import           Model.Core (actionConsequence, presenceListing)
+import           Model.Jwt
+  ( Credentials (Credentials)
+  , Jwt (unJwt)
+  , hashToken
+  , makeJwtForTesting
+  )
 import           Model.RichText (toPlainText)
 import           Model.WireProtocol
   ( MessageFrom (GameNarration, Pong, SystemMessage)
@@ -98,7 +113,6 @@ import           Servant
   , Proxy (Proxy)
   , type (:>)
   )
-import           Servant.API.WebSocket (SecWebSocketProtocol)
 import           Servant.Client
   ( BaseUrl (baseUrlPort)
   , ClientEnv
@@ -125,7 +139,7 @@ import           Server.App
   , OidcConfig (OidcConfig)
   , newAppCtx
   )
-import           Server.Authentication (CanDo, tokenDigest)
+import           Server.Authentication (CanDo)
 import           Server.Migration (buildCommand)
 import           Server.Server (app, deliverOutbound)
 import           Server.Validator (PlayerNameVAL (PlayerNameVAL))
@@ -142,25 +156,25 @@ import           Test.Hspec
   )
 
 -- Servant client adapter for the CanDo combinator
-instance (RunClient m, HasClient m (AuthProtect SecWebSocketProtocol :> api))
+instance (RunClient m, HasClient m (AuthProtect "BEARER" :> api))
   => HasClient m (CanDo a :> api) where
-  type Client m (CanDo a :> api) = Client m (AuthProtect SecWebSocketProtocol :> api)
-  clientWithRoute pm _ = clientWithRoute pm (Proxy @(AuthProtect SecWebSocketProtocol :> api))
-  hoistClientMonad pm _ = hoistClientMonad pm (Proxy @(AuthProtect SecWebSocketProtocol :> api))
+  type Client m (CanDo a :> api) = Client m (AuthProtect "BEARER" :> api)
+  clientWithRoute pm _ = clientWithRoute pm (Proxy @(AuthProtect "BEARER" :> api))
+  hoistClientMonad pm _ = hoistClientMonad pm (Proxy @(AuthProtect "BEARER" :> api))
 
-logoutClient :: SessionId -> ClientM NoContent
+logoutClient :: AuthenticatedRequest (AuthProtect "BEARER") -> ClientM NoContent
 logoutClient = client (Proxy @LogoutAPI)
 
-type instance AuthClientData (AuthProtect SecWebSocketProtocol) = SessionId
+type instance AuthClientData (AuthProtect "BEARER") = SessionId
 
-dslClient :: AuthenticatedRequest (AuthProtect SecWebSocketProtocol) -> DSLSource -> ClientM NoContent
+dslClient :: AuthenticatedRequest (AuthProtect "BEARER") -> DSLSource -> ClientM NoContent
 dslClient = client (Proxy @DSLAPI)
 
-makeAuthRequest :: SessionId -> AuthenticatedRequest (AuthProtect SecWebSocketProtocol)
+makeAuthRequest :: SessionId -> AuthenticatedRequest (AuthProtect "BEARER")
 makeAuthRequest sid = mkAuthenticatedRequest sid authenticatedRequest
 
 authenticatedRequest :: SessionId -> Request -> Request
-authenticatedRequest (SessionId sid) = addHeader "Sec-WebSocket-Protocol" sid
+authenticatedRequest (SessionId sid) = addHeader "BEARER" sid
 
 isErrorCode :: Int -> Either ClientError a -> Bool
 isErrorCode _ (Right _) = False
@@ -254,6 +268,14 @@ seesObjects line (GameNarration narr) =
   line `elem` fmap toPlainText (view actionConsequence narr)
 seesObjects _ _ = False
 
+insertExpired :: Query
+insertExpired =
+  [sql|
+    INSERT INTO tokens (token, hash, user_id, created)
+      SELECT ?, ?, credentials.user_id, now() FROM credentials
+        WHERE credentials.player_name = ?
+  |]
+
 spec :: Spec
 spec = describe "Integration" . around withTestServer $ do
 
@@ -283,29 +305,48 @@ spec = describe "Integration" . around withTestServer $ do
   it "DELETE /api/game/logout removes session" $ \(_port, ctx) -> do
     env <- testClientEnv
     sid <- loginAs ctx Wizard "TestPlayer"
-    logoutResult <- runClientM (logoutClient sid) env
+    logoutResult <- runClientM (logoutClient (makeAuthRequest sid)) env
     logoutResult `shouldBe` Right NoContent
 
   it "login after logout produces a different token" $ \(_port, ctx) -> do
     env <- testClientEnv
     sid1 <- loginAs ctx Wizard "Roundtrip"
-    _ <- runClientM (logoutClient sid1) env
+    _ <- runClientM (logoutClient (makeAuthRequest sid1)) env
     sid2 <- loginAs ctx Wizard "Roundtrip"
     sid1 `shouldSatisfy` (/= sid2)
 
+  it "a second login replaces the first" $ \(_port, ctx) -> do
+    env <- testClientEnv
+    sid1 <- loginAs ctx Wizard "Twice"
+    manager <- newManager defaultManagerSettings
+    sid2 <- loginThroughFake manager testPort "Twice"
+    first <- runClientM (dslClient (makeAuthRequest sid1) (DSLSource worldSource)) env
+    isErrorCode 401 first `shouldBe` True
+    second <- runClientM (dslClient (makeAuthRequest sid2) (DSLSource worldSource)) env
+    second `shouldBe` Right NoContent
+
   it "an expired token is rejected" $ \(_port, ctx) -> do
     env <- testClientEnv
-    sid@(SessionId token) <- loginAs ctx Wizard "Expired"
-    _ <- withResource (acDbPool ctx) $ \conn ->
-      execute conn "UPDATE tokens SET expires_at = now() - interval '1 hour' WHERE token_digest = ?"
-        (Only (tokenDigest (encodeUtf8 token)))
-    result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource worldSource)) env
-    isErrorCode 401 result `shouldBe` True
+    seedAccount (acDbPool ctx) Wizard (PlayerNameVAL "Expired")
+    let access = AccessToken "Expired"
+    hash <- hashToken access
+    minted <- makeJwtForTesting (secondsToNominalDiffTime (-3600))
+                (Credentials (fakeAuthentikUserId "Expired") access) hash
+    case minted of
+      Left err -> expectationFailure ("could not mint an expired token: " <> show err)
+      Right jwt -> do
+        _ <- withResource (acDbPool ctx) $ \conn ->
+          execute conn insertExpired (jwt, hash, "Expired" :: Text)
+        case decodeUtf8' (unJwt jwt) of
+          Left _ -> expectationFailure "minted token is not UTF-8"
+          Right token -> do
+            result <- runClientM (dslClient (makeAuthRequest (SessionId token)) (DSLSource worldSource)) env
+            isErrorCode 401 result `shouldBe` True
 
   it "logout stops the token working" $ \(_port, ctx) -> do
     env <- testClientEnv
     sid <- loginAs ctx Wizard "LoggedOut"
-    _ <- runClientM (logoutClient sid) env
+    _ <- runClientM (logoutClient (makeAuthRequest sid)) env
     result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource worldSource)) env
     isErrorCode 401 result `shouldBe` True
 
@@ -391,7 +432,7 @@ spec = describe "Integration" . around withTestServer $ do
     connectWS sid1 $ \conn1 ->
       connectWS sid2 $ \_ -> do
         threadDelay 3000000
-        _ <- runClientM (logoutClient sid2) env
+        _ <- runClientM (logoutClient (makeAuthRequest sid2)) env
         threadDelay 3000000
         result <- receiveUntil conn1 10000000 (isDeparture "LogoutTarget")
         case result of
@@ -499,14 +540,14 @@ spec = describe "Integration" . around withTestServer $ do
   it "a new subject with a free name gets an account and keeps it" $ \(_port, ctx) -> do
     manager <- newManager defaultManagerSettings
     first <- finalLocationThroughFake manager testPort (Just "Newbie") "newbie"
-    first `shouldSatisfy` isPrefixOf "/#token="
+    first `shouldBe` "/"
     rows1 :: [Only Int] <- withResource (acDbPool ctx) $ \conn ->
       query conn "SELECT users.user_id FROM users JOIN credentials ON users.user_id = credentials.user_id WHERE credentials.authentik_user_id = ?" (Only (fakeAuthentikUserId "newbie"))
     case rows1 of
       [Only _] -> pure ()
       _        -> expectationFailure "expected exactly one account for the new subject"
     second <- finalLocationThroughFake manager testPort Nothing "newbie"
-    second `shouldSatisfy` isPrefixOf "/#token="
+    second `shouldBe` "/"
     rows2 :: [Only Int] <- withResource (acDbPool ctx) $ \conn ->
       query conn "SELECT users.user_id FROM users JOIN credentials ON users.user_id = credentials.user_id WHERE credentials.authentik_user_id = ?" (Only (fakeAuthentikUserId "newbie"))
     rows2 `shouldBe` rows1
@@ -525,12 +566,9 @@ spec = describe "Integration" . around withTestServer $ do
   it "an account created at login can submit DSL" $ \(_port, _ctx) -> do
     env <- testClientEnv
     manager <- newManager defaultManagerSettings
-    final <- finalLocationThroughFake manager testPort (Just "Builderborn") "builderborn"
-    case stripPrefix "/#token=" final of
-      Nothing -> expectationFailure ("expected a token, got " <> show final)
-      Just token -> do
-        result <- runClientM (dslClient (makeAuthRequest (SessionId token)) (DSLSource worldSource)) env
-        result `shouldBe` Right NoContent
+    sid <- sessionFromCookie =<< callbackThroughFake manager testPort (Just "Builderborn") "builderborn"
+    result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource worldSource)) env
+    result `shouldBe` Right NoContent
 
   it "POST /api/game/dsl with the world source returns NoContent" $ \(_port, ctx) -> do
     env <- testClientEnv

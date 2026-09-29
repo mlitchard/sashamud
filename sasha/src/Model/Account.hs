@@ -138,6 +138,7 @@ data UserInfo = UserInfo
 
 #ifdef TESTING
 deriving via (GenericArbitrary AccountStatus) instance Arbitrary AccountStatus
+deriving newtype instance Arbitrary AccessToken
 deriving newtype instance Arbitrary AuthentikUserId
 deriving via (GenericArbitrary UserPermissions) instance Arbitrary UserPermissions
 #endif

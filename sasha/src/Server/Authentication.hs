@@ -12,7 +12,6 @@ module Server.Authentication
   , authProxy
   , authStart
   , sashaContext
-  , tokenDigest
   ) where
 
 import           SashaPrelude
@@ -27,7 +26,6 @@ import           Control.Monad.Reader (ask)
 import           Crypto.Hash (SHA256 (SHA256), hashWith)
 import           Crypto.Random (getRandomBytes)
 import           Data.Aeson (eitherDecode)
-import           Data.ByteArray (convert)
 import           Data.ByteArray.Encoding
   ( Base (Base64URLUnpadded)
   , convertToBase
@@ -43,8 +41,7 @@ import           Data.Text.Encoding (decodeUtf8', encodeUtf8)
 import           Data.Time.Clock (diffUTCTime, getCurrentTime)
 import           Data.Type.Equality (type (~))
 import           Database.PostgreSQL.Simple
-  ( Binary (Binary)
-  , Only (Only)
+  ( Only (Only)
   , SqlError (sqlState)
   , execute
   , query
@@ -73,6 +70,15 @@ import           Model.Authorization
   )
 import           Model.Core (Agent)
 import           Model.GID (GID (GID))
+import           Model.Jwt
+  ( Credentials (Credentials)
+  , Jwt (Jwt, unJwt)
+  , SashaClaims (SashaClaims)
+  , getJwtData
+  , hashToken
+  , makeJwt
+  , tryAddHashAndJwt
+  )
 import           Model.Mid (Mid, unMid)
 import           Network.HTTP.Client
   ( Response (responseBody)
@@ -100,6 +106,7 @@ import           Servant
   , err403
   , err409
   , err500
+  , noHeader
   , throwError
   , type (:>)
   )
@@ -136,9 +143,6 @@ authProxy = Proxy
 
 sashaContext :: AppCtx -> SashaContext
 sashaContext ctx = mkAuthHandler (authHandler ctx) :. EmptyContext
-
-tokenDigest :: ByteString -> Binary ByteString
-tokenDigest bytes = Binary (convert (hashWith SHA256 bytes))
 
 type CanDo :: AllowedAction -> Type
 data CanDo action
@@ -178,26 +182,34 @@ canDo action (AuthenticatedUser _ _ permissions) =
 
 authHandler :: AppCtx -> Request -> Handler AuthenticatedUser
 authHandler ctx req =
-  case lookup "Sec-WebSocket-Protocol" (requestHeaders req) of
-    Nothing -> throwError err401
-    Just rawToken -> case decodeUtf8' rawToken of
+  case lookup "BEARER" (requestHeaders req) of
+    Just rawToken -> processToken rawToken
+    Nothing -> case lookup "Sec-WebSocket-Protocol" (requestHeaders req) of
+      Nothing       -> throwError err401
+      Just rawToken -> processToken rawToken
+  where
+    processToken :: ByteString -> Handler AuthenticatedUser
+    processToken rawToken = case decodeUtf8' rawToken of
       Left _ -> throwError err401
       Right t -> do
-        rows :: [(Mid AuthenticatedUser, RoleId)] <-
+        rows :: [(Mid AuthenticatedUser, RoleId, ByteString)] <-
           liftIO . withResource (acDbPool ctx) $ \conn ->
-            query conn userQuery (Only (tokenDigest rawToken))
+            query conn userQuery (Only rawToken)
         case rows of
-          [(userId, roleId)] -> do
+          [(userId, roleId, hash)] -> do
+            SashaClaims _ expiration <- case getJwtData (Jwt rawToken) hash of
+              Left _       -> throwError err401
+              Right claims -> pure claims
+            now <- liftIO getCurrentTime
+            when (expiration < now) (throwError err401)
             permissions <- loadPermissions ctx roleId
             pure (AuthenticatedUser (SessionId t) userId permissions)
           _ -> throwError err401
-  where
     userQuery =
       [sql|
-        SELECT users.user_id, users.role_id FROM tokens
+        SELECT users.user_id, users.role_id, tokens.hash FROM tokens
           JOIN users ON users.user_id = tokens.user_id
-          WHERE tokens.token_digest = ?
-            AND tokens.expires_at > now()
+          WHERE tokens.token = ?
             AND users.status = 'active'
       |]
 
@@ -257,7 +269,7 @@ authStart requestedName = do
       pure (addHeader locationText NoContent)
     _ -> throwError err500
 
-authCallback :: AuthCode -> OidcState -> AppM (Headers '[Header "Location" Text] NoContent)
+authCallback :: AuthCode -> OidcState -> AppM (Headers '[Header "Set-Cookie" Text, Header "Location" Text] NoContent)
 authCallback (AuthCode code) state = do
   ctx <- ask
   let OidcConfig (OidcBaseUrl base) (ClientId clientId) (ClientSecret secret) (RedirectUri redirectUri) = acOidcConfig ctx
@@ -278,7 +290,7 @@ authCallback (AuthCode code) state = do
       , ("code_verifier", encodeUtf8 verifier)
       ] tokenReq))
     (acHttpManager ctx)
-  TokenResponse (AccessToken accessToken) <- case eitherDecode (responseBody tokenResp) of
+  TokenResponse access@(AccessToken accessToken) <- case eitherDecode (responseBody tokenResp) of
     Left _  -> throwError err401
     Right r -> pure r
   infoReq <- liftIO (parseRequest (unpack base <> "/application/o/userinfo/"))
@@ -315,15 +327,17 @@ authCallback (AuthCode code) state = do
         Right Nothing        -> throwError err500
         Right (Just account) -> pure (Right account)
   case outcome of
-    Left location -> pure (addHeader location NoContent)
+    Left location -> pure (noHeader (addHeader location NoContent))
     Right (userId, playerName, agentGid) -> do
-      tokenBytes :: ByteString <- liftIO (getRandomBytes 32)
-      let token = convertToBase Base64URLUnpadded tokenBytes :: ByteString
-      tokenText <- case decodeUtf8' token of
+      hash <- liftIO (hashToken access)
+      minted <- liftIO (makeJwt (Credentials authentikUserId access) hash)
+      jwt <- case minted of
+        Left _  -> throwError err500
+        Right j -> pure j
+      tokenText <- case decodeUtf8' (unJwt jwt) of
         Left _  -> throwError err500
         Right t -> pure t
-      _ <- liftIO . withResource (acDbPool ctx) $ \conn ->
-        execute conn insertToken (tokenDigest token, userId, userId, userId)
+      tryAddHashAndJwt userId hash jwt
       let sessionId = SessionId tokenText
           hasActiveSession (SessionPhase _ _ AwaitingSocket) = False
           hasActiveSession (SessionPhase n _ _)              = n == playerName
@@ -336,7 +350,8 @@ authCallback (AuthCode code) state = do
                        (Data.Map.Strict.filter keepEntry sessions), False)
       when alreadyActive (throwError err409)
       liftIO $ writeLog (acGameLog ctx) (PlayerLogin playerName)
-      pure (addHeader ("/#token=" <> tokenText) NoContent)
+      pure (addHeader ("sashamud_token=" <> tokenText <> "; Path=/; Secure; SameSite=Strict")
+             (addHeader "/" NoContent))
   where
     credentialsQuery =
       [sql|
@@ -353,11 +368,3 @@ authCallback (AuthCode code) state = do
       |]
     insertCredentials =
       [sql| INSERT INTO credentials (user_id, player_name, authentik_user_id) VALUES (?, ?, ?) |]
-    insertToken =
-      [sql|
-        INSERT INTO tokens (token_digest, user_id, created, expires_at)
-          VALUES (?, ?, now(), now() + interval '1 day');
-        DELETE FROM tokens WHERE user_id = ? AND token_digest
-          NOT IN (SELECT token_digest FROM tokens WHERE user_id = ?
-                    ORDER BY created DESC LIMIT 30);
-      |]

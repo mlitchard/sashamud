@@ -132,6 +132,7 @@ executable sashamud-integration-tests
     , servant-server
     , servant-websockets
     , text
+    , time
     , uuid
     , warp
     , websockets
