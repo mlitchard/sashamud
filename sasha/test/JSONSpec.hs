@@ -5,8 +5,8 @@ import           Data.Kind (Type)
 import           SashaPrelude (Eq, Maybe (Just), Show, ($), (==))
 
 import           API.Types (MessageTo)
-import           Model.Account (AccountStatus, Subject, UserPermissions)
-import           Model.Authorization (Resource, ResourceAction, RoleStatus)
+import           Model.Account (AccountStatus, AuthentikUserId, UserPermissions)
+import           Model.Authorization (AllowedAction)
 import           Model.Core (Narration, SessionId)
 import           Model.GID (GID)
 import           Model.Mid (Mid)
@@ -43,9 +43,7 @@ spec = describe "JSON round trip" $ do
     prop "GID" $ checkJSON @(GID ())
     prop "AnalysisViewport" $ checkJSON @AnalysisViewport
     prop "Mid" $ checkJSON @(Mid ())
-    prop "Resource" $ checkJSON @Resource
-    prop "ResourceAction" $ checkJSON @ResourceAction
-    prop "RoleStatus" $ checkJSON @RoleStatus
+    prop "AllowedAction" $ checkJSON @AllowedAction
     prop "AccountStatus" $ checkJSON @AccountStatus
-    prop "Subject" $ checkJSON @Subject
+    prop "AuthentikUserId" $ checkJSON @AuthentikUserId
     prop "UserPermissions" $ checkJSON @UserPermissions

@@ -23,7 +23,7 @@ instance (Fletch xs, KnownSymbol s) => Fletch (AuthProtect s :> xs) where
   returnType = returnType @(Header' '[JSON] s Text :> xs)
   protocol = protocol @(Header' '[JSON] s Text :> xs)
 
-instance (Fletch (AuthProtect SecWebSocketProtocol :> xs)) => Fletch (CanDo r a :> xs) where
+instance (Fletch (AuthProtect SecWebSocketProtocol :> xs)) => Fletch (CanDo a :> xs) where
   argBits = argBits @(AuthProtect SecWebSocketProtocol :> xs)
   returnType = returnType @(AuthProtect SecWebSocketProtocol :> xs)
   protocol = protocol @(AuthProtect SecWebSocketProtocol :> xs)

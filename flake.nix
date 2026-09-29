@@ -187,8 +187,8 @@
                   WHERE name = :'role'
                     AND NOT EXISTS (SELECT 1 FROM credentials WHERE player_name = :'name')
                 RETURNING user_id)
-            INSERT INTO credentials (user_id, player_name, subject)
-              SELECT user_id, :'name', :'subject' FROM new_user
+            INSERT INTO credentials (user_id, player_name, authentik_user_id)
+              SELECT user_id, :'name', :'authentik_user_id' FROM new_user
               ON CONFLICT (player_name) DO NOTHING;
           '';
           createAccount = pkgs.writeShellScript "create-account" ''
@@ -201,17 +201,17 @@
             KEYGEN="${pkgs.openssh}/bin/ssh-keygen"
             PSQL="${pkgs.postgresql}/bin/psql"
             NAME=$($JQ -r .player_name "$ACCOUNT")
-            SUBJECT=$($JQ -r .subject "$ACCOUNT")
+            AUTHENTIK_USER_ID=$($JQ -r .authentik_user_id "$ACCOUNT")
             ROLE=$($JQ -r .role "$ACCOUNT")
             SIG=$(${pkgs.coreutils}/bin/mktemp)
             trap 'rm -f "$SIG"' EXIT
             $KEYGEN -Y sign -f "$KEY" -n sashamud-account < "$ACCOUNT" > "$SIG"
             $KEYGEN -Y verify -f "$SIGNERS" -I sashamud-admin -n sashamud-account -s "$SIG" < "$ACCOUNT"
-            $PSQL "$CONNSTR" -v ON_ERROR_STOP=1 -v name="$NAME" -v subject="$SUBJECT" -v role="$ROLE" -f ${createAccountSql}
+            $PSQL "$CONNSTR" -v ON_ERROR_STOP=1 -v name="$NAME" -v authentik_user_id="$AUTHENTIK_USER_ID" -v role="$ROLE" -f ${createAccountSql}
             echo "account $NAME ($ROLE) is present"
           '';
           wizardAccount = pkgs.writeText "wizard-account.json" ''
-            { "player_name": "wizard", "subject": "sub-wizard", "role": "wizard" }
+            { "player_name": "wizard", "authentik_user_id": "1d2c91c8-fd3d-5ba7-9e29-c2ed7ce38d1d", "role": "wizard" }
           '';
 
           devtools = inputs.horizon-devtools.packages.${system};
@@ -386,6 +386,7 @@
             ];
             shellHook = ''
               export SASHA_MIGRATIONS_DIR=${migrationsDir}
+              export SASHA_OIDC_REDIRECT_URI=https://localhost:8080/api/auth/callback
               ${shelpersConfig.functions}
               shelp
             '';
@@ -764,6 +765,12 @@
               systemd.tmpfiles.rules = [
                 "f /etc/authentik.env 0700 root root - AUTHENTIK_SECRET_KEY=sashamud-local-authentik-secret-key"
               ];
+              environment.variables = {
+                SASHA_OIDC_BASE_URL = "http://localhost:9000";
+                SASHA_OIDC_CLIENT_ID = "sashamud";
+                SASHA_OIDC_CLIENT_SECRET = "sashamud-dev";
+                SASHA_OIDC_REDIRECT_URI = "https://localhost:8080/api/auth/callback";
+              };
               virtualisation.vmVariant.virtualisation = {
                 memorySize = 3072;
                 cores = 3;

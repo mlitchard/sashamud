@@ -29,6 +29,12 @@ metadata:
   screeps-steamless-client) and an ISO-publish/Hetzner step he didn't
   ask for. Plans contain ONLY the steps his ask requires; a solved
   problem in main stays solved — reuse it, don't reopen it.
+  STRUCK AGAIN 2026-09-29 (dsl-storage session, "all i am asking you to do
+  is include environmental variables in the vm environment, why do you make
+  this complicated"): asked to put four env vars in the authentik VM, I
+  invented an authentik-blueprint project, spawned two agents, and asked
+  him for file access. The ask was one `environment.variables` block. When
+  the ask names a concrete edit, make that edit. Do not redesign around it.
 - STATED FACTS OVER INFERENCE; GUESS = STOP AND ASK 
 - NO UNASKED DESIGN CHOICES 
 - NO ASSUMED FOLLOW-UPS 

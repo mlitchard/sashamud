@@ -52,6 +52,7 @@ executable sasha-fake-oidc
     , servant
     , servant-server
     , text
+    , uuid
     , warp
 
 executable sasha-e2e-tests
@@ -94,6 +95,7 @@ executable sasha-e2e-tests
     , string-interpolate
     , text
     , time
+    , uuid
     , warp
     , webdriver
 
@@ -130,5 +132,6 @@ executable sashamud-integration-tests
     , servant-server
     , servant-websockets
     , text
+    , uuid
     , warp
     , websockets
