@@ -28,7 +28,9 @@
       "Bash(ghc --version)",
       "Bash(ghc-pkg list *)",
       "Read(//home/mlitchard/gitlab/quux/server/migrations/build/**)",
-      "Read(//home/mlitchard/gitlab/quux/server/src/**)"
+      "Read(//home/mlitchard/gitlab/quux/server/src/**)",
+      "Read(//home/mlitchard/github/crypton/Crypto/KDF/**)",
+      "Read(//home/mlitchard/github/crypton/**)"
     ]
   },
   "hooks": {

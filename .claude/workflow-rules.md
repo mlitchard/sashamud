@@ -116,3 +116,12 @@ metadata:
   named comes from a checkout he gave me, quoted, or I say I do not
   know and ask. No "from memory" claims, no "I believe", no
   alternatives built on unread sources.
+- FOLLOW THE NAMED MODEL, FROM ITS SOURCE (2026-09-29, dsl-storage step 1,
+  "i told you to use quux as a model, why did you ignore this"): the auth
+  plan's "Taken from quux" list described an opaque digest token; quux's
+  Model/Jwt.hs and 00-Init.sql hold a stored HS256 JWT, handed on every
+  request, REST via BEARER and websocket via Sec-WebSocket-Protocol, one
+  auth handler for both. A plan line naming a reference is a claim about
+  that reference: open the file it names before building on it. When he
+  names a model, every mechanism follows the model's source unless he
+  rules a departure in writing.
