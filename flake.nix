@@ -386,6 +386,7 @@
             ];
             shellHook = ''
               export SASHA_MIGRATIONS_DIR=${migrationsDir}
+              export SASHA_OIDC_REDIRECT_URI=https://localhost:8080/api/auth/callback
               ${shelpersConfig.functions}
               shelp
             '';
@@ -764,6 +765,12 @@
               systemd.tmpfiles.rules = [
                 "f /etc/authentik.env 0700 root root - AUTHENTIK_SECRET_KEY=sashamud-local-authentik-secret-key"
               ];
+              environment.variables = {
+                SASHA_OIDC_BASE_URL = "http://localhost:9000";
+                SASHA_OIDC_CLIENT_ID = "sashamud";
+                SASHA_OIDC_CLIENT_SECRET = "sashamud-dev";
+                SASHA_OIDC_REDIRECT_URI = "https://localhost:8080/api/auth/callback";
+              };
               virtualisation.vmVariant.virtualisation = {
                 memorySize = 3072;
                 cores = 3;
