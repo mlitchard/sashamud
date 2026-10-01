@@ -22,6 +22,7 @@ import           Data.Aeson (FromJSON, ToJSON, decode, encode)
 import           Data.ByteString (ByteString)
 import           Data.ByteString.Lazy (fromStrict, toStrict)
 import           Data.Pool (withResource)
+import           Data.String (fromString)
 import           Data.Text.Encoding (encodeUtf8)
 import           Data.Time.Clock
   ( NominalDiffTime
@@ -41,6 +42,7 @@ import           Model.Account (AccessToken (AccessToken), AuthentikUserId)
 import           Model.Mid (Mid)
 import           Servant
   ( FromHttpApiData (parseQueryParam, parseUrlPiece)
+  , ServerError (errBody)
   , ToHttpApiData (toHeader, toQueryParam, toUrlPiece)
   , err500
   , throwError
@@ -57,9 +59,8 @@ import           Test.QuickCheck.Instances.Time ()
 type Hash :: Type
 type Hash = ByteString
 
-data Credentials = Credentials
-  { subject     :: AuthentikUserId
-  , accessToken :: AccessToken
+newtype Credentials = Credentials
+  { subject :: AuthentikUserId
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (FromJSON, ToJSON)
@@ -98,8 +99,8 @@ tryAddHashAndJwt userId hash jwt = do
   res <- liftIO . try . withResource (acDbPool ctx) $ \conn ->
     execute conn addToken (userId, jwt, hash, userId)
   case res of
-    Left (_ :: SqlError) -> throwError err500
-    Right _              -> pure ()
+    Left (err :: SqlError) -> throwError err500 { errBody = fromString ("token insert failed: " <> show err) }
+    Right _                -> pure ()
   where
     addToken =
       [sql|

@@ -330,10 +330,10 @@ authCallback (AuthCode code) state = do
     Left location -> pure (noHeader (addHeader location NoContent))
     Right (userId, playerName, agentGid) -> do
       hash <- liftIO (hashToken access)
-      minted <- liftIO (makeJwt (Credentials authentikUserId access) hash)
+      minted <- liftIO (makeJwt (Credentials authentikUserId) hash)
       jwt <- case minted of
-        Left _  -> throwError err500
-        Right j -> pure j
+        Left err -> throwError err500 { errBody = fromString ("token mint failed: " <> show err) }
+        Right j  -> pure j
       tokenText <- case decodeUtf8' (unJwt jwt) of
         Left _  -> throwError err500
         Right t -> pure t

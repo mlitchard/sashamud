@@ -331,7 +331,7 @@ spec = describe "Integration" . around withTestServer $ do
     let access = AccessToken "Expired"
     hash <- hashToken access
     minted <- makeJwtForTesting (secondsToNominalDiffTime (-3600))
-                (Credentials (fakeAuthentikUserId "Expired") access) hash
+                (Credentials (fakeAuthentikUserId "Expired")) hash
     case minted of
       Left err -> expectationFailure ("could not mint an expired token: " <> show err)
       Right jwt -> do

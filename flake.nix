@@ -348,6 +348,12 @@
                     description = "generate TS client, build frontend, start full stack";
                     script = teardown
                       ''
+                        if [[ -e ${pgDir} ]]; then
+                          lpg on ${pgDir} up
+                          export SASHA_DB_CONNSTR=$(lpg on ${pgDir} get-connstr)
+                        else
+                          echo 'No database exists, run `reset-db` and try again.'
+                        fi
                         (cd web && npm install && npm run build)
                         caddy run --config Caddyfile &
                         nix run .#sasha-server &
@@ -388,6 +394,9 @@
             ];
             shellHook = ''
               export SASHA_MIGRATIONS_DIR=${migrationsDir}
+              export SASHA_OIDC_BASE_URL=${oidcBaseUrl}
+              export SASHA_OIDC_CLIENT_ID=${oidcClientId}
+              export SASHA_OIDC_CLIENT_SECRET=${oidcClientSecret}
               export SASHA_OIDC_REDIRECT_URI=https://localhost:8080/api/auth/callback
               ${shelpersConfig.functions}
               shelp
@@ -757,6 +766,17 @@
             inputs.authentik-nix.nixosModules.default
             {
               networking.hostName = "authentik-local";
+              networking.firewall.allowedTCPPorts = [ 9000 ];
+              services.getty.autologinUser = "root";
+              services.openssh = {
+                enable = true;
+                settings = {
+                  PermitRootLogin = "yes";
+                  PermitEmptyPasswords = "yes";
+                };
+              };
+              security.pam.services.sshd.allowNullPassword = true;
+              users.users.root.hashedPassword = "";
               system.stateVersion = "25.05";
               fileSystems."/" = { device = "/dev/vda1"; fsType = "ext4"; };
               boot.loader.grub.devices = [ "/dev/vda" ];
@@ -776,7 +796,10 @@
               virtualisation.vmVariant.virtualisation = {
                 memorySize = 3072;
                 cores = 3;
-                forwardPorts = [{ from = "host"; host.port = 9000; guest.port = 9000; }];
+                forwardPorts = [
+                  { from = "host"; host.port = 9000; guest.port = 9000; }
+                  { from = "host"; host.port = 2222; guest.port = 22; }
+                ];
               };
             }
           ];
