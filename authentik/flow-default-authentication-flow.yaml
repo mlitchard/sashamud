@@ -81,6 +81,8 @@ entries:
     client_type: confidential
     client_id: !Env SASHA_OIDC_CLIENT_ID
     client_secret: !Env SASHA_OIDC_CLIENT_SECRET
+    grant_types:
+      - authorization_code
     redirect_uris:
       - matching_mode: strict
         url: https://localhost:8080/api/auth/callback

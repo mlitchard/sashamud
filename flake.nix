@@ -843,8 +843,8 @@
         }) // {
         nixosConfigurations.authentik-local =
           let
-            githubClientId = "EJONMXtS2zGV2qWYMtne90xDdtSFE0S3UMseSZNt";
-            githubClientSecret = "PxgXhoaBVOMac9kybVuKRIgdXgKbvEWJoWuQO9PgMKOzKBwOUUr6NR7ecxe59v9ptfoMzygATemhnsR4TcTPpew2oisSrGLI4AwXApBU6Jkkx1pUHlw5MVVbZeC9V6S4";
+            githubClientId = "Ov23lipEsA2jZvbB2vx9";
+            githubClientSecret = "a415f0ea3c9057281b0e7e87b197ce352d83accd";
             oidcClientId = "sashamud";
             oidcClientSecret = "sashamud-dev";
             authentikPkgs = inputs.authentik-nix.inputs.nixpkgs.legacyPackages.x86_64-linux;
