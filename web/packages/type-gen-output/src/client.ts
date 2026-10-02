@@ -1,6 +1,6 @@
-// Defined in API.Types of sasha-0.1.0.0-Dl0fJS6Owx62ylekHv3J5d
-export type LoginResponse = SessionId;
-// Defined in API.Types of sasha-0.1.0.0-Dl0fJS6Owx62ylekHv3J5d
+// Defined in API.Types of sasha-0.1.0.0-IMxAJI7THrIH0Ss4AaUVRW
+export type DSLSource = string;
+// Defined in API.Types of sasha-0.1.0.0-IMxAJI7THrIH0Ss4AaUVRW
 export type MessageTo = Ping | GameCommand;
 export interface Ping {
   readonly tag: "Ping";
@@ -9,7 +9,7 @@ export interface GameCommand {
   readonly tag: "GameCommand";
   readonly contents: string;
 }
-// Defined in Model.Core of sasha-0.1.0.0-Dl0fJS6Owx62ylekHv3J5d
+// Defined in Model.Core of sasha-0.1.0.0-IMxAJI7THrIH0Ss4AaUVRW
 export interface Narration {
   // readonly tag: "Narration";
   readonly _playerAction: Array<RichText>;
@@ -17,28 +17,28 @@ export interface Narration {
   readonly _presenceListing: Array<RichText>;
   readonly _actionEpilogue: Array<RichText>;
 }
-// Defined in Model.Core of sasha-0.1.0.0-Dl0fJS6Owx62ylekHv3J5d
+// Defined in Model.Core of sasha-0.1.0.0-IMxAJI7THrIH0Ss4AaUVRW
 export type SessionId = string;
-// Defined in Model.RichText of sasha-0.1.0.0-Dl0fJS6Owx62ylekHv3J5d
+// Defined in Model.RichText of sasha-0.1.0.0-IMxAJI7THrIH0Ss4AaUVRW
 export interface StyledSpan {
   // readonly tag: "StyledSpan";
   readonly _ssStyle: TextStyle;
   readonly _ssText: string;
 }
-// Defined in Model.RichText of sasha-0.1.0.0-Dl0fJS6Owx62ylekHv3J5d
+// Defined in Model.RichText of sasha-0.1.0.0-IMxAJI7THrIH0Ss4AaUVRW
 export interface TextStyle {
   // readonly tag: "TextStyle";
   readonly _tsFgColor: TextColor | null;
   readonly _tsBold: boolean;
   readonly _tsItalic: boolean;
 }
-// Defined in Model.RichText of sasha-0.1.0.0-Dl0fJS6Owx62ylekHv3J5d
+// Defined in Model.RichText of sasha-0.1.0.0-IMxAJI7THrIH0Ss4AaUVRW
 export type RichText = Array<StyledSpan>;
-// Defined in Model.RichText of sasha-0.1.0.0-Dl0fJS6Owx62ylekHv3J5d
+// Defined in Model.RichText of sasha-0.1.0.0-IMxAJI7THrIH0Ss4AaUVRW
 export type TextColor = "Red" | "Green" | "Blue" | "Yellow" | "Cyan" | "Magenta" | "White" | "BrightWhite" | "BrightRed" | "BrightGreen" | "BrightBlue" | "BrightYellow" | "BrightCyan" | "BrightMagenta";
-// Defined in Model.WireProtocol of sasha-0.1.0.0-Dl0fJS6Owx62ylekHv3J5d
+// Defined in Model.WireProtocol of sasha-0.1.0.0-IMxAJI7THrIH0Ss4AaUVRW
 export type AnalysisViewport = "Parser" | "State" | "Meta" | "Graphics" | "GameMap";
-// Defined in Model.WireProtocol of sasha-0.1.0.0-Dl0fJS6Owx62ylekHv3J5d
+// Defined in Model.WireProtocol of sasha-0.1.0.0-IMxAJI7THrIH0Ss4AaUVRW
 export type MessageFrom = SessionAck | GameNarration | CommandResponse | ChatMessage | SystemMessage | Pong | AnalysisData;
 export interface SessionAck {
   readonly tag: "SessionAck";
@@ -67,49 +67,23 @@ export interface AnalysisData {
   readonly tag: "AnalysisData";
   readonly contents: [AnalysisViewport,Array<RichText>][];
 }
-// Defined in Server.Validator of sasha-0.1.0.0-Dl0fJS6Owx62ylekHv3J5d
+// Defined in Server.Validator of sasha-0.1.0.0-IMxAJI7THrIH0Ss4AaUVRW
 export type PlayerNameUNV = string;
-// Defined in Server.Validator of sasha-0.1.0.0-Dl0fJS6Owx62ylekHv3J5d
+// Defined in Server.Validator of sasha-0.1.0.0-IMxAJI7THrIH0Ss4AaUVRW
 export type PlayerNameVAL = string;
 //API
 export const API = {
   base: "",
   baseWS: "",
-  "/api/game/login(PlayerNameUNV)": (() => {
-  const urlBuilder = () => `${API.base}/api/game/login`;
-  const f = async (PlayerNameUNV:PlayerNameUNV): Promise<LoginResponse> => {
-    const uri = urlBuilder();
-    return fetch(uri, {
-      method: "POST",
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(PlayerNameUNV),
-      redirect: 'manual'
-    }).then(res => {
-      const location = res.headers.get('Location');
-      if (res.status === 401 && location) {
-        window.location.replace(location);
-        return Promise.reject(res);
-      } else {
-        return res.status === 200
-          ? (res.json() as Promise<LoginResponse>)
-          : Promise.reject(res);
-      }
-    });
-  };
-  f.urlBuilder = urlBuilder;
-  return f; })(),
-"/api/game/logout(SessionId)": (() => {
+  "/api/game/logout{BEARER}": (() => {
   const urlBuilder = () => `${API.base}/api/game/logout`;
-  const f = async (SessionId:SessionId): Promise<null> => {
+  const f = async (BEARER:string): Promise<null> => {
     const uri = urlBuilder();
     return fetch(uri, {
       method: "DELETE",
       headers: {
-        'Content-Type': 'application/json'
+        "BEARER": BEARER
       },
-      body: JSON.stringify(SessionId),
       redirect: 'manual'
     }).then(res => {
       const location = res.headers.get('Location');
@@ -143,5 +117,31 @@ export const API = {
           ws.onmessage = (message: MessageEvent<string>) => cb(JSON.parse(message.data) as MessageFrom),
         raw: ws
       });
-  }
+  },
+"/api/game/dsl(DSLSource){BEARER}": (() => {
+  const urlBuilder = () => `${API.base}/api/game/dsl`;
+  const f = async (BEARER:string,DSLSource:DSLSource): Promise<null> => {
+    const uri = urlBuilder();
+    return fetch(uri, {
+      method: "POST",
+      headers: {
+        "BEARER": BEARER,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(DSLSource),
+      redirect: 'manual'
+    }).then(res => {
+      const location = res.headers.get('Location');
+      if (res.status === 401 && location) {
+        window.location.replace(location);
+        return Promise.reject(res);
+      } else {
+        return res.status === 204
+          ? Promise.resolve(null)
+          : Promise.reject(res);
+      }
+    });
+  };
+  f.urlBuilder = urlBuilder;
+  return f; })()
 };
