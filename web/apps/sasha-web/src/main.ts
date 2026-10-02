@@ -3,22 +3,35 @@ import { createDOM } from './game/createDOM';
 import { GameConnection } from './game/GameConnection';
 import { ViewportManager } from './game/ViewportManager';
 
+const TOKEN_COOKIE = 'sashamud_token';
+
 const fragment = readFragment();
-if (fragment.token) {
-  enterGame(fragment.token);
+const token = readCookie(TOKEN_COOKIE);
+if (token) {
+  enterGame(token);
 } else {
   showLogin(fragment.message);
 }
 
-function readFragment(): { token: string | null; message: string | null } {
+function readFragment(): { message: string | null } {
   const hash = location.hash;
   history.replaceState(null, '', location.pathname + location.search);
-  const token = /^#token=(.+)$/.exec(hash);
-  if (token) return { token: token[1] ?? null, message: null };
   const taken = /^#taken=(.+)$/.exec(hash);
-  if (taken) return { token: null, message: decodeURIComponent(taken[1] ?? '') + ' is taken. Choose another name.' };
-  if (hash === '#new') return { token: null, message: 'Choose a name to create your account.' };
-  return { token: null, message: null };
+  if (taken) return { message: decodeURIComponent(taken[1] ?? '') + ' is taken. Choose another name.' };
+  if (hash === '#new') return { message: 'Choose a name to create your account.' };
+  return { message: null };
+}
+
+function readCookie(name: string): string | null {
+  for (const part of document.cookie.split('; ')) {
+    const eq = part.indexOf('=');
+    if (eq > 0 && part.slice(0, eq) === name) return part.slice(eq + 1);
+  }
+  return null;
+}
+
+function clearCookie(name: string): void {
+  document.cookie = `${name}=; Path=/; Max-Age=0; Secure; SameSite=Strict`;
 }
 
 function showLogin(message: string | null): void {
@@ -112,30 +125,59 @@ function enterGame(sessionId: string): void {
   const conn = new GameConnection();
   const viewports = new ViewportManager(conn);
   conn.connect(sessionId);
+  addTokenControl(sessionId);
   addLogoutButton(conn, viewports);
 }
 
-function addLogoutButton(conn: GameConnection, viewports: ViewportManager): void {
+function addTokenControl(sessionId: string): void {
   const toolbar = document.getElementById('toolbar');
   if (!toolbar) return;
+
+  const label = document.createElement('span');
+  label.id = 'session-token-label';
+  label.textContent = 'Token: ';
+
+  const token = document.createElement('code');
+  token.id = 'session-token';
+  token.textContent = sessionId;
+
+  const copy = document.createElement('button');
+  copy.id = 'copy-token-btn';
+  copy.textContent = 'Copy token';
+  copy.addEventListener('click', () => {
+    navigator.clipboard.writeText(sessionId)
+      .then(() => { copy.textContent = 'Copied'; })
+      .catch(() => { copy.textContent = 'Copy failed'; });
+  });
+
+  toolbar.appendChild(label);
+  toolbar.appendChild(token);
+  toolbar.appendChild(copy);
+}
+
+function addLogoutButton(conn: GameConnection, viewports: ViewportManager): void {
+  const commandBar = document.getElementById('command-bar');
+  if (!commandBar) return;
 
   const btn = document.createElement('button');
   btn.id = 'logout-btn';
   btn.textContent = 'Logout';
-  toolbar.appendChild(btn);
+  commandBar.appendChild(btn);
 
   btn.addEventListener('click', () => {
     const sessionId = conn.getSessionId();
     if (!sessionId) return;
 
     btn.disabled = true;
-    API["/api/game/logout(SessionId)"](sessionId)
+    API["/api/game/logout{BEARER}"](sessionId)
       .then(() => {
+        clearCookie(TOKEN_COOKIE);
         conn.disconnect();
         viewports.destroy();
         showLogin(null);
       })
       .catch(() => {
+        clearCookie(TOKEN_COOKIE);
         conn.disconnect();
         viewports.destroy();
         showLogin(null);

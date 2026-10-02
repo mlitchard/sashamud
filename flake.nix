@@ -149,6 +149,8 @@
           oidcClientId = "sashamud";
           oidcClientSecret = "sashamud-dev";
           oidcRedirectUri = "http://localhost:8081/api/auth/callback";
+          liveOidcBaseUrl = "https://auth.sashamud.net:4430";
+          liveOidcRedirectUri = "https://sashamud.net:4430/api/auth/callback";
 
           dslServerUrl = "http://127.0.0.1:8081";
           deployDsl = pkgs.writeShellScript "deploy-dsl" ''
@@ -159,9 +161,35 @@
             CURL="${pkgs.curl}/bin/curl"
             JQ="${pkgs.jq}/bin/jq"
             $JQ -Rs . < "$SRC" | $CURL --fail-with-body -sS -X POST "$URL/api/game/dsl" \
-              -H "Sec-WebSocket-Protocol: $TOKEN" -H "Content-Type: application/json" \
+              -H "BEARER: $TOKEN" -H "Content-Type: application/json" \
               --data @-
             echo "deployed $SRC to $URL"
+          '';
+          sashaTests = pkgs.writeShellScript "sasha-tests" ''
+            set -euo pipefail
+            export PATH=${localPostgres}/bin:$PATH
+            lpg on ${pgDir} down || true
+            rm ${pgDir} -r || true
+            lpg make ${pgDir}
+            lpg on ${pgDir} up
+            export SASHA_DB_CONNSTR=$(lpg on ${pgDir} get-connstr)
+            export SASHA_MIGRATIONS_DIR=${migrationsDir}
+            export HINT_GHC_LIB_DIR=${hintAttrs.HINT_GHC_LIB_DIR}
+            export HINT_GHC_PACKAGE_PATH=${hintAttrs.HINT_GHC_PACKAGE_PATH}
+            ${lib.getExe inputs.self.packages.${system}.sasha-tests}
+          '';
+          integrationTests = pkgs.writeShellScript "sashamud-integration-tests" ''
+            set -euo pipefail
+            export PATH=${localPostgres}/bin:$PATH
+            lpg on ${pgDir} down || true
+            rm ${pgDir} -r || true
+            lpg make ${pgDir}
+            lpg on ${pgDir} up
+            export SASHA_DB_CONNSTR=$(lpg on ${pgDir} get-connstr)
+            export SASHA_MIGRATIONS_DIR=${migrationsDir}
+            export HINT_GHC_LIB_DIR=${hintAttrs.HINT_GHC_LIB_DIR}
+            export HINT_GHC_PACKAGE_PATH=${hintAttrs.HINT_GHC_PACKAGE_PATH}
+            ${lib.getExe inputs.self.packages.${system}.sashamud-integration-tests}
           '';
           fakeLogin = pkgs.writeShellScript "fake-login" ''
             set -euo pipefail
@@ -171,10 +199,12 @@
             location() {
               $CURL -sS -o /dev/null -D - "$1" | tr -d '\r' | ${pkgs.gawk}/bin/awk 'tolower($1) == "location:" { print $2 }'
             }
+            cookie() {
+              $CURL -sS -o /dev/null -D - "$1" | tr -d '\r' | ${pkgs.gawk}/bin/awk 'tolower($1) == "set-cookie:" { print $2 }'
+            }
             AUTHORIZE=$(location "$URL/api/auth/start")
             CALLBACK=$(location "$AUTHORIZE&fake_user=$USER")
-            FINAL=$(location "$CALLBACK")
-            echo "$FINAL" | ${pkgs.gnused}/bin/sed 's|^/#token=||'
+            cookie "$CALLBACK" | ${pkgs.gnused}/bin/sed -e 's|^sashamud_token=||' -e 's|;.*$||'
           '';
           accountSigningKey = "\${HOME}/.ssh/sasha_sk";
           accountSigners = pkgs.writeText "sashamud-allowed-signers" ''
@@ -227,12 +257,32 @@
             hash = "sha256-yexn2zbub03CT9aIgkd3XwySAfO7jW4vbvl6QOkU+SQ=";
           };
 
-          teardown = script: teardown': ''
-            (set -e
-            ${script}
-            trap ${lib.escapeShellArg teardown'} SIGINT
-            wait)
-          '';
+          teardown = callback:
+            let
+              processWrap = processName: logPath: command: ''
+                cd $here
+                rm -rf ${logPath}
+                tail -F ${logPath} &
+                echo $! >> .devpids
+                ${pkgs.writeShellScript processName command} &
+                echo $! >> .devpids
+              '';
+              upDown = callback processWrap;
+            in
+            ''
+              (set -e
+              > .devpids
+              here=$(pwd)
+              ${upDown.up}
+              trap ${lib.escapeShellArg ''
+                  set +e
+                  ${upDown.down}
+                  echo "killing tracked pids..."
+                  kill -9 $(cat .devpids)
+                  pkill sasha-server
+              ''} SIGINT
+              wait)
+            '';
 
           shelpersConfig = (inputs.shelpers.lib pkgs).eval-shelpers [
             ({ shelp, ... }: {
@@ -344,15 +394,26 @@
                   };
                   start-sashamud = {
                     description = "generate TS client, build frontend, start full stack";
-                    script = teardown
-                      ''
+                    script = teardown (processWrap: {
+                      up = ''
+                        reset-db
+                        lpg on ${pgDir} up
+                        export SASHA_DB_CONNSTR=$(lpg on ${pgDir} get-connstr)
+                        nix run .#sasha-client-generator --builders ''' -- web/packages/type-gen-output/src/client.ts
                         (cd web && npm install && npm run build)
-                        caddy run --config Caddyfile &
-                        nix run .#sasha-server &
-                      ''
-                      ''
-                        kill $(jobs -p) 2>/dev/null
+                        ${processWrap "caddy-reverse-proxy" "caddy.log" ''
+                          caddy run --config Caddyfile &> caddy.log
+                        ''}
+                        ${processWrap "sasha-server" "server.log" ''
+                          nix run .#sasha-server --builders ''' &> server.log
+                        ''}
                       '';
+                      down = ''
+                        sleep 1
+                        db-server-stop
+                        pkill caddy
+                      '';
+                    });
                   };
                 };
               };
@@ -363,34 +424,53 @@
           inherit legacyPackages;
           shelpers = shelpersConfig.files;
 
-          devShells.default = (legacyPackages.shellFor {
-            packages = p: [
-              p.sasha-grammar
-              p.sasha
-              p.sashamud-world
-              p.sashamud-server
-            ];
-          }).overrideAttrs (attrs: {
-            buildInputs = attrs.buildInputs ++ [
-              pkgs.cabal-install
-              lu-pkgs.cabal-fmt
-              lu-pkgs.hlint
-              lu-pkgs.stylish-haskell
-              pkgs.caddy
-              pkgs.nodejs
-              pkgs.typescript
-              pkgs.postgresql
-              localPostgres
-            ] ++ lib.optionals (system == "x86_64-linux") [
-              devtools.haskell-language-server
-            ];
-            shellHook = ''
-              export SASHA_MIGRATIONS_DIR=${migrationsDir}
-              export SASHA_OIDC_REDIRECT_URI=https://localhost:8080/api/auth/callback
-              ${shelpersConfig.functions}
-              shelp
-            '';
-          });
+          devShells =
+            let
+              sashaShell = (legacyPackages.shellFor {
+                packages = p: [
+                  p.sasha-grammar
+                  p.sasha
+                  p.sashamud-world
+                  p.sashamud-server
+                ];
+              }).overrideAttrs (attrs: {
+                buildInputs = attrs.buildInputs ++ [
+                  pkgs.cabal-install
+                  lu-pkgs.cabal-fmt
+                  lu-pkgs.hlint
+                  lu-pkgs.stylish-haskell
+                  pkgs.caddy
+                  pkgs.nodejs
+                  pkgs.typescript
+                  pkgs.postgresql
+                  localPostgres
+                ] ++ lib.optionals (system == "x86_64-linux") [
+                  devtools.haskell-language-server
+                ];
+                shellHook = ''
+                  export SASHA_MIGRATIONS_DIR=${migrationsDir}
+                  ${shelpersConfig.functions}
+                  shelp
+                '';
+              });
+            in
+            {
+              default = sashaShell.overrideAttrs (attrs: {
+                shellHook = attrs.shellHook + ''
+                  export SASHA_OIDC_BASE_URL=${oidcBaseUrl}
+                  export SASHA_OIDC_CLIENT_ID=${oidcClientId}
+                  export SASHA_OIDC_CLIENT_SECRET=${oidcClientSecret}
+                  export SASHA_OIDC_REDIRECT_URI=https://localhost:8080/api/auth/callback
+                '';
+              });
+              production = sashaShell.overrideAttrs (attrs: {
+                shellHook = attrs.shellHook + ''
+                  export SASHA_OIDC_BASE_URL=${liveOidcBaseUrl}
+                  export SASHA_OIDC_REDIRECT_URI=${liveOidcRedirectUri}
+                  . ./production
+                '';
+              });
+            };
 
           packages = {
             hint-ghc = hintGhc;
@@ -422,6 +502,8 @@
               (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sasha-grammar "exe:grammar-tests"))).overrideAttrs { meta.mainProgram = "grammar-tests"; };
             sasha-e2e-tests = (hlib.justStaticExecutables
               (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sashamud-server "exe:sasha-e2e-tests"))).overrideAttrs { meta.mainProgram = "sasha-e2e-tests"; };
+            sashamud-integration-tests = (hlib.justStaticExecutables
+              (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sashamud-server "exe:sashamud-integration-tests"))).overrideAttrs { meta.mainProgram = "sashamud-integration-tests"; };
             web =
               let
                 generated-ts-path = "packages/type-gen-output/src/client.ts";
@@ -469,6 +551,16 @@
           apps.create-account = {
             type = "app";
             program = toString createAccount;
+          };
+
+          apps.sasha-tests = {
+            type = "app";
+            program = toString sashaTests;
+          };
+
+          apps.sashamud-integration-tests = {
+            type = "app";
+            program = toString integrationTests;
           };
 
           apps.authentik-vm = {
@@ -749,35 +841,74 @@
             });
           };
         }) // {
-        nixosConfigurations.authentik-local = inputs.authentik-nix.inputs.nixpkgs.lib.nixosSystem {
-          system = "x86_64-linux";
-          modules = [
-            inputs.authentik-nix.nixosModules.default
-            {
-              networking.hostName = "authentik-local";
-              system.stateVersion = "25.05";
-              fileSystems."/" = { device = "/dev/vda1"; fsType = "ext4"; };
-              boot.loader.grub.devices = [ "/dev/vda" ];
-              services.authentik = {
-                enable = true;
-                environmentFile = "/etc/authentik.env";
-              };
-              systemd.tmpfiles.rules = [
-                "f /etc/authentik.env 0700 root root - AUTHENTIK_SECRET_KEY=sashamud-local-authentik-secret-key"
-              ];
-              environment.variables = {
-                SASHA_OIDC_BASE_URL = "http://localhost:9000";
-                SASHA_OIDC_CLIENT_ID = "sashamud";
-                SASHA_OIDC_CLIENT_SECRET = "sashamud-dev";
-                SASHA_OIDC_REDIRECT_URI = "https://localhost:8080/api/auth/callback";
-              };
-              virtualisation.vmVariant.virtualisation = {
-                memorySize = 3072;
-                cores = 3;
-                forwardPorts = [{ from = "host"; host.port = 9000; guest.port = 9000; }];
-              };
-            }
-          ];
-        };
+        nixosConfigurations.authentik-local =
+          let
+            githubClientId = "Ov23lipEsA2jZvbB2vx9";
+            githubClientSecret = "a415f0ea3c9057281b0e7e87b197ce352d83accd";
+            oidcClientId = "sashamud";
+            oidcClientSecret = "sashamud-dev";
+            authentikPkgs = inputs.authentik-nix.inputs.nixpkgs.legacyPackages.x86_64-linux;
+            authentikScope = (inputs.authentik-nix.lib.mkAuthentikScope { pkgs = authentikPkgs; }).overrideScope (
+              final: prev: {
+                authentikComponents = prev.authentikComponents // {
+                  staticWorkdirDeps = prev.authentikComponents.staticWorkdirDeps.overrideAttrs (oA: {
+                    buildCommand =
+                      oA.buildCommand
+                      + ''
+                        rm -v $out/blueprints
+                        cp -vr ${prev.authentik-src}/blueprints $out/blueprints
+                        chmod -R u+w $out/blueprints
+                        cp -v ${./authentik/flow-default-authentication-flow.yaml} $out/blueprints/default/flow-default-authentication-flow.yaml
+                      '';
+                  });
+                };
+              }
+            );
+          in
+          inputs.authentik-nix.inputs.nixpkgs.lib.nixosSystem {
+            system = "x86_64-linux";
+            modules = [
+              inputs.authentik-nix.nixosModules.default
+              {
+                networking.hostName = "authentik-local";
+                networking.firewall.allowedTCPPorts = [ 9000 ];
+                services.getty.autologinUser = "root";
+                services.openssh = {
+                  enable = true;
+                  settings = {
+                    PermitRootLogin = "yes";
+                    PermitEmptyPasswords = "yes";
+                  };
+                };
+                security.pam.services.sshd.allowNullPassword = true;
+                users.users.root.hashedPassword = "";
+                system.stateVersion = "25.05";
+                fileSystems."/" = { device = "/dev/vda1"; fsType = "ext4"; };
+                boot.loader.grub.devices = [ "/dev/vda" ];
+                services.authentik = {
+                  enable = true;
+                  environmentFile = "/etc/authentik.env";
+                  inherit (authentikScope) authentikComponents;
+                };
+                systemd.tmpfiles.rules = [
+                  "f+ /etc/authentik.env 0700 root root - AUTHENTIK_SECRET_KEY=sashamud-local-authentik-secret-key\\nSASHA_GITHUB_CLIENT_ID=${githubClientId}\\nSASHA_GITHUB_CLIENT_SECRET=${githubClientSecret}\\nSASHA_OIDC_CLIENT_ID=${oidcClientId}\\nSASHA_OIDC_CLIENT_SECRET=${oidcClientSecret}"
+                ];
+                environment.variables = {
+                  SASHA_OIDC_BASE_URL = "http://localhost:9000";
+                  SASHA_OIDC_CLIENT_ID = "sashamud";
+                  SASHA_OIDC_CLIENT_SECRET = "sashamud-dev";
+                  SASHA_OIDC_REDIRECT_URI = "https://localhost:8080/api/auth/callback";
+                };
+                virtualisation.vmVariant.virtualisation = {
+                  memorySize = 3072;
+                  cores = 3;
+                  forwardPorts = [
+                    { from = "host"; host.port = 9000; guest.port = 9000; }
+                    { from = "host"; host.port = 2222; guest.port = 22; }
+                  ];
+                };
+              }
+            ];
+          };
       };
 }

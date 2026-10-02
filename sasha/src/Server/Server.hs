@@ -27,7 +27,6 @@ import qualified Data.ByteString.Char8 (pack)
 import           Data.Map.Strict (delete, lookup)
 import           Data.Pool (defaultPoolConfig, newPool, withResource)
 import           Data.String (fromString)
-import           Data.Text.Encoding (encodeUtf8)
 import           Database.PostgreSQL.Simple
   ( Only (Only)
   , close
@@ -81,7 +80,6 @@ import           Server.Authentication
   , authProxy
   , authStart
   , sashaContext
-  , tokenDigest
   )
 import           Server.GameWebSocket (gameWebSocket)
 import           Server.Log
@@ -105,11 +103,11 @@ appWithStaticFiles ctx tmpDir = serveWithContext andRaw (sashaContext ctx)
     ((logoutHandler :<|> gameWebSocket ctx :<|> dslHandler) :<|> (authStart :<|> authCallback :<|> authAvailable) :<|> serveDirectoryFileServer tmpDir)
   where andRaw = Proxy @(SashaAPI :<|> AuthAPI :<|> Raw)
 
-logoutHandler :: SessionId -> AppM NoContent
-logoutHandler sessionId@(SessionId token) = do
+logoutHandler :: AuthenticatedUser -> AppM NoContent
+logoutHandler (AuthenticatedUser sessionId@(SessionId token) _ _) = do
   ctx <- ask
   _ <- liftIO . withResource (acDbPool ctx) $ \conn ->
-    execute conn "DELETE FROM tokens WHERE token_digest = ?" (Only (tokenDigest (encodeUtf8 token)))
+    execute conn "DELETE FROM tokens WHERE token = ?" (Only token)
   liftIO $ modifyMVar_ (acSessions ctx) (pure . delete sessionId)
   pure NoContent
 
