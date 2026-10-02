@@ -30,7 +30,9 @@
       "Read(//home/mlitchard/gitlab/quux/server/migrations/build/**)",
       "Read(//home/mlitchard/gitlab/quux/server/src/**)",
       "Read(//home/mlitchard/github/crypton/Crypto/KDF/**)",
-      "Read(//home/mlitchard/github/crypton/**)"
+      "Read(//home/mlitchard/github/crypton/**)",
+      "Bash(nix eval *)",
+      "Bash(ssh *)"
     ]
   },
   "hooks": {

@@ -59,9 +59,7 @@ import           Test.QuickCheck.Instances.Time ()
 type Hash :: Type
 type Hash = ByteString
 
-newtype Credentials = Credentials
-  { subject :: AuthentikUserId
-  }
+newtype Credentials = Credentials { subject :: AuthentikUserId }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (FromJSON, ToJSON)
 

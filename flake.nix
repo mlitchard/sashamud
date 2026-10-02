@@ -866,49 +866,49 @@
             );
           in
           inputs.authentik-nix.inputs.nixpkgs.lib.nixosSystem {
-          system = "x86_64-linux";
-          modules = [
-            inputs.authentik-nix.nixosModules.default
-            {
-              networking.hostName = "authentik-local";
-              networking.firewall.allowedTCPPorts = [ 9000 ];
-              services.getty.autologinUser = "root";
-              services.openssh = {
-                enable = true;
-                settings = {
-                  PermitRootLogin = "yes";
-                  PermitEmptyPasswords = "yes";
+            system = "x86_64-linux";
+            modules = [
+              inputs.authentik-nix.nixosModules.default
+              {
+                networking.hostName = "authentik-local";
+                networking.firewall.allowedTCPPorts = [ 9000 ];
+                services.getty.autologinUser = "root";
+                services.openssh = {
+                  enable = true;
+                  settings = {
+                    PermitRootLogin = "yes";
+                    PermitEmptyPasswords = "yes";
+                  };
                 };
-              };
-              security.pam.services.sshd.allowNullPassword = true;
-              users.users.root.hashedPassword = "";
-              system.stateVersion = "25.05";
-              fileSystems."/" = { device = "/dev/vda1"; fsType = "ext4"; };
-              boot.loader.grub.devices = [ "/dev/vda" ];
-              services.authentik = {
-                enable = true;
-                environmentFile = "/etc/authentik.env";
-                inherit (authentikScope) authentikComponents;
-              };
-              systemd.tmpfiles.rules = [
-                "f+ /etc/authentik.env 0700 root root - AUTHENTIK_SECRET_KEY=sashamud-local-authentik-secret-key\\nSASHA_GITHUB_CLIENT_ID=${githubClientId}\\nSASHA_GITHUB_CLIENT_SECRET=${githubClientSecret}\\nSASHA_OIDC_CLIENT_ID=${oidcClientId}\\nSASHA_OIDC_CLIENT_SECRET=${oidcClientSecret}"
-              ];
-              environment.variables = {
-                SASHA_OIDC_BASE_URL = "http://localhost:9000";
-                SASHA_OIDC_CLIENT_ID = "sashamud";
-                SASHA_OIDC_CLIENT_SECRET = "sashamud-dev";
-                SASHA_OIDC_REDIRECT_URI = "https://localhost:8080/api/auth/callback";
-              };
-              virtualisation.vmVariant.virtualisation = {
-                memorySize = 3072;
-                cores = 3;
-                forwardPorts = [
-                  { from = "host"; host.port = 9000; guest.port = 9000; }
-                  { from = "host"; host.port = 2222; guest.port = 22; }
+                security.pam.services.sshd.allowNullPassword = true;
+                users.users.root.hashedPassword = "";
+                system.stateVersion = "25.05";
+                fileSystems."/" = { device = "/dev/vda1"; fsType = "ext4"; };
+                boot.loader.grub.devices = [ "/dev/vda" ];
+                services.authentik = {
+                  enable = true;
+                  environmentFile = "/etc/authentik.env";
+                  inherit (authentikScope) authentikComponents;
+                };
+                systemd.tmpfiles.rules = [
+                  "f+ /etc/authentik.env 0700 root root - AUTHENTIK_SECRET_KEY=sashamud-local-authentik-secret-key\\nSASHA_GITHUB_CLIENT_ID=${githubClientId}\\nSASHA_GITHUB_CLIENT_SECRET=${githubClientSecret}\\nSASHA_OIDC_CLIENT_ID=${oidcClientId}\\nSASHA_OIDC_CLIENT_SECRET=${oidcClientSecret}"
                 ];
-              };
-            }
-          ];
-        };
+                environment.variables = {
+                  SASHA_OIDC_BASE_URL = "http://localhost:9000";
+                  SASHA_OIDC_CLIENT_ID = "sashamud";
+                  SASHA_OIDC_CLIENT_SECRET = "sashamud-dev";
+                  SASHA_OIDC_REDIRECT_URI = "https://localhost:8080/api/auth/callback";
+                };
+                virtualisation.vmVariant.virtualisation = {
+                  memorySize = 3072;
+                  cores = 3;
+                  forwardPorts = [
+                    { from = "host"; host.port = 9000; guest.port = 9000; }
+                    { from = "host"; host.port = 2222; guest.port = 22; }
+                  ];
+                };
+              }
+            ];
+          };
       };
 }
