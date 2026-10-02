@@ -257,12 +257,32 @@
             hash = "sha256-yexn2zbub03CT9aIgkd3XwySAfO7jW4vbvl6QOkU+SQ=";
           };
 
-          teardown = script: teardown': ''
-            (set -e
-            ${script}
-            trap ${lib.escapeShellArg teardown'} SIGINT
-            wait)
-          '';
+          teardown = callback:
+            let
+              processWrap = processName: logPath: command: ''
+                cd $here
+                rm -rf ${logPath}
+                tail -F ${logPath} &
+                echo $! >> .devpids
+                ${pkgs.writeShellScript processName command} &
+                echo $! >> .devpids
+              '';
+              upDown = callback processWrap;
+            in
+            ''
+              (set -e
+              > .devpids
+              here=$(pwd)
+              ${upDown.up}
+              trap ${lib.escapeShellArg ''
+                  set +e
+                  ${upDown.down}
+                  echo "killing tracked pids..."
+                  kill -9 $(cat .devpids)
+                  pkill sasha-server
+              ''} SIGINT
+              wait)
+            '';
 
           shelpersConfig = (inputs.shelpers.lib pkgs).eval-shelpers [
             ({ shelp, ... }: {
@@ -374,21 +394,26 @@
                   };
                   start-sashamud = {
                     description = "generate TS client, build frontend, start full stack";
-                    script = teardown
-                      ''
-                        if [[ -e ${pgDir} ]]; then
-                          lpg on ${pgDir} up
-                          export SASHA_DB_CONNSTR=$(lpg on ${pgDir} get-connstr)
-                        else
-                          echo 'No database exists, run `reset-db` and try again.'
-                        fi
+                    script = teardown (processWrap: {
+                      up = ''
+                        reset-db
+                        lpg on ${pgDir} up
+                        export SASHA_DB_CONNSTR=$(lpg on ${pgDir} get-connstr)
+                        nix run .#sasha-client-generator --builders ''' -- web/packages/type-gen-output/src/client.ts
                         (cd web && npm install && npm run build)
-                        caddy run --config Caddyfile &
-                        nix run .#sasha-server &
-                      ''
-                      ''
-                        kill $(jobs -p) 2>/dev/null
+                        ${processWrap "caddy-reverse-proxy" "caddy.log" ''
+                          caddy run --config Caddyfile &> caddy.log
+                        ''}
+                        ${processWrap "sasha-server" "server.log" ''
+                          nix run .#sasha-server --builders ''' &> server.log
+                        ''}
                       '';
+                      down = ''
+                        sleep 1
+                        db-server-stop
+                        pkill caddy
+                      '';
+                    });
                   };
                 };
               };
