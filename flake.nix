@@ -165,6 +165,32 @@
               --data @-
             echo "deployed $SRC to $URL"
           '';
+          sashaTests = pkgs.writeShellScript "sasha-tests" ''
+            set -euo pipefail
+            export PATH=${localPostgres}/bin:$PATH
+            lpg on ${pgDir} down || true
+            rm ${pgDir} -r || true
+            lpg make ${pgDir}
+            lpg on ${pgDir} up
+            export SASHA_DB_CONNSTR=$(lpg on ${pgDir} get-connstr)
+            export SASHA_MIGRATIONS_DIR=${migrationsDir}
+            export HINT_GHC_LIB_DIR=${hintAttrs.HINT_GHC_LIB_DIR}
+            export HINT_GHC_PACKAGE_PATH=${hintAttrs.HINT_GHC_PACKAGE_PATH}
+            ${lib.getExe inputs.self.packages.${system}.sasha-tests}
+          '';
+          integrationTests = pkgs.writeShellScript "sashamud-integration-tests" ''
+            set -euo pipefail
+            export PATH=${localPostgres}/bin:$PATH
+            lpg on ${pgDir} down || true
+            rm ${pgDir} -r || true
+            lpg make ${pgDir}
+            lpg on ${pgDir} up
+            export SASHA_DB_CONNSTR=$(lpg on ${pgDir} get-connstr)
+            export SASHA_MIGRATIONS_DIR=${migrationsDir}
+            export HINT_GHC_LIB_DIR=${hintAttrs.HINT_GHC_LIB_DIR}
+            export HINT_GHC_PACKAGE_PATH=${hintAttrs.HINT_GHC_PACKAGE_PATH}
+            ${lib.getExe inputs.self.packages.${system}.sashamud-integration-tests}
+          '';
           fakeLogin = pkgs.writeShellScript "fake-login" ''
             set -euo pipefail
             URL="''${1:-${dslServerUrl}}"
@@ -451,6 +477,8 @@
               (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sasha-grammar "exe:grammar-tests"))).overrideAttrs { meta.mainProgram = "grammar-tests"; };
             sasha-e2e-tests = (hlib.justStaticExecutables
               (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sashamud-server "exe:sasha-e2e-tests"))).overrideAttrs { meta.mainProgram = "sasha-e2e-tests"; };
+            sashamud-integration-tests = (hlib.justStaticExecutables
+              (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sashamud-server "exe:sashamud-integration-tests"))).overrideAttrs { meta.mainProgram = "sashamud-integration-tests"; };
             web =
               let
                 generated-ts-path = "packages/type-gen-output/src/client.ts";
@@ -498,6 +526,16 @@
           apps.create-account = {
             type = "app";
             program = toString createAccount;
+          };
+
+          apps.sasha-tests = {
+            type = "app";
+            program = toString sashaTests;
+          };
+
+          apps.sashamud-integration-tests = {
+            type = "app";
+            program = toString integrationTests;
           };
 
           apps.authentik-vm = {
