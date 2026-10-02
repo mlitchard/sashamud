@@ -174,7 +174,8 @@ body {
 .no-viewports { padding: 20px; color: #666; text-align: center; }
 
 #logout-btn {
-  margin-left: auto;
+  margin-left: 8px;
+  flex-shrink: 0;
   padding: 2px 12px;
   border: 1px solid #933;
   border-radius: 3px;

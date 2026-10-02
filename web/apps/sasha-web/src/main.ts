@@ -156,13 +156,13 @@ function addTokenControl(sessionId: string): void {
 }
 
 function addLogoutButton(conn: GameConnection, viewports: ViewportManager): void {
-  const toolbar = document.getElementById('toolbar');
-  if (!toolbar) return;
+  const commandBar = document.getElementById('command-bar');
+  if (!commandBar) return;
 
   const btn = document.createElement('button');
   btn.id = 'logout-btn';
   btn.textContent = 'Logout';
-  toolbar.appendChild(btn);
+  commandBar.appendChild(btn);
 
   btn.addEventListener('click', () => {
     const sessionId = conn.getSessionId();
