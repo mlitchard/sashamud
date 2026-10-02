@@ -149,6 +149,8 @@
           oidcClientId = "sashamud";
           oidcClientSecret = "sashamud-dev";
           oidcRedirectUri = "http://localhost:8081/api/auth/callback";
+          liveOidcBaseUrl = "https://auth.sashamud.net:4430";
+          liveOidcRedirectUri = "https://sashamud.net:4430/api/auth/callback";
 
           dslServerUrl = "http://127.0.0.1:8081";
           deployDsl = pkgs.writeShellScript "deploy-dsl" ''
@@ -371,37 +373,53 @@
           inherit legacyPackages;
           shelpers = shelpersConfig.files;
 
-          devShells.default = (legacyPackages.shellFor {
-            packages = p: [
-              p.sasha-grammar
-              p.sasha
-              p.sashamud-world
-              p.sashamud-server
-            ];
-          }).overrideAttrs (attrs: {
-            buildInputs = attrs.buildInputs ++ [
-              pkgs.cabal-install
-              lu-pkgs.cabal-fmt
-              lu-pkgs.hlint
-              lu-pkgs.stylish-haskell
-              pkgs.caddy
-              pkgs.nodejs
-              pkgs.typescript
-              pkgs.postgresql
-              localPostgres
-            ] ++ lib.optionals (system == "x86_64-linux") [
-              devtools.haskell-language-server
-            ];
-            shellHook = ''
-              export SASHA_MIGRATIONS_DIR=${migrationsDir}
-              export SASHA_OIDC_BASE_URL=${oidcBaseUrl}
-              export SASHA_OIDC_CLIENT_ID=${oidcClientId}
-              export SASHA_OIDC_CLIENT_SECRET=${oidcClientSecret}
-              export SASHA_OIDC_REDIRECT_URI=https://localhost:8080/api/auth/callback
-              ${shelpersConfig.functions}
-              shelp
-            '';
-          });
+          devShells =
+            let
+              sashaShell = (legacyPackages.shellFor {
+                packages = p: [
+                  p.sasha-grammar
+                  p.sasha
+                  p.sashamud-world
+                  p.sashamud-server
+                ];
+              }).overrideAttrs (attrs: {
+                buildInputs = attrs.buildInputs ++ [
+                  pkgs.cabal-install
+                  lu-pkgs.cabal-fmt
+                  lu-pkgs.hlint
+                  lu-pkgs.stylish-haskell
+                  pkgs.caddy
+                  pkgs.nodejs
+                  pkgs.typescript
+                  pkgs.postgresql
+                  localPostgres
+                ] ++ lib.optionals (system == "x86_64-linux") [
+                  devtools.haskell-language-server
+                ];
+                shellHook = ''
+                  export SASHA_MIGRATIONS_DIR=${migrationsDir}
+                  ${shelpersConfig.functions}
+                  shelp
+                '';
+              });
+            in
+            {
+              default = sashaShell.overrideAttrs (attrs: {
+                shellHook = attrs.shellHook + ''
+                  export SASHA_OIDC_BASE_URL=${oidcBaseUrl}
+                  export SASHA_OIDC_CLIENT_ID=${oidcClientId}
+                  export SASHA_OIDC_CLIENT_SECRET=${oidcClientSecret}
+                  export SASHA_OIDC_REDIRECT_URI=https://localhost:8080/api/auth/callback
+                '';
+              });
+              production = sashaShell.overrideAttrs (attrs: {
+                shellHook = attrs.shellHook + ''
+                  export SASHA_OIDC_BASE_URL=${liveOidcBaseUrl}
+                  export SASHA_OIDC_REDIRECT_URI=${liveOidcRedirectUri}
+                  . ./production
+                '';
+              });
+            };
 
           packages = {
             hint-ghc = hintGhc;
