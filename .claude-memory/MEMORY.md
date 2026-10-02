@@ -68,7 +68,8 @@
 
 ## Nix/Flake
 - shelpers from gitlab:platonic/shelpers for dev commands
-- start-sashamud shelper: starts caddy + server
+- start-sashamud shelper: brings the lpg database up, exports SASHA_DB_CONNSTR, then starts caddy + server
+- Local authentik VM (nixosConfigurations.authentik-local): secrets for it live as let bindings in flake.nix, by user ruling 2026-10-01. The VM is local only, so this is the one place a secret may sit in the repo. Its login page comes from authentik/flow-default-authentication-flow.yaml, swapped into the shipped blueprints directory after the authentik-nix override-scope test pattern.
 - client-check: runs sasha-client-generator, type-checks output with tsc
 - sasha-server nix package references legacyPackages.sashamud-server
 - needs meta.mainProgram for nix run to find the right binary

@@ -760,7 +760,31 @@
             });
           };
         }) // {
-        nixosConfigurations.authentik-local = inputs.authentik-nix.inputs.nixpkgs.lib.nixosSystem {
+        nixosConfigurations.authentik-local =
+          let
+            githubClientId = "EJONMXtS2zGV2qWYMtne90xDdtSFE0S3UMseSZNt";
+            githubClientSecret = "PxgXhoaBVOMac9kybVuKRIgdXgKbvEWJoWuQO9PgMKOzKBwOUUr6NR7ecxe59v9ptfoMzygATemhnsR4TcTPpew2oisSrGLI4AwXApBU6Jkkx1pUHlw5MVVbZeC9V6S4";
+            oidcClientId = "sashamud";
+            oidcClientSecret = "sashamud-dev";
+            authentikPkgs = inputs.authentik-nix.inputs.nixpkgs.legacyPackages.x86_64-linux;
+            authentikScope = (inputs.authentik-nix.lib.mkAuthentikScope { pkgs = authentikPkgs; }).overrideScope (
+              final: prev: {
+                authentikComponents = prev.authentikComponents // {
+                  staticWorkdirDeps = prev.authentikComponents.staticWorkdirDeps.overrideAttrs (oA: {
+                    buildCommand =
+                      oA.buildCommand
+                      + ''
+                        rm -v $out/blueprints
+                        cp -vr ${prev.authentik-src}/blueprints $out/blueprints
+                        chmod -R u+w $out/blueprints
+                        cp -v ${./authentik/flow-default-authentication-flow.yaml} $out/blueprints/default/flow-default-authentication-flow.yaml
+                      '';
+                  });
+                };
+              }
+            );
+          in
+          inputs.authentik-nix.inputs.nixpkgs.lib.nixosSystem {
           system = "x86_64-linux";
           modules = [
             inputs.authentik-nix.nixosModules.default
@@ -783,9 +807,10 @@
               services.authentik = {
                 enable = true;
                 environmentFile = "/etc/authentik.env";
+                inherit (authentikScope) authentikComponents;
               };
               systemd.tmpfiles.rules = [
-                "f /etc/authentik.env 0700 root root - AUTHENTIK_SECRET_KEY=sashamud-local-authentik-secret-key"
+                "f+ /etc/authentik.env 0700 root root - AUTHENTIK_SECRET_KEY=sashamud-local-authentik-secret-key\\nSASHA_GITHUB_CLIENT_ID=${githubClientId}\\nSASHA_GITHUB_CLIENT_SECRET=${githubClientSecret}\\nSASHA_OIDC_CLIENT_ID=${oidcClientId}\\nSASHA_OIDC_CLIENT_SECRET=${oidcClientSecret}"
               ];
               environment.variables = {
                 SASHA_OIDC_BASE_URL = "http://localhost:9000";
