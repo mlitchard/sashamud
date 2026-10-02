@@ -125,3 +125,25 @@ metadata:
   that reference: open the file it names before building on it. When he
   names a model, every mechanism follows the model's source unless he
   rules a departure in writing.
+  STRUCK AGAIN 2026-10-02 (start-sashamud ctrl-c, "i told you to model
+  your code after quux, and you chose complexity instead"): quux's
+  cleanup kills caddy with `pkill caddy`. I ported its ps|grep|awk|xargs
+  sweep for the server instead of `pkill sasha-server`. When the model
+  has a one-command form for the job, use that form.
+- EVERY STEP LANDS GREEN (2026-09-29, auth-token step 1, "the step is not
+  done until the tests are green"): a step is finished when every check
+  is green. A schema change lands in the same step as the code that reads
+  it. When a plan's step would leave a check red, weave in the later step
+  that makes it green. Never report a red check as acceptable.
+- COMMAND NAMES COME FROM flake.nix, QUOTED (2026-09-29, auth-token step
+  4, "please stop making things up": told him to run `client-check`,
+  which is a flake check, as if it were a shell command): a name I hand
+  him to type must come from the file that defines it, with its real
+  invocation form (`nix build .#checks.<system>.<name>`, a shelper, an
+  app). Plan and MEMORY names are claims to verify, never commands.
+- READ THE PRELUDE AND THE CABAL STANZA BEFORE USING A NAME (2026-09-29,
+  auth-token step 3: `negate` is not in SashaPrelude; the server package's
+  shared stanza lacks DataKinds): before writing a module, read that
+  package's SashaPrelude export list for every prelude name used, and the
+  package's cabal stanza for the extensions in force. A missing name or
+  extension is a pragma or an import, decided before he builds.
