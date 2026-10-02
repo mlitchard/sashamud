@@ -210,6 +210,7 @@ authHandler ctx req =
         SELECT users.user_id, users.role_id, tokens.hash FROM tokens
           JOIN users ON users.user_id = tokens.user_id
           WHERE tokens.token = ?
+            AND tokens.expires_at > now()
             AND users.status = 'active'
       |]
 

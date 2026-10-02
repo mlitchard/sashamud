@@ -96,16 +96,19 @@ getJwtData jwt hash = case snd <$> hmacDecode hash (unJwt jwt) of
 tryAddHashAndJwt :: Mid AuthenticatedUser -> Hash -> Jwt -> AppM ()
 tryAddHashAndJwt userId hash jwt = do
   ctx <- ask
+  SashaClaims _ expiration <- case getJwtData jwt hash of
+    Left err     -> throwError err500 { errBody = fromString ("token decode failed: " <> show err) }
+    Right claims -> pure claims
   res <- liftIO . try . withResource (acDbPool ctx) $ \conn ->
-    execute conn addToken (userId, jwt, hash, userId)
+    execute conn addToken (userId, jwt, hash, userId, expiration)
   case res of
     Left (err :: SqlError) -> throwError err500 { errBody = fromString ("token insert failed: " <> show err) }
     Right _                -> pure ()
   where
     addToken =
       [sql|
-        DELETE FROM tokens WHERE user_id = ?;
-        INSERT INTO tokens (token, hash, user_id, created) VALUES (?, ?, ?, now());
+        DELETE FROM tokens WHERE user_id = ? OR expires_at < now();
+        INSERT INTO tokens (token, hash, user_id, created, expires_at) VALUES (?, ?, ?, now(), ?);
       |]
 
 instance ToHttpApiData Jwt where

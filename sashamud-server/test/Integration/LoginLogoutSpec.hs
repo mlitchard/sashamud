@@ -271,8 +271,8 @@ seesObjects _ _ = False
 insertExpired :: Query
 insertExpired =
   [sql|
-    INSERT INTO tokens (token, hash, user_id, created)
-      SELECT ?, ?, credentials.user_id, now() FROM credentials
+    INSERT INTO tokens (token, hash, user_id, created, expires_at)
+      SELECT ?, ?, credentials.user_id, now(), now() - interval '1 hour' FROM credentials
         WHERE credentials.player_name = ?
   |]
 
