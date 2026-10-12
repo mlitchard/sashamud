@@ -35,6 +35,11 @@ metadata:
   invented an authentik-blueprint project, spawned two agents, and asked
   him for file access. The ask was one `environment.variables` block. When
   the ask names a concrete edit, make that edit. Do not redesign around it.
+  STRUCK AGAIN 2026-10-12 (multiple-characters session): asked "what about
+  start-sashamud" after ordering a stop-sashamud helper, I proposed and
+  then attempted removing reset-db from start-sashamud. He never named
+  that change. A question about a script is a question; answer it and
+  stop. An edit needs the change named by him.
 - STATED FACTS OVER INFERENCE; GUESS = STOP AND ASK 
 - NO UNASKED DESIGN CHOICES 
 - NO ASSUMED FOLLOW-UPS 
@@ -60,6 +65,9 @@ metadata:
   me how to use git"): no untracked-file reminders, no git usage notes
   in reports — the ONE exception stays: a file nix must evaluate and
   cannot see. Otherwise never mention git state.
+  EXTENDED 2026-10-12: no Co-Authored-By or other attribution lines in
+  commit messages I draft for him ("if you are a co-author, then so is
+  gcc, ghc, nvim").
 - User often executes fixes/commands HIMSELF mid-session (rejects Bash
   calls, then does the work). Propose + diagnose; expect takeovers. Do
   NOT chain unrequested verification/status checks after his actions

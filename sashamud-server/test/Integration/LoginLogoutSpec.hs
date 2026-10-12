@@ -60,14 +60,12 @@ import           Database.PostgreSQL.Simple.SqlQQ (sql)
 import           DSL.Builder (WorldBuilderResult (resultCounters))
 import           Engine.Simulation.SignalNetwork (gameLoop)
 import           FakeProvider
-  ( callbackThroughFake
-  , fakeApp
+  ( fakeApp
   , fakeAuthentikUserId
   , finalLocationThroughFake
   , loginThroughFake
   , newFakeState
   , seedAccount
-  , sessionFromCookie
   )
 import           Lens.Micro.Platform (view)
 import           Model.Account
@@ -567,9 +565,12 @@ spec = describe "Integration" . around withTestServer $ do
   it "an account created at login can submit DSL" $ \(_port, _ctx) -> do
     env <- testClientEnv
     manager <- newManager defaultManagerSettings
-    sid <- sessionFromCookie =<< callbackThroughFake manager testPort StartCreate "Builderborn" "builderborn"
-    result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource worldSource)) env
-    result `shouldBe` Right NoContent
+    final <- finalLocationThroughFake manager testPort StartCreate "Builderborn" "builderborn"
+    case stripPrefix "/#token=" final of
+      Nothing -> expectationFailure ("expected a token, got " <> show final)
+      Just token -> do
+        result <- runClientM (dslClient (makeAuthRequest (SessionId token)) (DSLSource worldSource)) env
+        result `shouldBe` Right NoContent
 
   it "POST /api/game/dsl with the world source returns NoContent" $ \(_port, ctx) -> do
     env <- testClientEnv

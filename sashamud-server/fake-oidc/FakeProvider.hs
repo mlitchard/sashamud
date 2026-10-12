@@ -11,7 +11,6 @@ module FakeProvider
   , loginThroughFake
   , newFakeState
   , seedAccount
-  , sessionFromCookie
   ) where
 
 import           SashaPrelude
