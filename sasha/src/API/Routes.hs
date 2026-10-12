@@ -12,7 +12,7 @@ module API.Routes
   ) where
 
 import           API.Types (AuthenticatedUser, DSLSource, MessageTo)
-import           Model.Account (AuthCode, OidcState)
+import           Model.Account (AuthCode, OidcState, StartMode)
 import           Model.Authorization (AllowedAction (Dsl))
 import           Model.Core (SessionId)
 import           Model.WireProtocol (MessageFrom)
@@ -27,7 +27,6 @@ import           Servant.API
   , JSON
   , NoContent
   , PostNoContent
-  , QueryParam
   , QueryParam'
   , ReqBody
   , Verb
@@ -48,7 +47,8 @@ type instance AuthServerData (AuthProtect SecWebSocketProtocol) = AuthenticatedU
 
 type StartAPI =
   "api" :> "auth" :> "start"
-  :> QueryParam "name" PlayerNameUNV
+  :> QueryParam' '[Required, Strict] "name" PlayerNameUNV
+  :> QueryParam' '[Required, Strict] "mode" StartMode
   :> Verb 'GET 302 '[JSON] (Headers '[Header "Location" Text] NoContent)
 
 type CallbackAPI =

@@ -9,6 +9,7 @@ module Model.Account
   , OidcBaseUrl (OidcBaseUrl)
   , OidcState (OidcState)
   , RedirectUri (RedirectUri)
+  , StartMode (StartLogin, StartCreate)
   , TokenResponse (TokenResponse)
   , UserInfo (UserInfo)
   , UserPermissions (PermissionsDisabled, Permissions)
@@ -45,7 +46,7 @@ import           Database.PostgreSQL.Simple.ToField
   , inQuotes
   )
 import           Model.Authorization (AllowedAction)
-import           Servant (FromHttpApiData, ToHttpApiData)
+import           Servant (FromHttpApiData (parseQueryParam), ToHttpApiData)
 import           Server.Validator (PlayerNameUNV)
 #ifdef TESTING
 import           Test.QuickCheck (Arbitrary)
@@ -118,6 +119,16 @@ newtype OidcState = OidcState { unOidcState :: Text }
 
 newtype AuthCode = AuthCode { unAuthCode :: Text }
   deriving newtype (Eq, FromHttpApiData, Ord, Show, ToHttpApiData)
+
+data StartMode
+  = StartLogin
+  | StartCreate
+  deriving stock (Eq, Show)
+
+instance FromHttpApiData StartMode where
+  parseQueryParam "login"  = Right StartLogin
+  parseQueryParam "create" = Right StartCreate
+  parseQueryParam other    = Left ("unknown mode: " <> other)
 
 newtype CodeVerifier = CodeVerifier { unCodeVerifier :: Text }
   deriving newtype (Eq, FromHttpApiData, Show, ToHttpApiData)

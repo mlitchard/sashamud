@@ -67,6 +67,7 @@ import           Model.Account
   , ClientSecret (ClientSecret)
   , OidcBaseUrl (OidcBaseUrl)
   , RedirectUri (RedirectUri)
+  , StartMode (StartCreate, StartLogin)
   )
 import           Model.Authorization (RoleName (Player, Wizard))
 import           Model.Core (actionConsequence, presenceListing)
@@ -498,14 +499,14 @@ spec = describe "Integration" . around withTestServer $ do
 
   it "a new subject with a free name gets an account and keeps it" $ \(_port, ctx) -> do
     manager <- newManager defaultManagerSettings
-    first <- finalLocationThroughFake manager testPort (Just "Newbie") "newbie"
+    first <- finalLocationThroughFake manager testPort StartCreate "Newbie" "newbie"
     first `shouldSatisfy` isPrefixOf "/#token="
     rows1 :: [Only Int] <- withResource (acDbPool ctx) $ \conn ->
       query conn "SELECT users.user_id FROM users JOIN credentials ON users.user_id = credentials.user_id WHERE credentials.authentik_user_id = ?" (Only (fakeAuthentikUserId "newbie"))
     case rows1 of
       [Only _] -> pure ()
       _        -> expectationFailure "expected exactly one account for the new subject"
-    second <- finalLocationThroughFake manager testPort Nothing "newbie"
+    second <- finalLocationThroughFake manager testPort StartLogin "Newbie" "newbie"
     second `shouldSatisfy` isPrefixOf "/#token="
     rows2 :: [Only Int] <- withResource (acDbPool ctx) $ \conn ->
       query conn "SELECT users.user_id FROM users JOIN credentials ON users.user_id = credentials.user_id WHERE credentials.authentik_user_id = ?" (Only (fakeAuthentikUserId "newbie"))
@@ -514,18 +515,18 @@ spec = describe "Integration" . around withTestServer $ do
   it "a new subject with a taken name is sent back to choose again" $ \(_port, ctx) -> do
     seedAccount (acDbPool ctx) Wizard (PlayerNameVAL "Occupied")
     manager <- newManager defaultManagerSettings
-    final <- finalLocationThroughFake manager testPort (Just "Occupied") "intruder"
+    final <- finalLocationThroughFake manager testPort StartCreate "Occupied" "intruder"
     final `shouldBe` "/#taken=Occupied"
 
-  it "a new subject without a name is sent to create an account" $ \(_port, _ctx) -> do
+  it "a subject logging in with a name it does not own is told the name is unknown" $ \(_port, _ctx) -> do
     manager <- newManager defaultManagerSettings
-    final <- finalLocationThroughFake manager testPort Nothing "stranger"
-    final `shouldBe` "/#new"
+    final <- finalLocationThroughFake manager testPort StartLogin "Stranger" "stranger"
+    final `shouldBe` "/#unknown=Stranger"
 
   it "an account created at login can submit DSL" $ \(_port, _ctx) -> do
     env <- testClientEnv
     manager <- newManager defaultManagerSettings
-    final <- finalLocationThroughFake manager testPort (Just "Builderborn") "builderborn"
+    final <- finalLocationThroughFake manager testPort StartCreate "Builderborn" "builderborn"
     case stripPrefix "/#token=" final of
       Nothing -> expectationFailure ("expected a token, got " <> show final)
       Just token -> do

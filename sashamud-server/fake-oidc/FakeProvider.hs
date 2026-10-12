@@ -38,6 +38,7 @@ import           Model.Account
   , AuthentikUserId (AuthentikUserId)
   , CodeVerifier (CodeVerifier)
   , OidcState
+  , StartMode (StartCreate, StartLogin)
   , TokenResponse (TokenResponse)
   , UserInfo (UserInfo)
   , unAuthCode
@@ -146,11 +147,12 @@ fakeAuthentikUserId :: Text -> AuthentikUserId
 fakeAuthentikUserId user =
   AuthentikUserId (generateNamed namespaceOID (Data.ByteString.unpack (encodeUtf8 user)))
 
-finalLocationThroughFake :: Manager -> Int -> Maybe Text -> Text -> IO Text
-finalLocationThroughFake manager port requestedName user = do
-  let startPath = case requestedName of
-        Nothing   -> "/api/auth/start"
-        Just name -> "/api/auth/start?name=" <> unpack name
+finalLocationThroughFake :: Manager -> Int -> StartMode -> Text -> Text -> IO Text
+finalLocationThroughFake manager port mode requestedName user = do
+  let modeParam = case mode of
+        StartLogin  -> "login"
+        StartCreate -> "create"
+      startPath = "/api/auth/start?name=" <> unpack requestedName <> "&mode=" <> modeParam
   startReq <- parseRequest ("http://127.0.0.1:" <> show port <> startPath)
   authorizeUrl <- locationOf =<< httpLbs startReq { redirectCount = 0 } manager
   authorizeReq <- parseRequest (unpack authorizeUrl <> "&fake_user=" <> unpack user)
@@ -168,7 +170,7 @@ finalLocationThroughFake manager port requestedName user = do
 
 loginThroughFake :: Manager -> Int -> Text -> IO SessionId
 loginThroughFake manager port user = do
-  final <- finalLocationThroughFake manager port Nothing user
+  final <- finalLocationThroughFake manager port StartLogin user user
   case stripPrefix "/#token=" final of
     Just t  -> pure (SessionId t)
     Nothing -> fail ("unexpected final location " <> unpack final)

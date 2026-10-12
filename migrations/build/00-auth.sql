@@ -31,7 +31,7 @@ DROP TABLE IF EXISTS credentials CASCADE;
 CREATE TABLE credentials
   ( user_id INT UNIQUE NOT NULL REFERENCES users(user_id)
   , player_name TEXT UNIQUE NOT NULL
-  , authentik_user_id uuid UNIQUE NOT NULL
+  , authentik_user_id uuid NOT NULL
   );
 
 DROP TABLE IF EXISTS tokens CASCADE;

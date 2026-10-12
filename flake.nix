@@ -171,7 +171,7 @@
             location() {
               $CURL -sS -o /dev/null -D - "$1" | tr -d '\r' | ${pkgs.gawk}/bin/awk 'tolower($1) == "location:" { print $2 }'
             }
-            AUTHORIZE=$(location "$URL/api/auth/start")
+            AUTHORIZE=$(location "$URL/api/auth/start?name=$USER&mode=login")
             CALLBACK=$(location "$AUTHORIZE&fake_user=$USER")
             FINAL=$(location "$CALLBACK")
             echo "$FINAL" | ${pkgs.gnused}/bin/sed 's|^/#token=||'

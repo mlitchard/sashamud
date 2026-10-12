@@ -90,6 +90,11 @@ metadata:
   about HIS infra require docs, source, or his own output first.
 - Config knobs: NEVER require env vars before running. Default = flake
   `let` binding; env var is an OPTIONAL override (recurring correction).
+  STRUCK AGAIN 2026-10-12 (multiple-characters session): relayed
+  docs/authentik-setup.md step 7's `export SASHA_OIDC_CLIENT_ID` /
+  `SASHA_OIDC_CLIENT_SECRET` as local run steps. The flake's let
+  bindings are the values; a doc that says to export them is the
+  error, never a step to pass on.
 - Don't modify the user's personal dotfiles.
 - NO GIT COMMANDS (2026-09-27, live-dsl step 5, "stop wasting time with
   git commands you do not need them"): neither I nor any agent runs git

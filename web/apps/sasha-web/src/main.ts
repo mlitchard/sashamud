@@ -17,6 +17,8 @@ function readFragment(): { token: string | null; message: string | null } {
   if (token) return { token: token[1] ?? null, message: null };
   const taken = /^#taken=(.+)$/.exec(hash);
   if (taken) return { token: null, message: decodeURIComponent(taken[1] ?? '') + ' is taken. Choose another name.' };
+  const unknown = /^#unknown=(.+)$/.exec(hash);
+  if (unknown) return { token: null, message: 'No character named ' + decodeURIComponent(unknown[1] ?? '') + ' on your account.' };
   if (hash === '#new') return { token: null, message: 'Choose a name to create your account.' };
   return { token: null, message: null };
 }
@@ -70,9 +72,14 @@ function showLogin(message: string | null): void {
   document.body.appendChild(overlay);
 
   loginButton.addEventListener('click', () => {
+    const name = input.value.trim();
+    if (name.length === 0) {
+      error.textContent = 'Enter a name.';
+      return;
+    }
     loginButton.disabled = true;
     loginButton.textContent = 'Redirecting...';
-    location.href = '/api/auth/start';
+    location.href = `/api/auth/start?name=${encodeURIComponent(name)}&mode=login`;
   });
 
   const createAccount = (): void => {
@@ -86,7 +93,7 @@ function showLogin(message: string | null): void {
     fetch(`${API.base}/api/auth/available?name=${encodeURIComponent(name)}`)
       .then(async (resp: Response) => {
         if (resp.status === 204) {
-          location.href = `/api/auth/start?name=${encodeURIComponent(name)}`;
+          location.href = `/api/auth/start?name=${encodeURIComponent(name)}&mode=create`;
           return;
         }
         const text = await resp.text();
