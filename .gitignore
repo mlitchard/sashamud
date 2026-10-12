@@ -1,6 +1,10 @@
+.devpids
 attic
 dist-newstyle/
 result
+*.log
+local
+production
 *.eventlog
 *.hp
 web/node_modules/

@@ -12,7 +12,7 @@ module API.Routes
   ) where
 
 import           API.Types (AuthenticatedUser, DSLSource, MessageTo)
-import           Model.Account (AuthCode, OidcState)
+import           Model.Account (AuthCode, OidcState, StartMode)
 import           Model.Authorization (AllowedAction (Dsl))
 import           Model.WireProtocol (MessageFrom)
 import           Network.HTTP.Types.Method (StdMethod (GET))
@@ -26,7 +26,6 @@ import           Servant.API
   , JSON
   , NoContent
   , PostNoContent
-  , QueryParam
   , QueryParam'
   , ReqBody
   , Verb
@@ -48,14 +47,15 @@ type instance AuthServerData (AuthProtect "BEARER") = AuthenticatedUser
 
 type StartAPI =
   "api" :> "auth" :> "start"
-  :> QueryParam "name" PlayerNameUNV
+  :> QueryParam' '[Required, Strict] "name" PlayerNameUNV
+  :> QueryParam' '[Required, Strict] "mode" StartMode
   :> Verb 'GET 302 '[JSON] (Headers '[Header "Location" Text] NoContent)
 
 type CallbackAPI =
   "api" :> "auth" :> "callback"
   :> QueryParam' '[Required, Strict] "code" AuthCode
   :> QueryParam' '[Required, Strict] "state" OidcState
-  :> Verb 'GET 302 '[JSON] (Headers '[Header "Set-Cookie" Text, Header "Location" Text] NoContent)
+  :> Verb 'GET 302 '[JSON] (Headers '[Header "Location" Text] NoContent)
 
 type AvailableAPI =
   "api" :> "auth" :> "available"

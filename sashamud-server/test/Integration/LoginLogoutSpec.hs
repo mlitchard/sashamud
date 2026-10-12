@@ -23,7 +23,6 @@ import           SashaPrelude
   , ($)
   , (.)
   , (<>)
-  , (=<<)
   )
 
 import           API.Routes (DSLAPI, LogoutAPI)
@@ -40,7 +39,7 @@ import           Data.ByteString.Lazy (null)
 import           Data.List (lookup)
 import           Data.Map.Strict (member)
 import           Data.Pool (defaultPoolConfig, newPool, withResource)
-import           Data.Text (isPrefixOf, unlines)
+import           Data.Text (isPrefixOf, stripPrefix, unlines)
 import           Data.Text.Encoding (decodeUtf8', encodeUtf8)
 import           Data.Time.Clock (secondsToNominalDiffTime)
 import           Database.PostgreSQL.Simple
@@ -60,14 +59,12 @@ import           Database.PostgreSQL.Simple.SqlQQ (sql)
 import           DSL.Builder (WorldBuilderResult (resultCounters))
 import           Engine.Simulation.SignalNetwork (gameLoop)
 import           FakeProvider
-  ( callbackThroughFake
-  , fakeApp
+  ( fakeApp
   , fakeAuthentikUserId
   , finalLocationThroughFake
   , loginThroughFake
   , newFakeState
   , seedAccount
-  , sessionFromCookie
   )
 import           Lens.Micro.Platform (view)
 import           Model.Account
@@ -76,6 +73,7 @@ import           Model.Account
   , ClientSecret (ClientSecret)
   , OidcBaseUrl (OidcBaseUrl)
   , RedirectUri (RedirectUri)
+  , StartMode (StartCreate, StartLogin)
   )
 import           Model.Authorization (RoleName (Player, Wizard))
 import           Model.Core (actionConsequence, presenceListing)
@@ -412,6 +410,24 @@ spec = describe "Integration" . around withTestServer $ do
           (Just _, Just _) -> pure ()
           _                -> expectationFailure "both players should receive heartbeats"
 
+  it "one identity logs in as two characters at the same time" $ \(_port, ctx) -> do
+    manager <- newManager defaultManagerSettings
+    firstFinal <- finalLocationThroughFake manager testPort StartCreate "TwinOne" "twin"
+    secondFinal <- finalLocationThroughFake manager testPort StartCreate "TwinTwo" "twin"
+    case (stripPrefix "/#token=" firstFinal, stripPrefix "/#token=" secondFinal) of
+      (Just t1, Just t2) ->
+        connectWS (SessionId t1) $ \conn1 ->
+          connectWS (SessionId t2) $ \conn2 -> do
+            n1 <- receiveUntil conn1 10000000 isLookNarration
+            n2 <- receiveUntil conn2 10000000 isLookNarration
+            case (n1, n2) of
+              (Just _, Just _) -> do
+                sessions <- readMVar (acSessions ctx)
+                member (SessionId t1) sessions `shouldBe` True
+                member (SessionId t2) sessions `shouldBe` True
+              _ -> expectationFailure "both characters should receive auto-look narration"
+      _ -> expectationFailure ("expected two tokens, got " <> show (firstFinal, secondFinal))
+
   it "disconnect: agent removed from lobby scene but stays in agentMap" $ \(_port, ctx) -> do
     sid1 <- loginAs ctx Wizard "Stayer"
     sid2 <- loginAs ctx Wizard "Leaver"
@@ -539,15 +555,15 @@ spec = describe "Integration" . around withTestServer $ do
 
   it "a new subject with a free name gets an account and keeps it" $ \(_port, ctx) -> do
     manager <- newManager defaultManagerSettings
-    first <- finalLocationThroughFake manager testPort (Just "Newbie") "newbie"
-    first `shouldBe` "/"
+    first <- finalLocationThroughFake manager testPort StartCreate "Newbie" "newbie"
+    first `shouldSatisfy` isPrefixOf "/#token="
     rows1 :: [Only Int] <- withResource (acDbPool ctx) $ \conn ->
       query conn "SELECT users.user_id FROM users JOIN credentials ON users.user_id = credentials.user_id WHERE credentials.authentik_user_id = ?" (Only (fakeAuthentikUserId "newbie"))
     case rows1 of
       [Only _] -> pure ()
       _        -> expectationFailure "expected exactly one account for the new subject"
-    second <- finalLocationThroughFake manager testPort Nothing "newbie"
-    second `shouldBe` "/"
+    second <- finalLocationThroughFake manager testPort StartLogin "Newbie" "newbie"
+    second `shouldSatisfy` isPrefixOf "/#token="
     rows2 :: [Only Int] <- withResource (acDbPool ctx) $ \conn ->
       query conn "SELECT users.user_id FROM users JOIN credentials ON users.user_id = credentials.user_id WHERE credentials.authentik_user_id = ?" (Only (fakeAuthentikUserId "newbie"))
     rows2 `shouldBe` rows1
@@ -555,20 +571,23 @@ spec = describe "Integration" . around withTestServer $ do
   it "a new subject with a taken name is sent back to choose again" $ \(_port, ctx) -> do
     seedAccount (acDbPool ctx) Wizard (PlayerNameVAL "Occupied")
     manager <- newManager defaultManagerSettings
-    final <- finalLocationThroughFake manager testPort (Just "Occupied") "intruder"
+    final <- finalLocationThroughFake manager testPort StartCreate "Occupied" "intruder"
     final `shouldBe` "/#taken=Occupied"
 
-  it "a new subject without a name is sent to create an account" $ \(_port, _ctx) -> do
+  it "a subject logging in with a name it does not own is told the name is unknown" $ \(_port, _ctx) -> do
     manager <- newManager defaultManagerSettings
-    final <- finalLocationThroughFake manager testPort Nothing "stranger"
-    final `shouldBe` "/#new"
+    final <- finalLocationThroughFake manager testPort StartLogin "Stranger" "stranger"
+    final `shouldBe` "/#unknown=Stranger"
 
   it "an account created at login can submit DSL" $ \(_port, _ctx) -> do
     env <- testClientEnv
     manager <- newManager defaultManagerSettings
-    sid <- sessionFromCookie =<< callbackThroughFake manager testPort (Just "Builderborn") "builderborn"
-    result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource worldSource)) env
-    result `shouldBe` Right NoContent
+    final <- finalLocationThroughFake manager testPort StartCreate "Builderborn" "builderborn"
+    case stripPrefix "/#token=" final of
+      Nothing -> expectationFailure ("expected a token, got " <> show final)
+      Just token -> do
+        result <- runClientM (dslClient (makeAuthRequest (SessionId token)) (DSLSource worldSource)) env
+        result `shouldBe` Right NoContent
 
   it "POST /api/game/dsl with the world source returns NoContent" $ \(_port, ctx) -> do
     env <- testClientEnv

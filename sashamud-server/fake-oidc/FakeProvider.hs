@@ -11,7 +11,6 @@ module FakeProvider
   , loginThroughFake
   , newFakeState
   , seedAccount
-  , sessionFromCookie
   ) where
 
 import           SashaPrelude
@@ -41,6 +40,7 @@ import           Model.Account
   , AuthentikUserId (AuthentikUserId)
   , CodeVerifier (CodeVerifier)
   , OidcState
+  , StartMode (StartCreate, StartLogin)
   , TokenResponse (TokenResponse)
   , UserInfo (UserInfo)
   , unAuthCode
@@ -149,11 +149,12 @@ fakeAuthentikUserId :: Text -> AuthentikUserId
 fakeAuthentikUserId user =
   AuthentikUserId (generateNamed namespaceOID (Data.ByteString.unpack (encodeUtf8 user)))
 
-callbackThroughFake :: Manager -> Int -> Maybe Text -> Text -> IO (Response Data.ByteString.Lazy.ByteString)
-callbackThroughFake manager port requestedName user = do
-  let startPath = case requestedName of
-        Nothing   -> "/api/auth/start"
-        Just name -> "/api/auth/start?name=" <> unpack name
+callbackThroughFake :: Manager -> Int -> StartMode -> Text -> Text -> IO (Response Data.ByteString.Lazy.ByteString)
+callbackThroughFake manager port mode requestedName user = do
+  let modeParam = case mode of
+        StartLogin  -> "login"
+        StartCreate -> "create"
+      startPath = "/api/auth/start?name=" <> unpack requestedName <> "&mode=" <> modeParam
   startReq <- parseRequest ("http://127.0.0.1:" <> show port <> startPath)
   authorizeUrl <- locationOf =<< httpLbs startReq { redirectCount = 0 } manager
   authorizeReq <- parseRequest (unpack authorizeUrl <> "&fake_user=" <> unpack user)
@@ -162,9 +163,9 @@ callbackThroughFake manager port requestedName user = do
   callbackReq <- parseRequest ("http://127.0.0.1:" <> show port <> "/api/auth/callback" <> unpack callbackQuery)
   httpLbs callbackReq { redirectCount = 0 } manager
 
-finalLocationThroughFake :: Manager -> Int -> Maybe Text -> Text -> IO Text
-finalLocationThroughFake manager port requestedName user =
-  locationOf =<< callbackThroughFake manager port requestedName user
+finalLocationThroughFake :: Manager -> Int -> StartMode -> Text -> Text -> IO Text
+finalLocationThroughFake manager port mode requestedName user =
+  locationOf =<< callbackThroughFake manager port mode requestedName user
 
 locationOf :: Response a -> IO Text
 locationOf resp =
@@ -174,19 +175,12 @@ locationOf resp =
       Left _  -> fail "Location header is not UTF-8"
       Right l -> pure l
 
-sessionFromCookie :: Response a -> IO SessionId
-sessionFromCookie resp =
-  case lookup "Set-Cookie" (responseHeaders resp) of
-    Nothing -> fail "no Set-Cookie header"
-    Just raw -> case decodeUtf8' raw of
-      Left _ -> fail "Set-Cookie header is not UTF-8"
-      Right cookie -> case stripPrefix "sashamud_token=" cookie of
-        Nothing   -> fail ("unexpected cookie " <> unpack cookie)
-        Just rest -> pure (SessionId (fst (breakOn ";" rest)))
-
 loginThroughFake :: Manager -> Int -> Text -> IO SessionId
-loginThroughFake manager port user =
-  sessionFromCookie =<< callbackThroughFake manager port Nothing user
+loginThroughFake manager port user = do
+  final <- finalLocationThroughFake manager port StartLogin user user
+  case stripPrefix "/#token=" final of
+    Just t  -> pure (SessionId t)
+    Nothing -> fail ("unexpected final location " <> unpack final)
 
 seedAccount :: Pool Connection -> RoleName -> PlayerNameVAL -> IO ()
 seedAccount pool role (PlayerNameVAL name) = withResource pool $ \conn -> do

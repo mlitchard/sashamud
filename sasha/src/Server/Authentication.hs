@@ -59,6 +59,7 @@ import           Model.Account
   , OidcBaseUrl (OidcBaseUrl)
   , OidcState (OidcState)
   , RedirectUri (RedirectUri)
+  , StartMode (StartCreate, StartLogin)
   , TokenResponse (TokenResponse)
   , UserInfo (UserInfo)
   , UserPermissions (Permissions, PermissionsDisabled)
@@ -106,7 +107,6 @@ import           Servant
   , err403
   , err409
   , err500
-  , noHeader
   , throwError
   , type (:>)
   )
@@ -238,15 +238,13 @@ authAvailable unv = do
     [] -> pure NoContent
     _  -> throwError err409 { errBody = fromStrict (encodeUtf8 (name <> " is taken")) }
 
-authStart :: Maybe PlayerNameUNV -> AppM (Headers '[Header "Location" Text] NoContent)
-authStart requestedName = do
+authStart :: PlayerNameUNV -> StartMode -> AppM (Headers '[Header "Location" Text] NoContent)
+authStart requestedName mode = do
   ctx <- ask
   let OidcConfig (OidcBaseUrl base) (ClientId clientId) _ (RedirectUri redirectUri) = acOidcConfig ctx
-  chosenName <- case requestedName of
-    Nothing  -> pure Nothing
-    Just unv -> case validate unv :: Either Text PlayerNameVAL of
-      Left reason -> throwError err400 { errBody = fromStrict (encodeUtf8 reason) }
-      Right val   -> pure (Just val)
+  chosenName <- case validate requestedName :: Either Text PlayerNameVAL of
+    Left reason -> throwError err400 { errBody = fromStrict (encodeUtf8 reason) }
+    Right val   -> pure val
   stateBytes :: ByteString <- liftIO (getRandomBytes 32)
   verifierBytes :: ByteString <- liftIO (getRandomBytes 32)
   now <- liftIO getCurrentTime
@@ -265,21 +263,21 @@ authStart requestedName = do
   case (decodeUtf8' state, decodeUtf8' verifier, decodeUtf8' location) of
     (Right stateText, Right verifierText, Right locationText) -> do
       liftIO . modifyMVar_ (acOidcStates ctx) $ \states ->
-        pure (Data.Map.Strict.insert (OidcState stateText) (now, CodeVerifier verifierText, chosenName)
-                (Data.Map.Strict.filter (\(created, _, _) -> diffUTCTime now created <= 600) states))
+        pure (Data.Map.Strict.insert (OidcState stateText) (now, CodeVerifier verifierText, chosenName, mode)
+                (Data.Map.Strict.filter (\(created, _, _, _) -> diffUTCTime now created <= 600) states))
       pure (addHeader locationText NoContent)
     _ -> throwError err500
 
-authCallback :: AuthCode -> OidcState -> AppM (Headers '[Header "Set-Cookie" Text, Header "Location" Text] NoContent)
+authCallback :: AuthCode -> OidcState -> AppM (Headers '[Header "Location" Text] NoContent)
 authCallback (AuthCode code) state = do
   ctx <- ask
   let OidcConfig (OidcBaseUrl base) (ClientId clientId) (ClientSecret secret) (RedirectUri redirectUri) = acOidcConfig ctx
   now <- liftIO getCurrentTime
   entry <- liftIO . modifyMVar (acOidcStates ctx) $ \states ->
     pure (Data.Map.Strict.delete state states, Data.Map.Strict.lookup state states)
-  (CodeVerifier verifier, chosenName) <- case entry of
-    Just (created, v, n) | diffUTCTime now created <= 600 -> pure (v, n)
-    _                                                     -> throwError err401
+  (CodeVerifier verifier, PlayerNameVAL name, mode) <- case entry of
+    Just (created, v, n, m) | diffUTCTime now created <= 600 -> pure (v, n, m)
+    _                                                        -> throwError err401
   tokenReq <- liftIO (parseRequest (unpack base <> "/application/o/token/"))
   tokenResp <- liftIO $ httpLbs
     (setRequestCheckStatus (urlEncodedBody
@@ -304,14 +302,12 @@ authCallback (AuthCode code) state = do
   rows :: [(Mid AuthenticatedUser, Text)] <-
     liftIO . withResource (acDbPool ctx) $ \conn ->
       query conn credentialsQuery (Only authentikUserId)
-  existing <- case rows of
-    [(uid, name)] -> pure (Just (uid, PlayerNameVAL name, GID (unMid uid)))
-    []            -> pure Nothing
-    _             -> throwError err500
-  outcome <- case (existing, chosenName) of
-    (Just account, _)      -> pure (Right account)
-    (Nothing, Nothing)     -> pure (Left "/#new")
-    (Nothing, Just (PlayerNameVAL name)) -> do
+  outcome <- case mode of
+    StartLogin -> case [ uid | (uid, owned) <- rows, owned == name ] of
+      [uid] -> pure (Right (uid, PlayerNameVAL name, GID (unMid uid)))
+      []    -> pure (Left ("/#unknown=" <> name))
+      _     -> throwError err500
+    StartCreate -> do
       created :: Either SqlError (Maybe (Mid AuthenticatedUser, PlayerNameVAL, GID Agent)) <-
         liftIO . try . withResource (acDbPool ctx) $ \conn ->
           withTransaction conn $ do
@@ -328,7 +324,7 @@ authCallback (AuthCode code) state = do
         Right Nothing        -> throwError err500
         Right (Just account) -> pure (Right account)
   case outcome of
-    Left location -> pure (noHeader (addHeader location NoContent))
+    Left location -> pure (addHeader location NoContent)
     Right (userId, playerName, agentGid) -> do
       hash <- liftIO (hashToken access)
       minted <- liftIO (makeJwt (Credentials authentikUserId) hash)
@@ -351,8 +347,7 @@ authCallback (AuthCode code) state = do
                        (Data.Map.Strict.filter keepEntry sessions), False)
       when alreadyActive (throwError err409)
       liftIO $ writeLog (acGameLog ctx) (PlayerLogin playerName)
-      pure (addHeader ("sashamud_token=" <> tokenText <> "; Path=/; Secure; SameSite=Strict")
-             (addHeader "/" NoContent))
+      pure (addHeader ("/#token=" <> tokenText) NoContent)
   where
     credentialsQuery =
       [sql|

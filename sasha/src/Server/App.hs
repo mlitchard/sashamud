@@ -46,6 +46,7 @@ import           Model.Account
   , OidcBaseUrl
   , OidcState
   , RedirectUri
+  , StartMode
   )
 import           Model.Core (Agent, GameState)
 import           Model.GID (GID)
@@ -135,7 +136,7 @@ data AppCtx = AppCtx
   , acDbPool :: Pool Connection
   , acOidcConfig :: OidcConfig
   , acHttpManager :: Manager
-  , acOidcStates :: MVar (Map OidcState (UTCTime, CodeVerifier, Maybe PlayerNameVAL))
+  , acOidcStates :: MVar (Map OidcState (UTCTime, CodeVerifier, PlayerNameVAL, StartMode))
   , acGameLog :: GameLog
   }
 

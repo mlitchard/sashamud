@@ -3,35 +3,28 @@ import { createDOM } from './game/createDOM';
 import { GameConnection } from './game/GameConnection';
 import { ViewportManager } from './game/ViewportManager';
 
-const TOKEN_COOKIE = 'sashamud_token';
+const TOKEN_KEY = 'sashamud_token';
 
 const fragment = readFragment();
-const token = readCookie(TOKEN_COOKIE);
+if (fragment.token) sessionStorage.setItem(TOKEN_KEY, fragment.token);
+const token = sessionStorage.getItem(TOKEN_KEY);
 if (token) {
   enterGame(token);
 } else {
   showLogin(fragment.message);
 }
 
-function readFragment(): { message: string | null } {
+function readFragment(): { token: string | null; message: string | null } {
   const hash = location.hash;
   history.replaceState(null, '', location.pathname + location.search);
+  const token = /^#token=(.+)$/.exec(hash);
+  if (token) return { token: token[1] ?? null, message: null };
   const taken = /^#taken=(.+)$/.exec(hash);
-  if (taken) return { message: decodeURIComponent(taken[1] ?? '') + ' is taken. Choose another name.' };
-  if (hash === '#new') return { message: 'Choose a name to create your account.' };
-  return { message: null };
-}
-
-function readCookie(name: string): string | null {
-  for (const part of document.cookie.split('; ')) {
-    const eq = part.indexOf('=');
-    if (eq > 0 && part.slice(0, eq) === name) return part.slice(eq + 1);
-  }
-  return null;
-}
-
-function clearCookie(name: string): void {
-  document.cookie = `${name}=; Path=/; Max-Age=0; Secure; SameSite=Strict`;
+  if (taken) return { token: null, message: decodeURIComponent(taken[1] ?? '') + ' is taken. Choose another name.' };
+  const unknown = /^#unknown=(.+)$/.exec(hash);
+  if (unknown) return { token: null, message: 'No character named ' + decodeURIComponent(unknown[1] ?? '') + ' on your account.' };
+  if (hash === '#new') return { token: null, message: 'Choose a name to create your account.' };
+  return { token: null, message: null };
 }
 
 function showLogin(message: string | null): void {
@@ -83,9 +76,14 @@ function showLogin(message: string | null): void {
   document.body.appendChild(overlay);
 
   loginButton.addEventListener('click', () => {
+    const name = input.value.trim();
+    if (name.length === 0) {
+      error.textContent = 'Enter a name.';
+      return;
+    }
     loginButton.disabled = true;
     loginButton.textContent = 'Redirecting...';
-    location.href = '/api/auth/start';
+    location.href = `/api/auth/start?name=${encodeURIComponent(name)}&mode=login`;
   });
 
   const createAccount = (): void => {
@@ -99,7 +97,7 @@ function showLogin(message: string | null): void {
     fetch(`${API.base}/api/auth/available?name=${encodeURIComponent(name)}`)
       .then(async (resp: Response) => {
         if (resp.status === 204) {
-          location.href = `/api/auth/start?name=${encodeURIComponent(name)}`;
+          location.href = `/api/auth/start?name=${encodeURIComponent(name)}&mode=create`;
           return;
         }
         const text = await resp.text();
@@ -171,13 +169,13 @@ function addLogoutButton(conn: GameConnection, viewports: ViewportManager): void
     btn.disabled = true;
     API["/api/game/logout{BEARER}"](sessionId)
       .then(() => {
-        clearCookie(TOKEN_COOKIE);
+        sessionStorage.removeItem(TOKEN_KEY);
         conn.disconnect();
         viewports.destroy();
         showLogin(null);
       })
       .catch(() => {
-        clearCookie(TOKEN_COOKIE);
+        sessionStorage.removeItem(TOKEN_KEY);
         conn.disconnect();
         viewports.destroy();
         showLogin(null);
