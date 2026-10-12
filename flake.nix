@@ -413,6 +413,18 @@
                       '';
                     });
                   };
+                  stop-sashamud = {
+                    description = "stop the server, caddy, and the database";
+                    script = ''
+                      pkill sasha-server || true
+                      pkill caddy || true
+                      if [[ -e .devpids ]]; then
+                        kill -9 $(cat .devpids) 2>/dev/null || true
+                        rm -f .devpids
+                      fi
+                      db-server-stop
+                    '';
+                  };
                 };
               };
             })
