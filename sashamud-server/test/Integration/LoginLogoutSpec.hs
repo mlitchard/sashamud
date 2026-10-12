@@ -410,6 +410,24 @@ spec = describe "Integration" . around withTestServer $ do
           (Just _, Just _) -> pure ()
           _                -> expectationFailure "both players should receive heartbeats"
 
+  it "one identity logs in as two characters at the same time" $ \(_port, ctx) -> do
+    manager <- newManager defaultManagerSettings
+    firstFinal <- finalLocationThroughFake manager testPort StartCreate "TwinOne" "twin"
+    secondFinal <- finalLocationThroughFake manager testPort StartCreate "TwinTwo" "twin"
+    case (stripPrefix "/#token=" firstFinal, stripPrefix "/#token=" secondFinal) of
+      (Just t1, Just t2) ->
+        connectWS (SessionId t1) $ \conn1 ->
+          connectWS (SessionId t2) $ \conn2 -> do
+            n1 <- receiveUntil conn1 10000000 isLookNarration
+            n2 <- receiveUntil conn2 10000000 isLookNarration
+            case (n1, n2) of
+              (Just _, Just _) -> do
+                sessions <- readMVar (acSessions ctx)
+                member (SessionId t1) sessions `shouldBe` True
+                member (SessionId t2) sessions `shouldBe` True
+              _ -> expectationFailure "both characters should receive auto-look narration"
+      _ -> expectationFailure ("expected two tokens, got " <> show (firstFinal, secondFinal))
+
   it "disconnect: agent removed from lobby scene but stays in agentMap" $ \(_port, ctx) -> do
     sid1 <- loginAs ctx Wizard "Stayer"
     sid2 <- loginAs ctx Wizard "Leaver"
@@ -538,14 +556,14 @@ spec = describe "Integration" . around withTestServer $ do
   it "a new subject with a free name gets an account and keeps it" $ \(_port, ctx) -> do
     manager <- newManager defaultManagerSettings
     first <- finalLocationThroughFake manager testPort StartCreate "Newbie" "newbie"
-    first `shouldBe` "/"
+    first `shouldSatisfy` isPrefixOf "/#token="
     rows1 :: [Only Int] <- withResource (acDbPool ctx) $ \conn ->
       query conn "SELECT users.user_id FROM users JOIN credentials ON users.user_id = credentials.user_id WHERE credentials.authentik_user_id = ?" (Only (fakeAuthentikUserId "newbie"))
     case rows1 of
       [Only _] -> pure ()
       _        -> expectationFailure "expected exactly one account for the new subject"
     second <- finalLocationThroughFake manager testPort StartLogin "Newbie" "newbie"
-    second `shouldBe` "/"
+    second `shouldSatisfy` isPrefixOf "/#token="
     rows2 :: [Only Int] <- withResource (acDbPool ctx) $ \conn ->
       query conn "SELECT users.user_id FROM users JOIN credentials ON users.user_id = credentials.user_id WHERE credentials.authentik_user_id = ?" (Only (fakeAuthentikUserId "newbie"))
     rows2 `shouldBe` rows1
