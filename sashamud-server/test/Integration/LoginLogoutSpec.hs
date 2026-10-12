@@ -23,7 +23,6 @@ import           SashaPrelude
   , ($)
   , (.)
   , (<>)
-  , (=<<)
   )
 
 import           API.Routes (DSLAPI, LogoutAPI)
@@ -40,7 +39,7 @@ import           Data.ByteString.Lazy (null)
 import           Data.List (lookup)
 import           Data.Map.Strict (member)
 import           Data.Pool (defaultPoolConfig, newPool, withResource)
-import           Data.Text (isPrefixOf, unlines)
+import           Data.Text (isPrefixOf, stripPrefix, unlines)
 import           Data.Text.Encoding (decodeUtf8', encodeUtf8)
 import           Data.Time.Clock (secondsToNominalDiffTime)
 import           Database.PostgreSQL.Simple
