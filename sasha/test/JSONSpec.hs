@@ -9,6 +9,7 @@ import           Model.Account (AccountStatus, AuthentikUserId, UserPermissions)
 import           Model.Authorization (AllowedAction)
 import           Model.Core (Narration, SessionId)
 import           Model.GID (GID)
+import           Model.Jwt (Credentials, SashaClaims)
 import           Model.Mid (Mid)
 import           Model.RichText (RichText, StyledSpan, TextColor, TextStyle)
 import           Model.WireProtocol (AnalysisViewport, MessageFrom)
@@ -47,3 +48,5 @@ spec = describe "JSON round trip" $ do
     prop "AccountStatus" $ checkJSON @AccountStatus
     prop "AuthentikUserId" $ checkJSON @AuthentikUserId
     prop "UserPermissions" $ checkJSON @UserPermissions
+    prop "Credentials" $ checkJSON @Credentials
+    prop "SashaClaims" $ checkJSON @SashaClaims
