@@ -176,19 +176,12 @@ locationOf resp =
       Left _  -> fail "Location header is not UTF-8"
       Right l -> pure l
 
-sessionFromCookie :: Response a -> IO SessionId
-sessionFromCookie resp =
-  case lookup "Set-Cookie" (responseHeaders resp) of
-    Nothing -> fail "no Set-Cookie header"
-    Just raw -> case decodeUtf8' raw of
-      Left _ -> fail "Set-Cookie header is not UTF-8"
-      Right cookie -> case stripPrefix "sashamud_token=" cookie of
-        Nothing   -> fail ("unexpected cookie " <> unpack cookie)
-        Just rest -> pure (SessionId (fst (breakOn ";" rest)))
-
 loginThroughFake :: Manager -> Int -> Text -> IO SessionId
-loginThroughFake manager port user =
-  sessionFromCookie =<< callbackThroughFake manager port StartLogin user user
+loginThroughFake manager port user = do
+  final <- finalLocationThroughFake manager port StartLogin user user
+  case stripPrefix "/#token=" final of
+    Just t  -> pure (SessionId t)
+    Nothing -> fail ("unexpected final location " <> unpack final)
 
 seedAccount :: Pool Connection -> RoleName -> PlayerNameVAL -> IO ()
 seedAccount pool role (PlayerNameVAL name) = withResource pool $ \conn -> do

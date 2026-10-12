@@ -55,7 +55,7 @@ type CallbackAPI =
   "api" :> "auth" :> "callback"
   :> QueryParam' '[Required, Strict] "code" AuthCode
   :> QueryParam' '[Required, Strict] "state" OidcState
-  :> Verb 'GET 302 '[JSON] (Headers '[Header "Set-Cookie" Text, Header "Location" Text] NoContent)
+  :> Verb 'GET 302 '[JSON] (Headers '[Header "Location" Text] NoContent)
 
 type AvailableAPI =
   "api" :> "auth" :> "available"

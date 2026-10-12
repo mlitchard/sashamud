@@ -199,12 +199,10 @@
             location() {
               $CURL -sS -o /dev/null -D - "$1" | tr -d '\r' | ${pkgs.gawk}/bin/awk 'tolower($1) == "location:" { print $2 }'
             }
-            cookie() {
-              $CURL -sS -o /dev/null -D - "$1" | tr -d '\r' | ${pkgs.gawk}/bin/awk 'tolower($1) == "set-cookie:" { print $2 }'
-            }
             AUTHORIZE=$(location "$URL/api/auth/start?name=$USER&mode=login")
             CALLBACK=$(location "$AUTHORIZE&fake_user=$USER")
-            cookie "$CALLBACK" | ${pkgs.gnused}/bin/sed -e 's|^sashamud_token=||' -e 's|;.*$||'
+            FINAL=$(location "$CALLBACK")
+            echo "$FINAL" | ${pkgs.gnused}/bin/sed 's|^/#token=||'
           '';
           accountSigningKey = "\${HOME}/.ssh/sasha_sk";
           accountSigners = pkgs.writeText "sashamud-allowed-signers" ''

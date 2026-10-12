@@ -107,7 +107,6 @@ import           Servant
   , err403
   , err409
   , err500
-  , noHeader
   , throwError
   , type (:>)
   )
@@ -269,7 +268,7 @@ authStart requestedName mode = do
       pure (addHeader locationText NoContent)
     _ -> throwError err500
 
-authCallback :: AuthCode -> OidcState -> AppM (Headers '[Header "Set-Cookie" Text, Header "Location" Text] NoContent)
+authCallback :: AuthCode -> OidcState -> AppM (Headers '[Header "Location" Text] NoContent)
 authCallback (AuthCode code) state = do
   ctx <- ask
   let OidcConfig (OidcBaseUrl base) (ClientId clientId) (ClientSecret secret) (RedirectUri redirectUri) = acOidcConfig ctx
@@ -325,7 +324,7 @@ authCallback (AuthCode code) state = do
         Right Nothing        -> throwError err500
         Right (Just account) -> pure (Right account)
   case outcome of
-    Left location -> pure (noHeader (addHeader location NoContent))
+    Left location -> pure (addHeader location NoContent)
     Right (userId, playerName, agentGid) -> do
       hash <- liftIO (hashToken access)
       minted <- liftIO (makeJwt (Credentials authentikUserId) hash)
@@ -348,8 +347,7 @@ authCallback (AuthCode code) state = do
                        (Data.Map.Strict.filter keepEntry sessions), False)
       when alreadyActive (throwError err409)
       liftIO $ writeLog (acGameLog ctx) (PlayerLogin playerName)
-      pure (addHeader ("sashamud_token=" <> tokenText <> "; Path=/; Secure; SameSite=Strict")
-             (addHeader "/" NoContent))
+      pure (addHeader ("/#token=" <> tokenText) NoContent)
   where
     credentialsQuery =
       [sql|
