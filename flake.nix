@@ -391,7 +391,6 @@
                     description = "generate TS client, build frontend, start full stack";
                     script = teardown (processWrap: {
                       up = ''
-                        reset-db
                         lpg on ${pgDir} up
                         export SASHA_DB_CONNSTR=$(lpg on ${pgDir} get-connstr)
                         nix run .#sasha-client-generator --builders ''' -- web/packages/type-gen-output/src/client.ts
