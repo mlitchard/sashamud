@@ -19,6 +19,9 @@
 - NEVER invent helper functions — if old code doesn't have it, you don't need it
 - The evaluator is PURE DISPATCH — pattern match and delegate. Lookup logic belongs elsewhere (old code: ActionDiscovery, ActionManagement)
 - Study old code THOROUGHLY before writing. Read the actual files. Do not summarize from memory and fill gaps with guesses.
+- Agent cost (user-ruled 2026-10-13): verbatim lookups in old code or reference checkouts go to the quote-source agent, or a general agent with `model: haiku`. One directory and the exact names to find. Only for text not already in context. The default model runs only for work that needs judgment. The CLAUDE.md persona leaks into agent reports; the prompt says to return quoted text only.
+- Old code is the answer, not a question (user-corrected 2026-10-13, several times). When old code or an existing sashamud convention settles a name, a shape, or a path, apply it. Follow the old main path only; alternate branches in old handlers are not decisions to raise. Ask only where sashamud has no pattern and old code has none.
+- Scope is what was asked. World content, tests the user did not order, and docs reads the user did not order are out. "Mechanism" work means grammar, core types, DSL constructors, builder, engine; wiring a world object through the DSL is the author's job.
 
 ## Rhine Architecture (verified from source + koans)
 - Rhine source: /home/mlitchard/github/rhine
