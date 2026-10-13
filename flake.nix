@@ -27,6 +27,11 @@
       flake = false;
     };
 
+    gitlab-ci = {
+      url = "gitlab:platonic/gitlab-ci.nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
     servant-aeson-generics-typescript = {
       url = "gitlab:platonic/servant-aeson-generics-typescript";
       flake = false;
@@ -581,6 +586,8 @@
             type = "app";
             program = "${inputs.self.nixosConfigurations.authentik-local.config.system.build.vm}/bin/run-authentik-local-vm";
           };
+
+          apps.gitlab-ci = inputs.gitlab-ci.apps.x86_64-linux.gitlab-ci;
 
           checks = {
             nix-formatting = pkgs.runCommand "nix-formatting" { buildInputs = [ pkgs.nixpkgs-fmt ]; } ''

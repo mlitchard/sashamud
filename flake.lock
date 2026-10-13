@@ -197,6 +197,28 @@
         "type": "github"
       }
     },
+    "deadnix_6": {
+      "inputs": {
+        "nixpkgs": [
+          "gitlab-ci",
+          "nixpkgs"
+        ],
+        "utils": "utils_10"
+      },
+      "locked": {
+        "lastModified": 1764114543,
+        "narHash": "sha256-+C39E8qmGODT6eB0rhE/VX+DcekXW/Xww5IL/xlERNY=",
+        "owner": "astro",
+        "repo": "deadnix",
+        "rev": "d590041677add62267bef35ddec63cd9402d3505",
+        "type": "github"
+      },
+      "original": {
+        "owner": "astro",
+        "repo": "deadnix",
+        "type": "github"
+      }
+    },
     "deploys": {
       "inputs": {
         "nixinate": "nixinate",
@@ -2852,7 +2874,7 @@
     },
     "flake-utils_18": {
       "inputs": {
-        "systems": "systems_10"
+        "systems": "systems_11"
       },
       "locked": {
         "lastModified": 1731533236,
@@ -3730,7 +3752,7 @@
     "gitlab-ci-omnix_5": {
       "inputs": {
         "flake-parts": "flake-parts_68",
-        "gitlab-ci": "gitlab-ci_10",
+        "gitlab-ci": "gitlab-ci_11",
         "import-tree": "import-tree_65",
         "nixpkgs": [
           "horizon-devtools",
@@ -3762,7 +3784,7 @@
     "gitlab-ci-omnix_6": {
       "inputs": {
         "flake-parts": "flake-parts_74",
-        "gitlab-ci": "gitlab-ci_12",
+        "gitlab-ci": "gitlab-ci_13",
         "import-tree": "import-tree_70",
         "nixpkgs": [
           "horizon-devtools",
@@ -3795,7 +3817,7 @@
     "gitlab-ci-omnix_7": {
       "inputs": {
         "flake-parts": "flake-parts_99",
-        "gitlab-ci": "gitlab-ci_14",
+        "gitlab-ci": "gitlab-ci_15",
         "import-tree": "import-tree_96",
         "nixpkgs": [
           "horizon-platform",
@@ -3827,7 +3849,7 @@
     "gitlab-ci-omnix_8": {
       "inputs": {
         "flake-parts": "flake-parts_105",
-        "gitlab-ci": "gitlab-ci_16",
+        "gitlab-ci": "gitlab-ci_17",
         "import-tree": "import-tree_101",
         "nixpkgs": [
           "horizon-platform",
@@ -3859,6 +3881,28 @@
     },
     "gitlab-ci_10": {
       "inputs": {
+        "flake-parts": "flake-parts_66",
+        "import-tree": "import-tree_63",
+        "nixpkgs": "nixpkgs_171",
+        "treefmt-nix": "treefmt-nix_59"
+      },
+      "locked": {
+        "lastModified": 1772801913,
+        "narHash": "sha256-rdmEwgsWLQOXlUySTIEWlpR+53DxDD7r0CVG4dfeZDs=",
+        "ref": "refs/tags/0.9.0",
+        "rev": "d4042cd15aa77c9f72454ed6d646048a78d56f61",
+        "revCount": 65,
+        "type": "git",
+        "url": "https://gitlab.horizon-haskell.net/nix/gitlab-ci"
+      },
+      "original": {
+        "ref": "refs/tags/0.9.0",
+        "type": "git",
+        "url": "https://gitlab.horizon-haskell.net/nix/gitlab-ci"
+      }
+    },
+    "gitlab-ci_11": {
+      "inputs": {
         "flake-parts": "flake-parts_69",
         "import-tree": "import-tree_64",
         "nixpkgs": "nixpkgs_173",
@@ -3879,7 +3923,7 @@
         "url": "https://gitlab.horizon-haskell.net/nix/gitlab-ci"
       }
     },
-    "gitlab-ci_11": {
+    "gitlab-ci_12": {
       "inputs": {
         "flake-parts": "flake-parts_72",
         "import-tree": "import-tree_68",
@@ -3901,7 +3945,7 @@
         "url": "https://gitlab.horizon-haskell.net/nix/gitlab-ci"
       }
     },
-    "gitlab-ci_12": {
+    "gitlab-ci_13": {
       "inputs": {
         "flake-parts": "flake-parts_75",
         "import-tree": "import-tree_69",
@@ -3923,7 +3967,7 @@
         "url": "https://gitlab.horizon-haskell.net/nix/gitlab-ci"
       }
     },
-    "gitlab-ci_13": {
+    "gitlab-ci_14": {
       "inputs": {
         "flake-parts": "flake-parts_97",
         "import-tree": "import-tree_94",
@@ -3945,7 +3989,7 @@
         "url": "https://gitlab.horizon-haskell.net/nix/gitlab-ci"
       }
     },
-    "gitlab-ci_14": {
+    "gitlab-ci_15": {
       "inputs": {
         "flake-parts": "flake-parts_100",
         "import-tree": "import-tree_95",
@@ -3967,7 +4011,7 @@
         "url": "https://gitlab.horizon-haskell.net/nix/gitlab-ci"
       }
     },
-    "gitlab-ci_15": {
+    "gitlab-ci_16": {
       "inputs": {
         "flake-parts": "flake-parts_103",
         "import-tree": "import-tree_99",
@@ -3989,7 +4033,7 @@
         "url": "https://gitlab.horizon-haskell.net/nix/gitlab-ci"
       }
     },
-    "gitlab-ci_16": {
+    "gitlab-ci_17": {
       "inputs": {
         "flake-parts": "flake-parts_106",
         "import-tree": "import-tree_100",
@@ -4167,24 +4211,23 @@
     },
     "gitlab-ci_9": {
       "inputs": {
-        "flake-parts": "flake-parts_66",
-        "import-tree": "import-tree_63",
-        "nixpkgs": "nixpkgs_171",
-        "treefmt-nix": "treefmt-nix_59"
+        "deadnix": "deadnix_6",
+        "nixpkgs": [
+          "nixpkgs"
+        ]
       },
       "locked": {
-        "lastModified": 1772801913,
-        "narHash": "sha256-rdmEwgsWLQOXlUySTIEWlpR+53DxDD7r0CVG4dfeZDs=",
-        "ref": "refs/tags/0.9.0",
-        "rev": "d4042cd15aa77c9f72454ed6d646048a78d56f61",
-        "revCount": 65,
-        "type": "git",
-        "url": "https://gitlab.horizon-haskell.net/nix/gitlab-ci"
+        "lastModified": 1787128530,
+        "narHash": "sha256-F/OVJSp8b3cpUt2q6HhVKDnM1MVUdVlL159kZbGF+M0=",
+        "owner": "platonic",
+        "repo": "gitlab-ci.nix",
+        "rev": "f9a1a0159fdb7c2adfeacfb7bec495807b48ae5f",
+        "type": "gitlab"
       },
       "original": {
-        "ref": "refs/tags/0.9.0",
-        "type": "git",
-        "url": "https://gitlab.horizon-haskell.net/nix/gitlab-ci"
+        "owner": "platonic",
+        "repo": "gitlab-ci.nix",
+        "type": "gitlab"
       }
     },
     "haskell-make-package-set": {
@@ -5171,7 +5214,7 @@
         "flake-parts": "flake-parts_65",
         "get-flake": "get-flake_7",
         "ghc-common-hadrian": "ghc-common-hadrian_11",
-        "gitlab-ci": "gitlab-ci_9",
+        "gitlab-ci": "gitlab-ci_10",
         "haskell-make-package-set": "haskell-make-package-set_11",
         "horizon-supported-systems": "horizon-supported-systems_13",
         "import-tree": "import-tree_67",
@@ -5198,7 +5241,7 @@
         "flake-parts": "flake-parts_71",
         "get-flake": "get-flake_8",
         "ghc-common-hadrian": "ghc-common-hadrian_12",
-        "gitlab-ci": "gitlab-ci_11",
+        "gitlab-ci": "gitlab-ci_12",
         "haskell-make-package-set": "haskell-make-package-set_12",
         "horizon-supported-systems": "horizon-supported-systems_14",
         "import-tree": "import-tree_72",
@@ -5299,7 +5342,7 @@
         "flake-parts": "flake-parts_96",
         "get-flake": "get-flake_9",
         "ghc-common-hadrian": "ghc-common-hadrian_16",
-        "gitlab-ci": "gitlab-ci_13",
+        "gitlab-ci": "gitlab-ci_14",
         "haskell-make-package-set": "haskell-make-package-set_16",
         "horizon-supported-systems": "horizon-supported-systems_19",
         "import-tree": "import-tree_98",
@@ -5326,7 +5369,7 @@
         "flake-parts": "flake-parts_102",
         "get-flake": "get-flake_10",
         "ghc-common-hadrian": "ghc-common-hadrian_17",
-        "gitlab-ci": "gitlab-ci_15",
+        "gitlab-ci": "gitlab-ci_16",
         "haskell-make-package-set": "haskell-make-package-set_17",
         "horizon-supported-systems": "horizon-supported-systems_20",
         "import-tree": "import-tree_103",
@@ -17636,6 +17679,7 @@
         "authentik-nix": "authentik-nix",
         "deploys": "deploys",
         "flake-utils": "flake-utils_16",
+        "gitlab-ci": "gitlab-ci_9",
         "horizon-devtools": "horizon-devtools",
         "horizon-platform": "horizon-platform_3",
         "lint-utils": "lint-utils_5",
@@ -17959,6 +18003,21 @@
       }
     },
     "systems_10": {
+      "locked": {
+        "lastModified": 1681028828,
+        "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",
+        "owner": "nix-systems",
+        "repo": "default",
+        "rev": "da67096a3b9bf56a91d16901293e51ba5b49a27e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-systems",
+        "repo": "default",
+        "type": "github"
+      }
+    },
+    "systems_11": {
       "locked": {
         "lastModified": 1681028828,
         "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",
@@ -20184,6 +20243,24 @@
     "utils": {
       "inputs": {
         "systems": "systems_6"
+      },
+      "locked": {
+        "lastModified": 1731533236,
+        "narHash": "sha256-l0KFg5HjrsfsO/JpG+r7fRrqm12kzFHyUHqHCVpMMbI=",
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "rev": "11707dc2f618dd54ca8739b309ec4fc024de578b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "type": "github"
+      }
+    },
+    "utils_10": {
+      "inputs": {
+        "systems": "systems_10"
       },
       "locked": {
         "lastModified": 1731533236,
