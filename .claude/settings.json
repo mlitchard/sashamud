@@ -1,0 +1,37 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /home/mlitchard/gitlab/sashamud/.claude/hooks/reload-rules.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /home/mlitchard/gitlab/sashamud/.claude/hooks/refuse-lookups.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /home/mlitchard/gitlab/sashamud/.claude/hooks/refuse-outside-reads.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
