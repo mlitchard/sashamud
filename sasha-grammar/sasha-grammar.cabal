@@ -30,6 +30,7 @@ library
     Grammar.Parser.Atomics.Nouns
     Grammar.Parser.Atomics.Prepositions
     Grammar.Parser.Atomics.Semantics.Nouns.DirectionalStimulus
+    Grammar.Parser.Atomics.Semantics.Nouns.Objective
     Grammar.Parser.Atomics.Semantics.Prepositions.DirectionalStimulusMarker
     Grammar.Parser.Atomics.Semantics.Rules.Nouns
     Grammar.Parser.Atomics.Semantics.Rules.ParseRule
