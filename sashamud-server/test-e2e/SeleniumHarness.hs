@@ -259,7 +259,12 @@ webDriverTestWithClient ctx players jstest test = do
           r <- runWD sess (do
             openPage $ "http://127.0.0.1:" <> show port </> indexName <.> "html"
             setScriptTimeout (Just 720000)
-            test $ asyncJS [] [i|test(arguments[0])|])
+            test $ asyncJS [] [i|
+              const done = arguments[0];
+              const go = () => {
+                if (window["test"]) { window["test"](done); } else { setTimeout(go, 50); }
+              };
+              go();|])
           closeSession' sess
           pure r
 

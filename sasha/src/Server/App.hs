@@ -11,10 +11,12 @@ module Server.App
   , PInt
   , SessionPhase (SessionPhase)
   , SessionState (AwaitingSocket, AwaitingJoin, InGame)
-  , firstPlayerId
+  , firstGID
   , initialCounters
   , newAppCtx
+  , nextAcquisitionId
   , nextDirectionalStimulusId
+  , nextDivestmentId
   , nextImplicitStimulusId
   , nextObjectId
   , nextSceneId
@@ -70,24 +72,28 @@ succPInt (PInt n) = PInt (n + 1)
 unPInt :: PInt -> Int
 unPInt (PInt n) = n
 
-firstPlayerId :: PInt
-firstPlayerId = PInt 0
+firstGID :: PInt
+firstGID = PInt 0
 
 data BuilderCounters = BuilderCounters
   { _nextSceneId               :: PInt
   , _nextObjectId              :: PInt
   , _nextImplicitStimulusId    :: PInt
   , _nextDirectionalStimulusId :: PInt
+  , _nextAcquisitionId         :: PInt
+  , _nextDivestmentId          :: PInt
   , _nextWitnessId             :: PInt
   }
 
 initialCounters :: BuilderCounters
 initialCounters = BuilderCounters
-  { _nextSceneId               = firstPlayerId
-  , _nextObjectId              = firstPlayerId
-  , _nextImplicitStimulusId    = firstPlayerId
-  , _nextDirectionalStimulusId = firstPlayerId
-  , _nextWitnessId             = firstPlayerId
+  { _nextSceneId               = firstGID
+  , _nextObjectId              = firstGID
+  , _nextImplicitStimulusId    = firstGID
+  , _nextDirectionalStimulusId = firstGID
+  , _nextAcquisitionId         = firstGID
+  , _nextDivestmentId          = firstGID
+  , _nextWitnessId             = firstGID
   }
 
 data SessionPhase = SessionPhase PlayerNameVAL (GID Agent) SessionState

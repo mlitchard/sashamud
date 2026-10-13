@@ -3,6 +3,10 @@ module Grammar.Parser.Atomics.Nouns
       ( DirectionalStimulus
       , _fromDirectionalStimulus
       )
+  , Objective
+      ( Objective
+      , _fromObjective
+      )
   ) where
 
 import           Control.DeepSeq (NFData)
@@ -20,3 +24,11 @@ newtype DirectionalStimulus = DirectionalStimulus { _fromDirectionalStimulus :: 
 
 instance HasLexeme DirectionalStimulus where
   toLexeme = _fromDirectionalStimulus
+
+type Objective :: Type
+newtype Objective = Objective { _fromObjective :: Lexeme }
+  deriving stock (Eq, Ord, Show)
+  deriving newtype (Hashable, NFData)
+
+instance HasLexeme Objective where
+  toLexeme = _fromObjective

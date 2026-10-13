@@ -32,7 +32,8 @@
       "Read(//home/mlitchard/github/crypton/Crypto/KDF/**)",
       "Read(//home/mlitchard/github/crypton/**)",
       "Bash(nix eval *)",
-      "Bash(ssh *)"
+      "Bash(ssh *)",
+      "Read(//home/mlitchard/gitlab/sasha/**)"
     ]
   },
   "hooks": {

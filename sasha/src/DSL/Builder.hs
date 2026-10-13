@@ -3,18 +3,33 @@ module DSL.Builder
   , runWorldBuilder
   , initialBuilderState
   , WorldBuilder
+  , WorldBuilderError (InvalidSceneGID, DuplicateSceneGID)
   , WorldBuilderResult (WorldBuilderResult, resultCounters, resultGameState)
   ) where
 
 import           SashaPrelude
 
-import           Control.Monad.State (State, get, gets, put, runState)
-import           Data.Map.Strict (insert)
+import           Control.DeepSeq (NFData)
+import           Control.Monad.Except
+  ( ExceptT
+  , MonadError
+  , runExceptT
+  , throwError
+  )
+import           Control.Monad.State
+  ( MonadState
+  , State
+  , get
+  , gets
+  , put
+  , runState
+  )
+import           Data.Map.Strict (insert, lookup, member)
 import qualified Data.Set (insert)
 import           DSL.Model.EDSL.SashaLambdaDSL (SashaLambdaDSL (..))
 import           Lens.Micro.Platform (at, non, view, (%~), (.~))
 import           Model.Core
-  ( ActionManagement (DSAManagementKey, ISAManagementKey)
+  ( ActionManagement (AVSupportManagementKey, AVTargetManagementKey, DSAManagementKey, DVManagementKey, DVSurfaceManagementKey, ISAManagementKey)
   , Agent
   , EntityActionRegistry
   , GameState
@@ -22,12 +37,14 @@ import           Model.Core
   , Scene (_sceneDescription, _title)
   , WitnessMap
   , WorldOutcomeRegistry
+  , acquisitionActionMap
   , actionManagementFunctions
   , actionMaps
   , agentActionManagement
   , agentWitnessManagement
   , description
   , directionalStimulusMap
+  , divestmentActionMap
   , entityActionEffects
   , getGIDToDataMap
   , globalSemanticMap
@@ -36,9 +53,11 @@ import           Model.Core
   , newUserStartScene
   , objectActionManagement
   , objectMap
+  , objectSemanticMap
   , possibilityGraph
   , sceneActionManagement
   , sceneMap
+  , sceneObjects
   , shortName
   , spatialRelationshipMap
   , unSpatialRelationshipMap
@@ -49,7 +68,9 @@ import           Model.Core
 import           Model.GID (GID (GID))
 import           Server.App
   ( BuilderCounters
+  , nextAcquisitionId
   , nextDirectionalStimulusId
+  , nextDivestmentId
   , nextImplicitStimulusId
   , nextObjectId
   , nextSceneId
@@ -68,7 +89,21 @@ data BuilderState = BuilderState
   , bsNewUserMkAgent       :: Maybe (Text -> Agent)
   }
 
-type WorldBuilder = State BuilderState
+type WorldBuilderError :: Type
+data WorldBuilderError = InvalidSceneGID (GID Scene) String
+                       | DuplicateSceneGID (GID Scene) String
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
+
+type WorldBuilder :: Type -> Type
+newtype WorldBuilder a = WorldBuilder (ExceptT WorldBuilderError (State BuilderState) a)
+  deriving newtype
+    ( Applicative
+    , Functor
+    , Monad
+    , MonadError WorldBuilderError
+    , MonadState BuilderState
+    )
 
 type WorldBuilderResult :: Type
 data WorldBuilderResult = WorldBuilderResult
@@ -100,6 +135,8 @@ interpretDSL (DeclareSceneGID _name) = do
 interpretDSL (RegisterScene gid sceneBuilder) = do
   scene <- interpretDSL sceneBuilder
   st <- get
+  when (member gid (view (world . sceneMap . getGIDToDataMap) (bsGameState st))) $
+    throwError (DuplicateSceneGID gid "Scene already registered")
   let gs' = bsGameState st & world . sceneMap . getGIDToDataMap %~ insert gid scene
   put st { bsGameState = gs' }
 
@@ -126,10 +163,18 @@ interpretDSL (Description rt obj) = pure (obj & description .~ rt)
 interpretDSL (ObjectBehavior obj actionMgmt) =
   pure (obj & objectActionManagement . actionManagementFunctions %~ Data.Set.insert actionMgmt)
 
-interpretDSL (RegisterObjectToScene _sceneGID objGID nounText) = do
+interpretDSL (RegisterObjectToScene sceneGID objGID nounText) = do
   st <- get
-  let gs' = bsGameState st & world . globalSemanticMap . at nounText . non mempty %~ Data.Set.insert objGID
-  put st { bsGameState = gs' }
+  case lookup sceneGID (view (world . sceneMap . getGIDToDataMap) (bsGameState st)) of
+    Nothing -> throwError (InvalidSceneGID sceneGID "Scene not registered")
+    Just scene -> do
+      let updatedScene = scene
+            & objectSemanticMap . at nounText . non mempty %~ Data.Set.insert objGID
+            & sceneObjects %~ Data.Set.insert objGID
+          gs' = bsGameState st
+            & world . sceneMap . getGIDToDataMap %~ insert sceneGID updatedScene
+            & world . globalSemanticMap . at nounText . non mempty %~ Data.Set.insert objGID
+      put st { bsGameState = gs' }
 
 interpretDSL (RegisterSpatial entityID spatialRel) = do
   st <- get
@@ -158,6 +203,32 @@ interpretDSL (DeclareDirectionalStimulusGID actionF) = do
 
 interpretDSL (CreateDSAManagement verb gid) = pure (DSAManagementKey verb gid)
 
+interpretDSL (DeclareAcquisitionActionGID actionF) = do
+  st <- get
+  let gid = GID (unPInt (view nextAcquisitionId (bsCounters st)))
+      gs' = bsGameState st & actionMaps . acquisitionActionMap %~ insert gid actionF
+  put st { bsCounters = bsCounters st & nextAcquisitionId %~ succPInt
+         , bsGameState = gs'
+         }
+  pure gid
+
+interpretDSL (DeclareDivestmentActionGID actionF) = do
+  st <- get
+  let gid = GID (unPInt (view nextDivestmentId (bsCounters st)))
+      gs' = bsGameState st & actionMaps . divestmentActionMap %~ insert gid actionF
+  put st { bsCounters = bsCounters st & nextDivestmentId %~ succPInt
+         , bsGameState = gs'
+         }
+  pure gid
+
+interpretDSL (CreateAVTargetManagement verb gid) = pure (AVTargetManagementKey verb gid)
+
+interpretDSL (CreateAVSupportManagement verb gid) = pure (AVSupportManagementKey verb gid)
+
+interpretDSL (CreateDVManagement verb gid) = pure (DVManagementKey verb gid)
+
+interpretDSL (CreateDVSurfaceManagement verb gid) = pure (DVSurfaceManagementKey verb gid)
+
 interpretDSL (DeclareWitnessGID witnessFn) = do
   st <- get
   let gid = GID (unPInt (view nextWitnessId (bsCounters st)))
@@ -180,6 +251,11 @@ interpretDSL (LinkWorldOutcomeEffect actionKey worldOutcome) = do
   put st { bsWorldOutcomeRegistry =
              bsWorldOutcomeRegistry st & at actionKey . non mempty %~ Data.Set.insert worldOutcome }
 
+interpretDSL (LinkEntityActionEffect actionKey eid op) = do
+  st <- get
+  put st { bsEntityActionRegistry =
+             bsEntityActionRegistry st & at actionKey . non mempty . at eid . non mempty %~ Data.Set.insert op }
+
 interpretDSL (NewUser sceneGid mkAgent) = do
   st <- get
   put st { bsNewUserStartScene = Just sceneGid
@@ -189,17 +265,19 @@ interpretDSL (NewUser sceneGid mkAgent) = do
 interpretDSL FinalizeGameState =
   gets bsGameState
 
-runWorldBuilder :: WorldBuilder GameState -> BuilderState -> WorldBuilderResult
-runWorldBuilder builder initState =
-  let (gs, finalState) = runState builder initState
-      pg = PossibilityGraph
-        { _entityActionEffects = bsEntityActionRegistry finalState
-        , _worldOutcomeEffects = bsWorldOutcomeRegistry finalState
-        , _witnessMap          = bsWitnessMap finalState
-        , _newUserStartScene   = bsNewUserStartScene finalState
-        , _newUserMkAgent      = bsNewUserMkAgent finalState
-        }
-  in WorldBuilderResult
-       { resultGameState = gs & possibilityGraph .~ pg
-       , resultCounters  = bsCounters finalState
-       }
+runWorldBuilder :: WorldBuilder GameState -> BuilderState -> Either WorldBuilderError WorldBuilderResult
+runWorldBuilder (WorldBuilder builder) initState =
+  case runState (runExceptT builder) initState of
+    (Left err, _) -> Left err
+    (Right gs, finalState) ->
+      let pg = PossibilityGraph
+            { _entityActionEffects = bsEntityActionRegistry finalState
+            , _worldOutcomeEffects = bsWorldOutcomeRegistry finalState
+            , _witnessMap          = bsWitnessMap finalState
+            , _newUserStartScene   = bsNewUserStartScene finalState
+            , _newUserMkAgent      = bsNewUserMkAgent finalState
+            }
+      in Right WorldBuilderResult
+           { resultGameState = gs & possibilityGraph .~ pg
+           , resultCounters  = bsCounters finalState
+           }

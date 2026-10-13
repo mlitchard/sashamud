@@ -5,6 +5,7 @@ module Server.Log
 
 import           SashaPrelude
 
+import           DSL.Builder (WorldBuilderError)
 import           Model.Core (SessionId)
 import           Network.Wai.Handler.Warp (Port)
 import           Server.App (GameLog (..))
@@ -18,6 +19,7 @@ data LogEntry = Heartbeat
               | SendError SessionId Text
               | SendFailed SessionId
               | ServerStart Port
+              | DSLBuildFailed WorldBuilderError
   deriving stock (Show)
 
 writeLog :: GameLog -> LogEntry -> IO ()

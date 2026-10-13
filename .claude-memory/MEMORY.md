@@ -19,6 +19,11 @@
 - NEVER invent helper functions — if old code doesn't have it, you don't need it
 - The evaluator is PURE DISPATCH — pattern match and delegate. Lookup logic belongs elsewhere (old code: ActionDiscovery, ActionManagement)
 - Study old code THOROUGHLY before writing. Read the actual files. Do not summarize from memory and fill gaps with guesses.
+- Agent cost (user-ruled 2026-10-13): verbatim lookups in old code or reference checkouts go to the quote-source agent, or a general agent with `model: haiku`. One directory and the exact names to find. Only for text not already in context. Haskell is written by a general-purpose agent with `model: opus` from a spec the default model produces (file, old-code quote, names, shape); the default model reads the diff once. Hooks in .claude/settings.json enforce both. The CLAUDE.md persona leaks into agent reports; the prompt says to return quoted text only.
+- Old code is the answer, not a question (user-corrected 2026-10-13, several times). When old code or an existing sashamud convention settles a name, a shape, or a path, apply it. Follow the old main path only; alternate branches in old handlers are not decisions to raise. Ask only where sashamud has no pattern and old code has none.
+- Scope is what was asked. World content, tests the user did not order, and docs reads the user did not order are out. "Mechanism" work means grammar, core types, DSL constructors, builder, engine; wiring a world object through the DSL is the author's job.
+- The old-code lookup rule covers Haskell shapes in grammar, core, DSL, builder and engine. It does not cover JavaScript in the e2e harness, cabal lines, nix, or a fix whose shape is already in context. Before any lookup, name the decision it would change. No decision, no lookup (user-corrected 2026-10-13).
+- Changes land on the current branch only, ever. Never switch branches, never touch main (user-ruled 2026-10-13).
 
 ## Rhine Architecture (verified from source + koans)
 - Rhine source: /home/mlitchard/github/rhine
@@ -44,7 +49,7 @@
 - Server.Session removed — acSessions phase map (SessionPhase sum type in Server.App) holds session lifecycle
 - deliverOutbound thread outside network reads acOutbound, routes via acSessions sessionSend
 - PlayerJoined fires at websocket attach (AwaitingSocket → AwaitingJoin promotion in gameWebSocket) — network decides new vs returning player
-- GID assignment: counter in AppCtx IORef (acNextAgentId :: IORef PInt), atomicModifyIORef' + succPInt in processOneJoin; PInt is a bare newtype, hidden constructor, only succPInt/unPInt/firstPlayerId exported — no subtraction by construction
+- GID counters: PInt is a bare newtype with a hidden constructor; only succPInt/unPInt/firstGID are exported, so counters only go up. BuilderCounters (one PInt per GID kind) seeds from firstGID, lives in AppCtx as acBuilderCounters, and the signal network reads it before a live DSL run and writes the result back. firstGID was renamed from firstPlayerId on 2026-10-13; the player-counter use it was named for is gone
 
 ## IX EventNetwork Pattern — GameState Construction
 - GameState is reconstructed each tick from current GameState + player input

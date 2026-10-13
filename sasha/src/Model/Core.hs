@@ -13,7 +13,7 @@ module Model.Core
   , Object (..)
     -- * Spatial
   , EntityID (EntityObject, EntityAgent)
-  , SpatialRelationship (ContainedIn, Contains, Supports, SupportedBy)
+  , SpatialRelationship (ContainedIn, Contains, Supports, SupportedBy, Inventory)
   , SpatialRelationshipMap (SpatialRelationshipMap)
     -- * Session
   , SessionId (SessionId, unSessionId)
@@ -27,31 +27,39 @@ module Model.Core
     -- * GameComputation
   , GameComputation (GameComputation, runGameComputation)
     -- * Action Management
-  , ActionManagement (DSAManagementKey, ISAManagementKey)
+  , ActionManagement (DSAManagementKey, ISAManagementKey, AVTargetManagementKey, AVSupportManagementKey, DVManagementKey, DVSurfaceManagementKey)
   , ActionManagementFunctions (ActionManagementFunctions)
   , actionManagementFunctions
-  , ActionManagementOperation (AddDirectionalStimulus, AddImplicitStimulus)
+  , ActionManagementOperation (AddDirectionalStimulus, AddImplicitStimulus, AddAcquisitionVerb, AddDivestmentVerb)
   , GIDToDataMap (GIDToDataMap)
   , getGIDToDataMap
     -- * Action Effects
-  , ActionEffectKey (DirectionalStimulusActionKey, ImplicitStimulusActionKey)
+  , ActionEffectKey (DirectionalStimulusActionKey, ImplicitStimulusActionKey, AcquisitionalActionKey, DivestmentActionKey)
   , ActionEffectKeyF
+  , AcquisitionF (AcquisitionF, AcquisitionCannotF)
+  , AcquisitionMap
   , DirectionalStimulusF (DirectionalStimulusF, DirectionalNoStimulusF)
   , DirectionalStimulusMap
+  , DivestmentF (DivestmentF, DivestmentCannotF)
+  , DivestmentMap
   , ImplicitStimulusF (ImplicitStimulusF, ImplicitNoStimulusF)
   , ImplicitStimulusMap
     -- * Witness
-  , WitnessContext (ImplicitWitnessContext, DirectedWitnessContext, AgentWitnessContext, FailedAgentLookContext)
+  , WitnessContext (ImplicitWitnessContext, DirectedWitnessContext, AgentWitnessContext, FailedAgentLookContext, AcquisitionWitnessContext, DivestmentWitnessContext)
   , WitnessEffectF
   , WitnessF (WitnessF)
   , WitnessMap
     -- * World Outcomes
   , NarrationComputation (LookNarration, LookAtNarration, StaticNarration)
-  , WorldOutcome (NarrationEffect)
-  , EntityKey (SceneKey')
+  , WorldOutcome (NarrationEffect, SpatialRelationshipEffect)
+  , SpatialRelationshipComputation (Acquisition, Divestiture)
+  , DivestmentTargetType (DivestToSurface')
+  , EntityKey (SceneKey', ObjectKey', ActingAgentKey, AgentKey')
     -- * Registries
   , ActionMaps (ActionMaps)
+  , acquisitionActionMap
   , directionalStimulusMap
+  , divestmentActionMap
   , implicitStimulusMap
   , witnessMap
   , EntityActionRegistry
@@ -73,6 +81,8 @@ module Model.Core
   , objectActionManagement
   , title
   , sceneDescription
+  , objectSemanticMap
+  , sceneObjects
   , sceneActionManagement
   , sceneAgents
   , sceneMap
@@ -112,7 +122,9 @@ import           Data.Functor.Identity (Identity)
 import           Data.Map.Strict (Map, unionWith)
 import           Data.Set (Set)
 import           Grammar.Parser.Atomics.Verbs
-  ( DirectionalStimulusVerb
+  ( AcquisitionVerb
+  , DirectionalStimulusVerb
+  , DivestmentVerb
   , ImplicitStimulusVerb
   )
 import           Grammar.Parser.Composites.Model (Sentence)
@@ -131,6 +143,10 @@ import           Test.QuickCheck.Instances.Text ()
 type ActionManagement :: Type
 data ActionManagement = DSAManagementKey DirectionalStimulusVerb (GID DirectionalStimulusF)
                       | ISAManagementKey ImplicitStimulusVerb (GID ImplicitStimulusF)
+                      | AVTargetManagementKey AcquisitionVerb (GID AcquisitionF)
+                      | AVSupportManagementKey AcquisitionVerb (GID AcquisitionF)
+                      | DVManagementKey DivestmentVerb (GID DivestmentF)
+                      | DVSurfaceManagementKey DivestmentVerb (GID DivestmentF)
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
@@ -149,6 +165,8 @@ newtype GIDToDataMap k v = GIDToDataMap { _getGIDToDataMap :: Map (GID k) v }
 type ActionManagementOperation :: Type
 data ActionManagementOperation = AddDirectionalStimulus DirectionalStimulusVerb (GID DirectionalStimulusF)
                                | AddImplicitStimulus ImplicitStimulusVerb (GID ImplicitStimulusF)
+                               | AddAcquisitionVerb AcquisitionVerb (GID AcquisitionF)
+                               | AddDivestmentVerb DivestmentVerb (GID DivestmentF)
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
@@ -197,6 +215,8 @@ type Scene :: Type
 data Scene = Scene
   { _title                 :: Text
   , _sceneDescription      :: RichText
+  , _objectSemanticMap     :: Map Text (Set (GID Object))
+  , _sceneObjects          :: Set (GID Object)
   , _sceneActionManagement :: ActionManagementFunctions
   , _sceneAgents           :: Set (GID Agent)
   }
@@ -219,6 +239,7 @@ data SpatialRelationship = ContainedIn EntityID
                          | Contains (Set EntityID)
                          | Supports (Set EntityID)
                          | SupportedBy EntityID
+                         | Inventory (GID Agent)
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
@@ -281,13 +302,29 @@ data NarrationComputation = LookAtNarration (GID Object)
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
+type DivestmentTargetType :: Type
+data DivestmentTargetType
+  = DivestToSurface'
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
+
+type SpatialRelationshipComputation :: Type
+data SpatialRelationshipComputation = Acquisition EntityID EntityID
+                                    | Divestiture (GID Object) (GID Object) DivestmentTargetType
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
+
 type WorldOutcome :: Type
 data WorldOutcome = NarrationEffect NarrationComputation
+                  | SpatialRelationshipEffect SpatialRelationshipComputation
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
 type EntityKey :: Type
 data EntityKey = SceneKey' (GID Scene)
+               | ObjectKey' (GID Object)
+               | ActingAgentKey
+               | AgentKey' (GID Agent)
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
@@ -296,6 +333,8 @@ data EntityKey = SceneKey' (GID Scene)
 type ActionEffectKey :: Type
 data ActionEffectKey = DirectionalStimulusActionKey (GID DirectionalStimulusF)
                      | ImplicitStimulusActionKey (GID ImplicitStimulusF)
+                     | AcquisitionalActionKey (GID AcquisitionF)
+                     | DivestmentActionKey (GID DivestmentF)
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
@@ -316,11 +355,27 @@ data ImplicitStimulusF = ImplicitStimulusF ActionEffectKeyF
 type ImplicitStimulusMap :: Type
 type ImplicitStimulusMap = Map (GID ImplicitStimulusF) ImplicitStimulusF
 
+type AcquisitionF :: Type
+data AcquisitionF = AcquisitionF ActionEffectKeyF
+                  | AcquisitionCannotF ActionEffectKeyF
+
+type AcquisitionMap :: Type
+type AcquisitionMap = Map (GID AcquisitionF) AcquisitionF
+
+type DivestmentF :: Type
+data DivestmentF = DivestmentF ActionEffectKeyF
+                 | DivestmentCannotF ActionEffectKeyF
+
+type DivestmentMap :: Type
+type DivestmentMap = Map (GID DivestmentF) DivestmentF
+
 type WitnessContext :: Type
 data WitnessContext = ImplicitWitnessContext
                     | DirectedWitnessContext (GID Object)
                     | AgentWitnessContext (GID Agent)
                     | FailedAgentLookContext
+                    | AcquisitionWitnessContext (GID Object)
+                    | DivestmentWitnessContext (GID Object)
 
 type WitnessEffectF :: Type
 type WitnessEffectF = GID Agent -> GID Agent -> WitnessContext -> GameComputation Identity ()
@@ -337,12 +392,16 @@ type ActionMaps :: Type
 data ActionMaps = ActionMaps
   { _directionalStimulusMap :: DirectionalStimulusMap
   , _implicitStimulusMap    :: ImplicitStimulusMap
+  , _acquisitionActionMap   :: AcquisitionMap
+  , _divestmentActionMap    :: DivestmentMap
   }
 
 emptyActionMaps :: ActionMaps
 emptyActionMaps = ActionMaps
   { _directionalStimulusMap = mempty
   , _implicitStimulusMap    = mempty
+  , _acquisitionActionMap   = mempty
+  , _divestmentActionMap    = mempty
   }
 
 type EntityActionRegistry :: Type
@@ -412,6 +471,8 @@ defaultScene :: Scene
 defaultScene = Scene
   { _title                 = mempty
   , _sceneDescription      = mempty
+  , _objectSemanticMap     = mempty
+  , _sceneObjects          = mempty
   , _sceneActionManagement = ActionManagementFunctions mempty
   , _sceneAgents           = mempty
   }

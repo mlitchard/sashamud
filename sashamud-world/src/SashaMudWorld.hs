@@ -125,15 +125,15 @@ sashaMudWorld = do
   registerObject floorGID (buildFloor floorLookAtKey)
   registerObject ballGID  (buildBall ballLookAtKey)
 
+  -- Scene
+  registerScene lobbyGID (buildLobby sceneLookKey sceneLookAtKey)
+
   registerObjectToScene lobbyGID floorGID "FLOOR"
   registerObjectToScene lobbyGID ballGID  "BALL"
 
   -- Spatial: ball is on the floor
   registerSpatial (EntityObject ballGID)  (SupportedBy (EntityObject floorGID))
   registerSpatial (EntityObject floorGID) (Supports (Data.Set.singleton (EntityObject ballGID)))
-
-  -- Scene
-  registerScene lobbyGID (buildLobby sceneLookKey sceneLookAtKey)
 
   -- Player template
   denizen       <- playerBehavior defaultDenizen playerLookKey
@@ -175,7 +175,9 @@ defaultGameState = GameState
   }
 
 buildResult :: WorldBuilderResult
-buildResult = runWorldBuilder (interpretDSL sashaMudWorld) (initialBuilderState defaultGameState initialCounters)
+buildResult = case runWorldBuilder (interpretDSL sashaMudWorld) (initialBuilderState defaultGameState initialCounters) of
+  Left err     -> error ("Failed to build game state: " <> show err)
+  Right result -> result
 
 gameState :: GameState
 gameState = resultGameState buildResult

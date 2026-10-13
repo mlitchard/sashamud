@@ -21,6 +21,7 @@ import           Control.Concurrent.STM
   , tryReadTChan
   , writeTChan
   )
+import           Control.Monad (foldM)
 import           Control.Monad.Except (runExceptT, throwError)
 import           Control.Monad.Schedule.Class (MonadSchedule (schedule))
 import           Control.Monad.State (get, put, runStateT)
@@ -109,11 +110,12 @@ import           Model.WireProtocol
   ( MessageFrom (ChatMessage, GameNarration, Pong, SystemMessage)
   )
 import           Server.App
-  ( AppCtx (acBuilderCounters, acDSLChan, acInbound, acJoinChan, acKnownPlayers, acOutbound, acSessions)
+  ( AppCtx (acBuilderCounters, acDSLChan, acGameLog, acInbound, acJoinChan, acKnownPlayers, acOutbound, acSessions)
   , SessionPhase (SessionPhase)
   , SessionState (AwaitingJoin, AwaitingSocket, InGame)
   , sessionGid
   )
+import           Server.Log (LogEntry (DSLBuildFailed), writeLog)
 import           Server.Validator (PlayerNameVAL, unPlayerNameVAL)
 
 data JoinResult = NewPlayerJoined SessionId PlayerNameVAL (GID Agent)
@@ -174,9 +176,13 @@ dslTickSF = constMCl $ do
     gs <- lookGameState
     counters <- liftIO $ readIORef (acBuilderCounters appCtx)
     let runSubmission prev dsl =
-          runWorldBuilder (interpretDSL dsl)
-            (initialBuilderState (resultGameState prev) (resultCounters prev))
-        result = foldl' runSubmission (WorldBuilderResult gs counters) submissions
+          case runWorldBuilder (interpretDSL dsl)
+                 (initialBuilderState (resultGameState prev) (resultCounters prev)) of
+            Left err -> do
+              liftIO $ writeLog (acGameLog appCtx) (DSLBuildFailed err)
+              pure prev
+            Right next -> pure next
+    result <- foldM runSubmission (WorldBuilderResult gs counters) submissions
     liftIO $ writeIORef (acBuilderCounters appCtx) (resultCounters result)
     addGameState (resultGameState result)
 
