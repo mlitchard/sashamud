@@ -3,6 +3,10 @@ module ConstraintRefinement.Actions
   , lookAtDeniedF
   , lookF
   , lookDeniedF
+  , getF
+  , getDeniedF
+  , dropF
+  , dropDeniedF
   , witnessF
   ) where
 
@@ -11,7 +15,9 @@ import           Engine.Resolution.ActionManagement
   , processWitnessEffects
   )
 import           Model.Core
-  ( DirectionalStimulusF (DirectionalNoStimulusF, DirectionalStimulusF)
+  ( AcquisitionF (AcquisitionCannotF, AcquisitionF)
+  , DirectionalStimulusF (DirectionalNoStimulusF, DirectionalStimulusF)
+  , DivestmentF (DivestmentCannotF, DivestmentF)
   , ImplicitStimulusF (ImplicitNoStimulusF, ImplicitStimulusF)
   , WitnessF (WitnessF)
   )
@@ -27,6 +33,18 @@ lookAtF = DirectionalStimulusF processActionOutcomeRegistry
 
 lookAtDeniedF :: DirectionalStimulusF
 lookAtDeniedF = DirectionalNoStimulusF processActionOutcomeRegistry
+
+getF :: AcquisitionF
+getF = AcquisitionF processActionOutcomeRegistry
+
+getDeniedF :: AcquisitionF
+getDeniedF = AcquisitionCannotF processActionOutcomeRegistry
+
+dropF :: DivestmentF
+dropF = DivestmentF processActionOutcomeRegistry
+
+dropDeniedF :: DivestmentF
+dropDeniedF = DivestmentCannotF processActionOutcomeRegistry
 
 witnessF :: WitnessF
 witnessF = WitnessF processWitnessEffects
