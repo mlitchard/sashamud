@@ -5,6 +5,7 @@ module Server.App
   ( AppCtx (..)
   , AppM (..)
   , BuilderCounters (BuilderCounters)
+  , Environment (Development, Production)
   , GameLog (..)
   , OidcConfig (..)
   , PInt
@@ -117,6 +118,9 @@ newtype AppM a = AppM { unAppM :: ReaderT AppCtx Handler a }
     , MonadIO
     , MonadReader AppCtx
     )
+
+data Environment = Development
+                 | Production
 
 data OidcConfig = OidcConfig
   { ocBaseUrl      :: OidcBaseUrl

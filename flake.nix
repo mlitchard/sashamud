@@ -153,6 +153,7 @@
           liveOidcRedirectUri = "https://sashamud.net:4430/api/auth/callback";
 
           dslServerUrl = "http://127.0.0.1:8081";
+          sashaEnvironment = "production";
           deployDsl = pkgs.writeShellScript "deploy-dsl" ''
             set -euo pipefail
             SRC="''${1:?usage: nix run .#deploy-dsl -- <file.dsl>}"
@@ -465,6 +466,7 @@
                   export SASHA_OIDC_CLIENT_ID=${oidcClientId}
                   export SASHA_OIDC_CLIENT_SECRET=${oidcClientSecret}
                   export SASHA_OIDC_REDIRECT_URI=https://localhost:8080/api/auth/callback
+                  export SASHA_ENVIRONMENT=development
                 '';
               });
               production = sashaShell.overrideAttrs (attrs: {
@@ -493,7 +495,8 @@
                   --set-default SASHA_OIDC_BASE_URL ${oidcBaseUrl} \
                   --set-default SASHA_OIDC_CLIENT_ID ${oidcClientId} \
                   --set-default SASHA_OIDC_CLIENT_SECRET ${oidcClientSecret} \
-                  --set-default SASHA_OIDC_REDIRECT_URI ${oidcRedirectUri}
+                  --set-default SASHA_OIDC_REDIRECT_URI ${oidcRedirectUri} \
+                  --set-default SASHA_ENVIRONMENT ${sashaEnvironment}
               '';
             });
             sasha-client-generator = (hlib.justStaticExecutables
