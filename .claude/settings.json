@@ -31,6 +31,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /home/mlitchard/gitlab/sashamud/.claude/hooks/refuse-main-haskell-writes.sh",
+            "timeout": 5
+          }
+        ]
       }
     ]
   }
