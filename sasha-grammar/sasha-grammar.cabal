@@ -35,7 +35,9 @@ library
     Grammar.Parser.Atomics.Semantics.Rules.ParseRule
     Grammar.Parser.Atomics.Semantics.Rules.Prepositions
     Grammar.Parser.Atomics.Semantics.Rules.Verbs
+    Grammar.Parser.Atomics.Semantics.Verbs.Acquisition
     Grammar.Parser.Atomics.Semantics.Verbs.DirectionalStimulus
+    Grammar.Parser.Atomics.Semantics.Verbs.Divestment
     Grammar.Parser.Atomics.Semantics.Verbs.ImplicitStimulus
     Grammar.Parser.Atomics.Verbs
     Grammar.Parser.Composites.Model

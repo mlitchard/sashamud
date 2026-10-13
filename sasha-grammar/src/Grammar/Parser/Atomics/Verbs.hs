@@ -1,7 +1,15 @@
 module Grammar.Parser.Atomics.Verbs
-  ( DirectionalStimulusVerb
+  ( AcquisitionVerb
+      ( AcquisitionVerb
+      , _fromAcquisitionVerb
+      )
+  , DirectionalStimulusVerb
       ( DirectionalStimulusVerb
       , _fromDirectionalStimulusVerb
+      )
+  , DivestmentVerb
+      ( DivestmentVerb
+      , _fromDivestmentVerb
       )
   , ImplicitStimulusVerb
       ( ImplicitStimulusVerb
@@ -32,3 +40,19 @@ newtype DirectionalStimulusVerb = DirectionalStimulusVerb { _fromDirectionalStim
 
 instance HasLexeme DirectionalStimulusVerb where
   toLexeme = _fromDirectionalStimulusVerb
+
+type AcquisitionVerb :: Type
+newtype AcquisitionVerb = AcquisitionVerb { _fromAcquisitionVerb :: Lexeme }
+  deriving stock (Eq, Ord, Show)
+  deriving newtype (Hashable, NFData)
+
+instance HasLexeme AcquisitionVerb where
+  toLexeme = _fromAcquisitionVerb
+
+type DivestmentVerb :: Type
+newtype DivestmentVerb = DivestmentVerb { _fromDivestmentVerb :: Lexeme }
+  deriving stock (Eq, Ord, Show)
+  deriving newtype (Hashable, NFData)
+
+instance HasLexeme DivestmentVerb where
+  toLexeme = _fromDivestmentVerb
