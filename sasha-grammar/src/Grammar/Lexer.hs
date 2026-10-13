@@ -45,30 +45,48 @@ newtype Lexer a = Lexer { runLexer :: Parsec Void Text a }
   deriving newtype (Alternative, Applicative, Functor, Monad, MonadPlus)
 
 type Lexeme :: Type
-data Lexeme = AT
+data Lexeme = A
+            | AT
             | BALL
+            | DROP
             | FLOOR
+            | GET
             | LOOK
+            | SMALL
+            | THE
+            | WHITE
             | PLAYERNAME Text
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (Hashable, NFData)
 
 instance Bounded Lexeme where
-  minBound = AT
-  maxBound = LOOK
+  minBound = A
+  maxBound = WHITE
 
 instance Enum Lexeme where
-  toEnum 0 = AT
-  toEnum 1 = BALL
-  toEnum 2 = FLOOR
-  toEnum 3 = LOOK
+  toEnum 0 = A
+  toEnum 1 = AT
+  toEnum 2 = BALL
+  toEnum 3 = DROP
+  toEnum 4 = FLOOR
+  toEnum 5 = GET
+  toEnum 6 = LOOK
+  toEnum 7 = SMALL
+  toEnum 8 = THE
+  toEnum 9 = WHITE
   toEnum _ = error "toEnum: no Lexeme at this index"
 
-  fromEnum AT             = 0
-  fromEnum BALL           = 1
-  fromEnum FLOOR          = 2
-  fromEnum LOOK           = 3
-  fromEnum (PLAYERNAME _) = 4
+  fromEnum A              = 0
+  fromEnum AT             = 1
+  fromEnum BALL           = 2
+  fromEnum DROP           = 3
+  fromEnum FLOOR          = 4
+  fromEnum GET            = 5
+  fromEnum LOOK           = 6
+  fromEnum SMALL          = 7
+  fromEnum THE            = 8
+  fromEnum WHITE          = 9
+  fromEnum (PLAYERNAME _) = 10
 
 type HasLexeme :: Type -> Constraint
 class HasLexeme a where
@@ -92,10 +110,16 @@ term :: Lexer Lexeme
 term = classify <$> word
   where
     classify :: Text -> Lexeme
+    classify "A"     = A
     classify "AT"    = AT
     classify "BALL"  = BALL
+    classify "DROP"  = DROP
     classify "FLOOR" = FLOOR
+    classify "GET"   = GET
     classify "LOOK"  = LOOK
+    classify "SMALL" = SMALL
+    classify "THE"   = THE
+    classify "WHITE" = WHITE
     classify w       = PLAYERNAME w
 
 word :: Lexer Text
