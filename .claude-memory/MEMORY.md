@@ -49,7 +49,7 @@
 - Server.Session removed — acSessions phase map (SessionPhase sum type in Server.App) holds session lifecycle
 - deliverOutbound thread outside network reads acOutbound, routes via acSessions sessionSend
 - PlayerJoined fires at websocket attach (AwaitingSocket → AwaitingJoin promotion in gameWebSocket) — network decides new vs returning player
-- GID assignment: counter in AppCtx IORef (acNextAgentId :: IORef PInt), atomicModifyIORef' + succPInt in processOneJoin; PInt is a bare newtype, hidden constructor, only succPInt/unPInt/firstPlayerId exported — no subtraction by construction
+- GID counters: PInt is a bare newtype with a hidden constructor; only succPInt/unPInt/firstGID are exported, so counters only go up. BuilderCounters (one PInt per GID kind) seeds from firstGID, lives in AppCtx as acBuilderCounters, and the signal network reads it before a live DSL run and writes the result back. firstGID was renamed from firstPlayerId on 2026-10-13; the player-counter use it was named for is gone
 
 ## IX EventNetwork Pattern — GameState Construction
 - GameState is reconstructed each tick from current GameState + player input
