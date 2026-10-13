@@ -49,6 +49,8 @@ library
     DSL.Model.EDSL.SashaLambdaDSL
     DSL.Reify
     DSL.Vocabulary
+    Engine.ActionDiscovery.Divestment.Drop
+    Engine.ActionDiscovery.Get.Acquisition.Get
     Engine.ActionDiscovery.Instances
     Engine.ActionDiscovery.Percieve.Look
     Engine.ActionDiscovery.Protocol
@@ -140,6 +142,8 @@ executable sasha-tests
     DSL.Model.EDSL.SashaLambdaDSL
     DSL.Reify
     DSL.Vocabulary
+    Engine.ActionDiscovery.Divestment.Drop
+    Engine.ActionDiscovery.Get.Acquisition.Get
     Engine.ActionDiscovery.Instances
     Engine.ActionDiscovery.Percieve.Look
     Engine.ActionDiscovery.Protocol
