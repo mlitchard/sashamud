@@ -71,6 +71,13 @@
             sha256 = "sha256-p0mUfvMmSbsQz4jlZeau7S4FkgtPUv+U9SaChB6Okak=";
           };
 
+          webdriverSrc = pkgs.fetchFromGitHub {
+            owner = "haskell-webdriver";
+            repo = "haskell-webdriver";
+            rev = "6771395733e15b00a30401368474a6eacc876020";
+            sha256 = "sha256-8eOA+waO+0vQp56pmXC19IBbvOUsWsYxeea9Jrd46RA=";
+          };
+
           cleanPkgSrc = name:
             let dir = ./. + "/${name}";
             in pkgs.lib.cleanSourceWith {
@@ -125,7 +132,7 @@
                   inputs.servant-aeson-generics-typescript
                   { }))
               "lib:servant-aeson-typescript";
-            webdriver = final.callHackage "webdriver" "0.12.0.1" { };
+            webdriver = hlib.dontCheck (final.callCabal2nix "webdriver" webdriverSrc { });
             servant-websockets = hlib.dontCheck
               (final.callCabal2nix "servant-websockets"
                 inputs.servant-websockets
@@ -821,6 +828,7 @@
                   environment.variables = {
                     SASHA_DB_CONNSTR = dbConnStr;
                     SASHA_MIGRATIONS_DIR = "${migrationsDir}";
+                    SASHA_WEB_DIST = "${inputs.self.packages.${system}.web}";
                   };
                   environment.systemPackages = [
                     sasha-e2e-wrapped

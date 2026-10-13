@@ -61,6 +61,7 @@ executable sasha-e2e-tests
   hs-source-dirs:     test-e2e fake-oidc
   ghc-options:        -threaded -rtsopts
   other-modules:
+    CopyTokenSpec
     FakeProvider
     LoginSpec
     LookAtBallSpec
@@ -71,6 +72,7 @@ executable sasha-e2e-tests
 
   build-tool-depends: hspec-discover:hspec-discover
   build-depends:
+    , aeson
     , async
     , base                  >=4.7 && <5
     , bytestring
@@ -83,6 +85,7 @@ executable sasha-e2e-tests
     , http-client
     , http-types
     , memory
+    , monad-logger
     , postgresql-migration
     , postgresql-simple
     , process
