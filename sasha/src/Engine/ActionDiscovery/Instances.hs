@@ -24,7 +24,7 @@ import           Grammar.Parser.Atomics.Verbs
   )
 import           Grammar.Parser.Composites.Nouns
   ( DirectionalStimulusNounPhrase (DirectionalStimulusNounPhrase)
-  , NounPhrase (SimpleNounPhrase)
+  , NounPhrase (DescriptiveNounPhrase, DescriptiveNounPhraseDet, NounPhrase, SimpleNounPhrase)
   )
 import           Grammar.Parser.GCase
   ( VerbKey (DirectionalStimulusKey, ImplicitStimulusKey)
@@ -126,5 +126,8 @@ instance ActionProtocol DirectionalStimulusF where
 
 -- | Extract noun text from DirectionalStimulusNounPhrase for globalSemanticMap lookup
 extractDirectionalNoun :: DirectionalStimulusNounPhrase -> Text
-extractDirectionalNoun (DirectionalStimulusNounPhrase _ (SimpleNounPhrase ds)) =
-  pack (show (toLexeme ds))
+extractDirectionalNoun (DirectionalStimulusNounPhrase _ np) = case np of
+  SimpleNounPhrase ds             -> pack (show (toLexeme ds))
+  NounPhrase _ ds                 -> pack (show (toLexeme ds))
+  DescriptiveNounPhrase _ ds      -> pack (show (toLexeme ds))
+  DescriptiveNounPhraseDet _ _ ds -> pack (show (toLexeme ds))

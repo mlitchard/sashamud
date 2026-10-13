@@ -1,7 +1,8 @@
 {- HLINT ignore "Use newtype instead of data" -}
 module Grammar.Parser.Composites.Nouns
   ( DirectionalStimulusNounPhrase (DirectionalStimulusNounPhrase)
-  , NounPhrase (SimpleNounPhrase)
+  , NounPhrase (SimpleNounPhrase, NounPhrase, DescriptiveNounPhrase, DescriptiveNounPhraseDet)
+  , ObjectPhrase (ObjectPhrase)
   , PlayerName (PlayerName)
   ) where
 
@@ -12,11 +13,21 @@ import           Data.Ord (Ord)
 import           Data.Text (Text)
 import           GHC.Generics (Generic)
 import           GHC.Show (Show)
-import           Grammar.Parser.Atomics.Nouns (DirectionalStimulus)
+import           Grammar.Parser.Atomics.Adjectives (Adjective)
+import           Grammar.Parser.Atomics.Misc (Determiner)
+import           Grammar.Parser.Atomics.Nouns (DirectionalStimulus, Objective)
 import           Grammar.Parser.Atomics.Prepositions (DirectionalStimulusMarker)
 
 type NounPhrase :: Type -> Type
 data NounPhrase a = SimpleNounPhrase a
+                  | NounPhrase Determiner a
+                  | DescriptiveNounPhrase Adjective a
+                  | DescriptiveNounPhraseDet Determiner Adjective a
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
+
+type ObjectPhrase :: Type
+newtype ObjectPhrase = ObjectPhrase (NounPhrase Objective)
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
