@@ -60,7 +60,7 @@ import           Grammar.Parser.Atomics.Semantics.Verbs.ImplicitStimulus
 import           Grammar.Parser.Composites.Model
   ( AcquisitionVerbPhrase (SimpleAcquisitionVerbPhrase)
   , DivestmentVerbPhrase (SimpleDivestmentVerbPhrase)
-  , Imperative (StimulusVerbPhrase)
+  , Imperative (AcquisitionVerbPhrase', DivestmentVerbPhrase', StimulusVerbPhrase)
   , StimulusVerbPhrase (AgentStimulusVerbPhrase, DirectStimulusVerbPhrase, ImplicitStimulusVerb)
   )
 import           Grammar.Parser.Composites.Nouns
@@ -152,4 +152,8 @@ playerNameRule = rule (terminal (\case
 imperativeRules :: Grammar r (Prod r Text Lexeme Imperative)
 imperativeRules = do
   stimulusVerbPhrase <- stimulusVerbPhraseRules
-  rule (StimulusVerbPhrase <$> stimulusVerbPhrase)
+  acquisitionVerbPhrase <- acquisitionVerbPhraseRules
+  divestmentVerbPhrase <- divestmentVerbPhraseRules
+  rule $ StimulusVerbPhrase <$> stimulusVerbPhrase
+     <|> AcquisitionVerbPhrase' <$> acquisitionVerbPhrase
+     <|> DivestmentVerbPhrase' <$> divestmentVerbPhrase

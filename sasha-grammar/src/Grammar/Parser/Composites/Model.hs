@@ -44,6 +44,8 @@ data StimulusVerbPhrase = ImplicitStimulusVerb ImplicitStimulusVerb
 
 type Imperative :: Type
 data Imperative = StimulusVerbPhrase StimulusVerbPhrase
+                | AcquisitionVerbPhrase' AcquisitionVerbPhrase
+                | DivestmentVerbPhrase' DivestmentVerbPhrase
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
