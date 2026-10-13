@@ -51,8 +51,10 @@ module Model.Core
   , WitnessMap
     -- * World Outcomes
   , NarrationComputation (LookNarration, LookAtNarration, StaticNarration)
-  , WorldOutcome (NarrationEffect)
-  , EntityKey (SceneKey')
+  , WorldOutcome (NarrationEffect, SpatialRelationshipEffect)
+  , SpatialRelationshipComputation (Acquisition, Divestiture)
+  , DivestmentTargetType (DivestToSurface')
+  , EntityKey (SceneKey', ObjectKey', ActingAgentKey, AgentKey')
     -- * Registries
   , ActionMaps (ActionMaps)
   , acquisitionActionMap
@@ -300,13 +302,29 @@ data NarrationComputation = LookAtNarration (GID Object)
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
+type DivestmentTargetType :: Type
+data DivestmentTargetType
+  = DivestToSurface'
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
+
+type SpatialRelationshipComputation :: Type
+data SpatialRelationshipComputation = Acquisition EntityID EntityID
+                                    | Divestiture (GID Object) (GID Object) DivestmentTargetType
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
+
 type WorldOutcome :: Type
 data WorldOutcome = NarrationEffect NarrationComputation
+                  | SpatialRelationshipEffect SpatialRelationshipComputation
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
 type EntityKey :: Type
 data EntityKey = SceneKey' (GID Scene)
+               | ObjectKey' (GID Object)
+               | ActingAgentKey
+               | AgentKey' (GID Agent)
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
