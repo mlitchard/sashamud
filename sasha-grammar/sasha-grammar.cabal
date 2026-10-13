@@ -26,12 +26,18 @@ library
   hs-source-dirs:  src
   exposed-modules:
     Grammar.Lexer
+    Grammar.Parser.Atomics.Adjectives
     Grammar.Parser.Atomics.AtomicsTH
+    Grammar.Parser.Atomics.Misc
     Grammar.Parser.Atomics.Nouns
     Grammar.Parser.Atomics.Prepositions
+    Grammar.Parser.Atomics.Semantics.Adjectives
+    Grammar.Parser.Atomics.Semantics.Misc
     Grammar.Parser.Atomics.Semantics.Nouns.DirectionalStimulus
     Grammar.Parser.Atomics.Semantics.Nouns.Objective
     Grammar.Parser.Atomics.Semantics.Prepositions.DirectionalStimulusMarker
+    Grammar.Parser.Atomics.Semantics.Rules.Adjectives
+    Grammar.Parser.Atomics.Semantics.Rules.Misc
     Grammar.Parser.Atomics.Semantics.Rules.Nouns
     Grammar.Parser.Atomics.Semantics.Rules.ParseRule
     Grammar.Parser.Atomics.Semantics.Rules.Prepositions
