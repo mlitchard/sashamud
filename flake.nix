@@ -71,6 +71,13 @@
             sha256 = "sha256-p0mUfvMmSbsQz4jlZeau7S4FkgtPUv+U9SaChB6Okak=";
           };
 
+          webdriverSrc = pkgs.fetchFromGitHub {
+            owner = "haskell-webdriver";
+            repo = "haskell-webdriver";
+            rev = "6771395733e15b00a30401368474a6eacc876020";
+            sha256 = "sha256-8eOA+waO+0vQp56pmXC19IBbvOUsWsYxeea9Jrd46RA=";
+          };
+
           cleanPkgSrc = name:
             let dir = ./. + "/${name}";
             in pkgs.lib.cleanSourceWith {
@@ -125,7 +132,7 @@
                   inputs.servant-aeson-generics-typescript
                   { }))
               "lib:servant-aeson-typescript";
-            webdriver = final.callHackage "webdriver" "0.12.0.1" { };
+            webdriver = hlib.dontCheck (final.callCabal2nix "webdriver" webdriverSrc { });
             servant-websockets = hlib.dontCheck
               (final.callCabal2nix "servant-websockets"
                 inputs.servant-websockets
@@ -153,6 +160,7 @@
           liveOidcRedirectUri = "https://sashamud.net:4430/api/auth/callback";
 
           dslServerUrl = "http://127.0.0.1:8081";
+          sashaEnvironment = "production";
           deployDsl = pkgs.writeShellScript "deploy-dsl" ''
             set -euo pipefail
             SRC="''${1:?usage: nix run .#deploy-dsl -- <file.dsl>}"
@@ -275,9 +283,6 @@
               trap ${lib.escapeShellArg ''
                   set +e
                   ${upDown.down}
-                  echo "killing tracked pids..."
-                  kill -9 $(cat .devpids)
-                  pkill sasha-server
               ''} SIGINT
               wait)
             '';
@@ -394,7 +399,6 @@
                     description = "generate TS client, build frontend, start full stack";
                     script = teardown (processWrap: {
                       up = ''
-                        reset-db
                         lpg on ${pgDir} up
                         export SASHA_DB_CONNSTR=$(lpg on ${pgDir} get-connstr)
                         nix run .#sasha-client-generator --builders ''' -- web/packages/type-gen-output/src/client.ts
@@ -407,9 +411,7 @@
                         ''}
                       '';
                       down = ''
-                        sleep 1
-                        db-server-stop
-                        pkill caddy
+                        stop-sashamud
                       '';
                     });
                   };
@@ -471,6 +473,7 @@
                   export SASHA_OIDC_CLIENT_ID=${oidcClientId}
                   export SASHA_OIDC_CLIENT_SECRET=${oidcClientSecret}
                   export SASHA_OIDC_REDIRECT_URI=https://localhost:8080/api/auth/callback
+                  export SASHA_ENVIRONMENT=development
                 '';
               });
               production = sashaShell.overrideAttrs (attrs: {
@@ -499,7 +502,8 @@
                   --set-default SASHA_OIDC_BASE_URL ${oidcBaseUrl} \
                   --set-default SASHA_OIDC_CLIENT_ID ${oidcClientId} \
                   --set-default SASHA_OIDC_CLIENT_SECRET ${oidcClientSecret} \
-                  --set-default SASHA_OIDC_REDIRECT_URI ${oidcRedirectUri}
+                  --set-default SASHA_OIDC_REDIRECT_URI ${oidcRedirectUri} \
+                  --set-default SASHA_ENVIRONMENT ${sashaEnvironment}
               '';
             });
             sasha-client-generator = (hlib.justStaticExecutables
@@ -824,6 +828,7 @@
                   environment.variables = {
                     SASHA_DB_CONNSTR = dbConnStr;
                     SASHA_MIGRATIONS_DIR = "${migrationsDir}";
+                    SASHA_WEB_DIST = "${inputs.self.packages.${system}.web}";
                   };
                   environment.systemPackages = [
                     sasha-e2e-wrapped

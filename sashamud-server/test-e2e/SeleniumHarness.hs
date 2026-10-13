@@ -6,6 +6,7 @@
 module SeleniumHarness
   ( withServer
   , webDriverTestWithClient
+  , webDriverTestWithPage
   , successToken
   ) where
 
@@ -14,6 +15,10 @@ import           SashaPrelude
 import           API.TSClient (client)
 import           API.Types (SessionId (SessionId))
 import           Control.Concurrent.Async (mapConcurrently_, race_)
+import           Control.Monad.Logger (runStdoutLoggingT)
+import           Data.Aeson (Object, object, (.=))
+import           Data.Aeson.Key (fromString)
+import           Data.Aeson.KeyMap (fromList)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 (pack)
 import           Data.Pool (defaultPoolConfig, newPool, withResource)
@@ -80,20 +85,38 @@ import           System.IO
 import           System.Process (readProcessWithExitCode)
 import           System.Random (randomIO)
 import           Test.WebDriver
-  ( Browser (chromeOptions)
-  , WD
-  , WDConfig (wdHTTPManager)
+  ( Capabilities (_capabilitiesBrowserName, _capabilitiesGoogChromeOptions)
+  , _driverManager
   , asyncJS
-  , chrome
-  , defaultConfig
+  , closeSession'
+  , defaultCaps
+  , defaultChromeOptions
+  , mkManualDriver
   , openPage
-  , runSession
   , setScriptTimeout
-  , useBrowser
+  , startSession'
   )
+import           Test.WebDriver.Capabilities
+  ( ChromeOptions (_chromeOptionsArgs, _chromeOptionsPrefs)
+  )
+import           Test.WebDriver.WD (WD, runWD)
 
 successToken :: String
 successToken = "success"
+
+chromeCaps :: Capabilities
+chromeCaps = defaultCaps
+  { _capabilitiesBrowserName = Just "chrome"
+  , _capabilitiesGoogChromeOptions = Just defaultChromeOptions
+      { _chromeOptionsArgs = Just [ "--headless=new", "--disable-gpu", "--no-sandbox" ] }
+  }
+
+clipboardPrefs :: Int -> Object
+clipboardPrefs port = fromList
+  [ ( "profile.content_settings.exceptions.clipboard"
+    , object [ fromString ("http://127.0.0.1:" <> show port <> ",*") .= object [ "setting" .= (1 :: Int) ] ]
+    )
+  ]
 
 withServer :: (AppCtx -> IO ()) -> IO ()
 withServer action = do
@@ -230,23 +253,48 @@ webDriverTestWithClient ctx players jstest test = do
 
         mgr <- newManager defaultManagerSettings
           { managerResponseTimeout = responseTimeoutMicro (720 * 1000000) }
-        res <-
-          runSession
-            (useBrowser
-               chrome
-                 { chromeOptions =
-                     [ "--headless=new"
-                     , "--disable-gpu"
-                     , "--no-sandbox"
-                     ]
-                 }
-                 defaultConfig { wdHTTPManager = Just mgr })
-            (do
+        res <- runStdoutLoggingT $ do
+          driver <- mkManualDriver "127.0.0.1" 4444 "/wd/hub" []
+          sess <- startSession' driver { _driverManager = mgr } chromeCaps "client"
+          r <- runWD sess (do
             openPage $ "http://127.0.0.1:" <> show port </> indexName <.> "html"
-            setScriptTimeout 720000
+            setScriptTimeout (Just 720000)
             test $ asyncJS [] [i|test(arguments[0])|])
+          closeSession' sess
+          pure r
 
         case res of
           Just x | x == successToken -> death
           Just x                     -> death >> error x
           Nothing                    -> death >> error "TIMEOUT")
+
+webDriverTestWithPage :: AppCtx -> (Text -> WD (Maybe String)) -> IO ()
+webDriverTestWithPage ctx test = do
+  dist <- fromMaybe "web/apps/sasha-web/dist" <$> lookupEnv "SASHA_WEB_DIST"
+  testWithApplication (pure (appWithStaticFiles ctx dist))
+    (\port -> do
+      loginManager <- newManager defaultManagerSettings
+      seedAccount (acDbPool ctx) Wizard (PlayerNameVAL "Raj")
+      SessionId rajToken <- loginThroughFake loginManager port "Raj"
+      mgr <- newManager defaultManagerSettings
+        { managerResponseTimeout = responseTimeoutMicro (720 * 1000000) }
+      res <- runStdoutLoggingT $ do
+        driver <- mkManualDriver "127.0.0.1" 4444 "/wd/hub" []
+        sess <- startSession' driver { _driverManager = mgr }
+          chromeCaps
+            { _capabilitiesGoogChromeOptions = Just defaultChromeOptions
+                { _chromeOptionsArgs = Just [ "--headless=new", "--disable-gpu", "--no-sandbox" ]
+                , _chromeOptionsPrefs = Just (clipboardPrefs port)
+                }
+            }
+          "page"
+        r <- runWD sess (do
+          openPage $ "http://127.0.0.1:" <> show port <> "/index.html#token=" <> unpack rajToken
+          setScriptTimeout (Just 720000)
+          test rajToken)
+        closeSession' sess
+        pure r
+      case res of
+        Just x | x == successToken -> pure ()
+        Just x                     -> error x
+        Nothing                    -> error "TIMEOUT")

@@ -171,6 +171,87 @@ body {
 #login-btn:hover { background: #558; }
 #login-btn:disabled { opacity: 0.5; cursor: default; }
 
+/* Settings popup */
+#settings-btn {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 0.2em 0.7em;
+  border: 1px solid #555;
+  border-radius: 0.25em;
+  background: #333;
+  color: #aaa;
+  cursor: pointer;
+  font-size: 0.8em;
+  font-family: inherit;
+}
+#settings-btn:hover { background: #555; }
+
+#settings-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+#settings-box {
+  position: relative;
+  background: #222;
+  border: 1px solid #555;
+  border-radius: 0.5em;
+  padding: 2em;
+  width: min(90vw, 24em);
+  text-align: center;
+}
+
+#settings-close-icon {
+  position: absolute;
+  top: 0.5em;
+  right: 0.5em;
+  width: 1.5em;
+  height: 1.5em;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+#settings-close-icon svg { width: 100%; height: 100%; fill: #aaa; }
+#settings-close-icon:hover svg { fill: #fff; }
+
+#dsl-token-btn, #settings-close-btn, #copy-token-btn {
+  width: 100%;
+  min-height: 2.75em;
+  padding: 0.5em;
+  background: #446;
+  border: 1px solid #668;
+  color: #fff;
+  font-family: inherit;
+  font-size: 1em;
+  cursor: pointer;
+  border-radius: 0.25em;
+  margin-top: 0.5em;
+}
+#dsl-token-btn:hover, #settings-close-btn:hover, #copy-token-btn:hover { background: #558; }
+#dsl-token-btn:disabled { opacity: 0.5; cursor: default; }
+
+#dsl-token-field {
+  margin-top: 0.5em;
+  padding: 0.5em;
+  background: #1a1a1a;
+  border: 1px solid #444;
+  border-radius: 0.25em;
+  text-align: left;
+}
+
+#session-token {
+  display: block;
+  word-break: break-all;
+  font-size: 0.85em;
+  color: #eaeaea;
+}
+
 .no-viewports { padding: 20px; color: #666; text-align: center; }
 
 #logout-btn {

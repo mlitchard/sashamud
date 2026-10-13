@@ -69,6 +69,7 @@ import           Servant
 import           Server.App
   ( AppCtx (acDSLChan, acDbPool, acGameLog, acOutbound, acSessions)
   , AppM (..)
+  , Environment (Development, Production)
   , GameLog (GameLog)
   , OidcConfig (OidcConfig)
   , newAppCtx
@@ -145,6 +146,7 @@ deliverOutbound ctx = forever $ do
 startServer :: WorldBuilderResult -> IO ()
 startServer result = do
   port <- maybe 8081 readPort <$> lookupEnv "SASHA_WEB_PORT"
+  environment <- maybe Production readEnvironment <$> lookupEnv "SASHA_ENVIRONMENT"
   connStr <- fromMaybe "dbname=sashamud" <$> lookupEnv "SASHA_DB_CONNSTR"
   migrationsDir <- fromMaybe "migrations" <$> lookupEnv "SASHA_MIGRATIONS_DIR"
   pool <- newPool (defaultPoolConfig (connectPostgreSQL (Data.ByteString.Char8.pack connStr)) close 60 10)
@@ -168,9 +170,17 @@ startServer result = do
   ctx <- newAppCtx logCfg pool oidcConfig manager (resultCounters result)
   writeLog logCfg (ServerStart port)
   hPutStrLn stderr ("sasha-web server starting on port " <> show port)
+  case environment of
+    Development -> hPutStrLn stderr "caddy is listening on https://localhost:8080"
+    Production  -> pure ()
   race_
     (race_ (gameLoop ctx (resultGameState result)) (deliverOutbound ctx))
     (run port (app ctx))
 
 readPort :: String -> Int
 readPort s = fromMaybe 8081 (readMaybe s)
+
+readEnvironment :: String -> Environment
+readEnvironment s = case s of
+  "development" -> Development
+  _             -> Production
