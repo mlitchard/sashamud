@@ -119,8 +119,9 @@ newtype AppM a = AppM { unAppM :: ReaderT AppCtx Handler a }
     , MonadReader AppCtx
     )
 
-data Environment = Development
-                 | Production
+data Environment
+  = Development
+  | Production
 
 data OidcConfig = OidcConfig
   { ocBaseUrl      :: OidcBaseUrl
