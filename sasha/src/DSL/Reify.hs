@@ -47,21 +47,28 @@ reifyDSL source = do
     dslImports =
       [ ModuleImport "SashaPrelude" NotQualified NoImportList
       , ModuleImport "ConstraintRefinement.Actions" NotQualified
-          (ImportList ["lookAtF", "lookF", "witnessF"])
+          (ImportList ["dropDeniedF", "dropF", "getDeniedF", "getF", "lookAtDeniedF", "lookAtF", "lookDeniedF", "lookF", "witnessF"])
       , ModuleImport "Data.Set" (QualifiedAs Nothing)
           (ImportList ["singleton"])
       , ModuleImport "DSL.Model.EDSL.SashaLambdaDSL" NotQualified
           (ImportList
             [ "SashaLambdaDSL"
+            , "createAVSupportManagement"
+            , "createAVTargetManagement"
             , "createDSAManagement"
+            , "createDVManagement"
+            , "createDVSurfaceManagement"
             , "createISAManagement"
+            , "declareAcquisitionActionGID"
             , "declareDirectionalStimulusGID"
+            , "declareDivestmentActionGID"
             , "declareImplicitStimulusGID"
             , "declareObjectGID"
             , "declareSceneGID"
             , "declareWitnessGID"
             , "description"
             , "finalizeGameState"
+            , "linkEntityActionEffect"
             , "linkWorldOutcomeEffect"
             , "newUser"
             , "objectBehavior"
@@ -78,25 +85,31 @@ reifyDSL source = do
             ])
       , ModuleImport "DSL.Vocabulary" NotQualified
           (ImportList ["andThen"])
+      , ModuleImport "Grammar.Parser.Atomics.Semantics.Verbs.Acquisition" NotQualified
+          (ImportList ["getAV"])
       , ModuleImport "Grammar.Parser.Atomics.Semantics.Verbs.DirectionalStimulus" NotQualified
           (ImportList ["dsaLook"])
+      , ModuleImport "Grammar.Parser.Atomics.Semantics.Verbs.Divestment" NotQualified
+          (ImportList ["dropDV"])
       , ModuleImport "Grammar.Parser.Atomics.Semantics.Verbs.ImplicitStimulus" NotQualified
           (ImportList ["isaLook"])
       , ModuleImport "Grammar.Parser.GCase" NotQualified
-          (ImportList ["VerbKey (DirectionalStimulusKey, ImplicitStimulusKey)"])
+          (ImportList ["VerbKey (AcquisitionKey, DirectionalStimulusKey, DivestmentKey, ImplicitStimulusKey)"])
       , ModuleImport "Model.Core" NotQualified
           (ImportList
-            [ "ActionEffectKey (DirectionalStimulusActionKey, ImplicitStimulusActionKey)"
+            [ "ActionEffectKey (AcquisitionalActionKey, DirectionalStimulusActionKey, DivestmentActionKey, ImplicitStimulusActionKey)"
             , "ActionManagement"
             , "ActionManagementFunctions (ActionManagementFunctions)"
+            , "ActionManagementOperation (AddAcquisitionVerb, AddDivestmentVerb)"
             , "Agent (Agent, _agentActionManagement, _agentDescription, _agentKind, _agentShortName, _agentTitle, _agentWitnessManagement)"
             , "AgentKind (Denizen)"
             , "EntityID (EntityObject)"
+            , "EntityKey (SceneKey')"
             , "GameState"
-            , "NarrationComputation (LookAtNarration, LookNarration)"
+            , "NarrationComputation (LookAtNarration, LookNarration, StaticNarration)"
             , "Object"
             , "Scene"
-            , "SpatialRelationship (SupportedBy, Supports)"
+            , "SpatialRelationship (Inventory, SupportedBy, Supports)"
             , "WorldOutcome (NarrationEffect)"
             , "defaultObject"
             , "defaultScene"

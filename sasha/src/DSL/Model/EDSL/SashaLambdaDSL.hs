@@ -1,14 +1,21 @@
 module DSL.Model.EDSL.SashaLambdaDSL
   ( SashaLambdaDSL (..)
+  , createAVSupportManagement
+  , createAVTargetManagement
   , createDSAManagement
+  , createDVManagement
+  , createDVSurfaceManagement
   , createISAManagement
+  , declareAcquisitionActionGID
   , declareDirectionalStimulusGID
+  , declareDivestmentActionGID
   , declareImplicitStimulusGID
   , declareObjectGID
   , declareSceneGID
   , declareWitnessGID
   , description
   , finalizeGameState
+  , linkEntityActionEffect
   , linkWorldOutcomeEffect
   , newUser
   , objectBehavior
@@ -27,16 +34,22 @@ module DSL.Model.EDSL.SashaLambdaDSL
 import           SashaPrelude hiding (map)
 
 import           Grammar.Parser.Atomics.Verbs
-  ( DirectionalStimulusVerb
+  ( AcquisitionVerb
+  , DirectionalStimulusVerb
+  , DivestmentVerb
   , ImplicitStimulusVerb
   )
 import           Grammar.Parser.GCase (VerbKey)
 import           Model.Core
-  ( ActionEffectKey
+  ( AcquisitionF
+  , ActionEffectKey
   , ActionManagement
+  , ActionManagementOperation
   , Agent
   , DirectionalStimulusF
+  , DivestmentF
   , EntityID
+  , EntityKey
   , GameState
   , ImplicitStimulusF
   , Object
@@ -66,11 +79,18 @@ data SashaLambdaDSL a where Pure :: a -> SashaLambdaDSL a
                             DeclareDirectionalStimulusGID :: DirectionalStimulusF -> SashaLambdaDSL (GID DirectionalStimulusF)
                             CreateISAManagement :: ImplicitStimulusVerb -> GID ImplicitStimulusF -> SashaLambdaDSL ActionManagement
                             CreateDSAManagement :: DirectionalStimulusVerb -> GID DirectionalStimulusF -> SashaLambdaDSL ActionManagement
+                            DeclareAcquisitionActionGID :: AcquisitionF -> SashaLambdaDSL (GID AcquisitionF)
+                            DeclareDivestmentActionGID :: DivestmentF -> SashaLambdaDSL (GID DivestmentF)
+                            CreateAVTargetManagement :: AcquisitionVerb -> GID AcquisitionF -> SashaLambdaDSL ActionManagement
+                            CreateAVSupportManagement :: AcquisitionVerb -> GID AcquisitionF -> SashaLambdaDSL ActionManagement
+                            CreateDVManagement :: DivestmentVerb -> GID DivestmentF -> SashaLambdaDSL ActionManagement
+                            CreateDVSurfaceManagement :: DivestmentVerb -> GID DivestmentF -> SashaLambdaDSL ActionManagement
                             DeclareWitnessGID :: WitnessF -> SashaLambdaDSL (GID WitnessF)
                             SceneBehavior :: Scene -> ActionManagement -> SashaLambdaDSL Scene
                             PlayerBehavior :: (Text -> Agent) -> ActionManagement -> SashaLambdaDSL (Text -> Agent)
                             WitnessBehavior :: (Text -> Agent) -> VerbKey -> GID WitnessF -> SashaLambdaDSL (Text -> Agent)
                             LinkWorldOutcomeEffect :: ActionEffectKey -> WorldOutcome -> SashaLambdaDSL ()
+                            LinkEntityActionEffect :: ActionEffectKey -> EntityKey -> ActionManagementOperation -> SashaLambdaDSL ()
                             NewUser :: GID Scene -> (Text -> Agent) -> SashaLambdaDSL ()
                             FinalizeGameState :: SashaLambdaDSL GameState
 
@@ -129,6 +149,24 @@ createISAManagement = CreateISAManagement
 createDSAManagement :: DirectionalStimulusVerb -> GID DirectionalStimulusF -> SashaLambdaDSL ActionManagement
 createDSAManagement = CreateDSAManagement
 
+declareAcquisitionActionGID :: AcquisitionF -> SashaLambdaDSL (GID AcquisitionF)
+declareAcquisitionActionGID = DeclareAcquisitionActionGID
+
+declareDivestmentActionGID :: DivestmentF -> SashaLambdaDSL (GID DivestmentF)
+declareDivestmentActionGID = DeclareDivestmentActionGID
+
+createAVTargetManagement :: AcquisitionVerb -> GID AcquisitionF -> SashaLambdaDSL ActionManagement
+createAVTargetManagement = CreateAVTargetManagement
+
+createAVSupportManagement :: AcquisitionVerb -> GID AcquisitionF -> SashaLambdaDSL ActionManagement
+createAVSupportManagement = CreateAVSupportManagement
+
+createDVManagement :: DivestmentVerb -> GID DivestmentF -> SashaLambdaDSL ActionManagement
+createDVManagement = CreateDVManagement
+
+createDVSurfaceManagement :: DivestmentVerb -> GID DivestmentF -> SashaLambdaDSL ActionManagement
+createDVSurfaceManagement = CreateDVSurfaceManagement
+
 declareWitnessGID :: WitnessF -> SashaLambdaDSL (GID WitnessF)
 declareWitnessGID = DeclareWitnessGID
 
@@ -143,6 +181,9 @@ witnessBehavior = WitnessBehavior
 
 linkWorldOutcomeEffect :: ActionEffectKey -> WorldOutcome -> SashaLambdaDSL ()
 linkWorldOutcomeEffect = LinkWorldOutcomeEffect
+
+linkEntityActionEffect :: ActionEffectKey -> EntityKey -> ActionManagementOperation -> SashaLambdaDSL ()
+linkEntityActionEffect = LinkEntityActionEffect
 
 newUser :: GID Scene -> (Text -> Agent) -> SashaLambdaDSL ()
 newUser = NewUser
