@@ -160,3 +160,20 @@ metadata:
   package's SashaPrelude export list for every prelude name used, and the
   package's cabal stanza for the extensions in force. A missing name or
   extension is a pragma or an import, decided before he builds.
+- ONLY THE SOURCES HE NAMES (2026-10-12, save-state session, "i never said
+  to look at ix repo", "you can use the current repo sashamud and quux"):
+  when he names the repos for a task, those are the only repos touched,
+  by me or by any agent. CLAUDE.md's list of reference checkouts is the
+  pool he picks from; it is never a licence to sweep them all. Same
+  session: read .claude-memory/next-session-prompt.md unasked ("i did
+  not tell you to read next-session-prompt.md") — the only files read at
+  session start are MEMORY.md and workflow-rules.md.
+- AGENTS DO THE READING (2026-10-12, same session, "use the agents i gave
+  you and stop using fable for everything"): file reading and repo
+  research go to quote-source (reference checkouts and sashamud) and
+  Explore agents on a cheaper model. I read a file myself only when he
+  orders an edit to it, immediately before that edit.
+- NO BABYSITTING (2026-10-12, same session): a directive given once holds
+  for the whole session. Stopping to re-ask, or drifting back to a
+  behaviour he already corrected, costs him a correction he should never
+  have to make twice.
