@@ -275,9 +275,6 @@
               trap ${lib.escapeShellArg ''
                   set +e
                   ${upDown.down}
-                  echo "killing tracked pids..."
-                  kill -9 $(cat .devpids)
-                  pkill sasha-server
               ''} SIGINT
               wait)
             '';
@@ -407,9 +404,7 @@
                         ''}
                       '';
                       down = ''
-                        sleep 1
-                        db-server-stop
-                        pkill caddy
+                        stop-sashamud
                       '';
                     });
                   };
