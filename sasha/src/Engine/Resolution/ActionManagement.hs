@@ -5,6 +5,11 @@ module Engine.Resolution.ActionManagement
   , lookupImplicitStimulus
   , lookupDirectionalStimulus
   , lookupWorldOutcomes
+  , findAVKey
+  , findAVTargetKey
+  , findAVSupportKey
+  , findDVKey
+  , findDVSurfaceKey
   ) where
 
 import           SashaPrelude
@@ -18,23 +23,27 @@ import           Data.Text (intercalate)
 import           Engine.Resolution.Perception (modifyAgentNarration, youSeeM)
 import           Error (throwMaybeM)
 import           Grammar.Parser.Atomics.Verbs
-  ( DirectionalStimulusVerb
+  ( AcquisitionVerb
+  , DirectionalStimulusVerb
+  , DivestmentVerb
   , ImplicitStimulusVerb
   )
 import           Grammar.Parser.GCase (VerbKey)
 import           Lens.Micro.Platform (over, use, view)
 import           Model.Core
-  ( ActionEffectKey
-  , ActionManagement (DSAManagementKey, ISAManagementKey)
+  ( AcquisitionF
+  , ActionEffectKey
+  , ActionManagement (AVSupportManagementKey, AVTargetManagementKey, DSAManagementKey, DVManagementKey, DVSurfaceManagementKey, ISAManagementKey)
   , ActionManagementFunctions (ActionManagementFunctions)
   , Agent
   , DirectionalStimulusF
+  , DivestmentF
   , EntityID (EntityAgent, EntityObject)
   , GameComputation
   , ImplicitStimulusF
   , NarrationComputation (LookAtNarration, LookNarration, StaticNarration)
-  , SpatialRelationship (ContainedIn, Contains, SupportedBy, Supports)
-  , WitnessContext (AgentWitnessContext, DirectedWitnessContext, FailedAgentLookContext, ImplicitWitnessContext)
+  , SpatialRelationship (ContainedIn, Contains, Inventory, SupportedBy, Supports)
+  , WitnessContext (AcquisitionWitnessContext, AgentWitnessContext, DirectedWitnessContext, DivestmentWitnessContext, FailedAgentLookContext, ImplicitWitnessContext)
   , WitnessEffectF
   , WitnessF (WitnessF)
   , WorldOutcome (NarrationEffect)
@@ -106,6 +115,12 @@ processNarrationEffect actorGid (LookAtNarration objGID) = do
           modifyAgentNarration actorGid
             (over actionConsequence (<> [colored White (view shortName obj <> " is inside " <> view shortName container)]))
         ContainedIn (EntityAgent agentGID) -> do
+          aMap <- use (world . agentMap . getAgentMap)
+          agent <- throwMaybeM ("Agent not found: " <> pack (show agentGID))
+                     (lookup agentGID aMap)
+          modifyAgentNarration actorGid
+            (over actionConsequence (<> [colored White (view shortName obj <> " is carried by " <> toPlainText (view agentShortName agent))]))
+        Inventory agentGID -> do
           aMap <- use (world . agentMap . getAgentMap)
           agent <- throwMaybeM ("Agent not found: " <> pack (show agentGID))
                      (lookup agentGID aMap)
@@ -187,6 +202,24 @@ processWitnessEffects witnessGid actorGid FailedAgentLookContext = do
              (lookup actorGid aMap)
   modifyAgentNarration witnessGid
     (over actionConsequence (<> [colored White (toPlainText (view agentShortName actor) <> " looks around for someone not here.")]))
+processWitnessEffects witnessGid actorGid (AcquisitionWitnessContext objGID) = do
+  aMap <- use (world . agentMap . getAgentMap)
+  oMap <- use (world . objectMap . getGIDToDataMap)
+  actor <- throwMaybeM ("Actor not found: " <> pack (show actorGid))
+             (lookup actorGid aMap)
+  obj <- throwMaybeM ("Object not found: " <> pack (show objGID))
+           (lookup objGID oMap)
+  modifyAgentNarration witnessGid
+    (over actionConsequence (<> [colored White (toPlainText (view agentShortName actor) <> " picks up the " <> view shortName obj <> ".")]))
+processWitnessEffects witnessGid actorGid (DivestmentWitnessContext objGID) = do
+  aMap <- use (world . agentMap . getAgentMap)
+  oMap <- use (world . objectMap . getGIDToDataMap)
+  actor <- throwMaybeM ("Actor not found: " <> pack (show actorGid))
+             (lookup actorGid aMap)
+  obj <- throwMaybeM ("Object not found: " <> pack (show objGID))
+           (lookup objGID oMap)
+  modifyAgentNarration witnessGid
+    (over actionConsequence (<> [colored White (toPlainText (view agentShortName actor) <> " drops the " <> view shortName obj <> ".")]))
 
 -- | Lookup functions
 lookupImplicitStimulus :: ImplicitStimulusVerb
@@ -200,3 +233,33 @@ lookupDirectionalStimulus :: DirectionalStimulusVerb
                           -> Maybe (GID DirectionalStimulusF)
 lookupDirectionalStimulus verb (ActionManagementFunctions actions) =
   listToMaybe [gid | DSAManagementKey v gid <- toList actions, v == verb]
+
+findAVKey :: AcquisitionVerb
+          -> ActionManagementFunctions
+          -> Maybe (GID AcquisitionF)
+findAVKey verb (ActionManagementFunctions actionSet) =
+  listToMaybe [gid | AVTargetManagementKey v gid <- toList actionSet, v == verb]
+
+findAVTargetKey :: AcquisitionVerb
+                -> ActionManagementFunctions
+                -> Maybe (GID AcquisitionF)
+findAVTargetKey verb (ActionManagementFunctions actionSet) =
+  listToMaybe [gid | AVTargetManagementKey v gid <- toList actionSet, v == verb]
+
+findAVSupportKey :: AcquisitionVerb
+                 -> ActionManagementFunctions
+                 -> Maybe (GID AcquisitionF)
+findAVSupportKey verb (ActionManagementFunctions actionSet) =
+  listToMaybe [gid | AVSupportManagementKey v gid <- toList actionSet, v == verb]
+
+findDVKey :: DivestmentVerb
+          -> ActionManagementFunctions
+          -> Maybe (GID DivestmentF)
+findDVKey verb (ActionManagementFunctions actionSet) =
+  listToMaybe [gid | DVManagementKey v gid <- toList actionSet, v == verb]
+
+findDVSurfaceKey :: DivestmentVerb
+                 -> ActionManagementFunctions
+                 -> Maybe (GID DivestmentF)
+findDVSurfaceKey verb (ActionManagementFunctions actionSet) =
+  listToMaybe [gid | DVSurfaceManagementKey v gid <- toList actionSet, v == verb]

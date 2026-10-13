@@ -2,7 +2,7 @@
 {-# HLINT ignore "Use newtype instead of data" #-}
 
 module Grammar.Parser.GCase
-  ( VerbKey (DirectionalStimulusKey, ImplicitStimulusKey)
+  ( VerbKey (DirectionalStimulusKey, ImplicitStimulusKey, AcquisitionKey, DivestmentKey)
   ) where
 
 import           Control.DeepSeq (NFData)
@@ -12,12 +12,16 @@ import           Data.Ord (Ord)
 import           GHC.Generics (Generic)
 import           GHC.Show (Show)
 import           Grammar.Parser.Atomics.Verbs
-  ( DirectionalStimulusVerb
+  ( AcquisitionVerb
+  , DirectionalStimulusVerb
+  , DivestmentVerb
   , ImplicitStimulusVerb
   )
 
 type VerbKey :: Type
 data VerbKey = DirectionalStimulusKey DirectionalStimulusVerb
              | ImplicitStimulusKey ImplicitStimulusVerb
+             | AcquisitionKey AcquisitionVerb
+             | DivestmentKey DivestmentVerb
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
