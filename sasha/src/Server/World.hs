@@ -10,7 +10,7 @@ module Server.World
 import           SashaPrelude
 
 import           API.Types (AuthenticatedUser, SessionId (SessionId))
-import           Control.Concurrent (modifyMVar)
+import           Control.Concurrent (modifyMVar, threadDelay)
 import           Control.Monad (foldM)
 import           Control.Monad.Except (ExceptT, throwError)
 import           Control.Monad.Reader (ask)
@@ -28,6 +28,7 @@ import           Data.String (fromString)
 import           Data.Text.Encoding (decodeUtf8')
 import           Data.Text.Encoding.Error (UnicodeException)
 import qualified Data.Text.IO (writeFile)
+import           Data.Time.Clock (secondsToNominalDiffTime)
 import           Database.PostgreSQL.Simple (Only (Only), query)
 import           Database.PostgreSQL.Simple.SqlQQ (sql)
 import           DSL.Builder
@@ -47,7 +48,7 @@ import           Model.Jwt
   ( Credentials (Credentials)
   , Jwt (unJwt)
   , hashToken
-  , makeJwt
+  , makeJwtForTesting
   , tryAddHashAndJwt
   )
 import           Model.Mid (Mid, unMid)
@@ -102,19 +103,25 @@ worldLoadFailureText (WorldBuildFailed err) = "Failed to build game state: " <> 
 mintBootstrapToken :: PlayerNameVAL -> FilePath -> AppM ()
 mintBootstrapToken playerName@(PlayerNameVAL name) path = do
   ctx <- ask
-  rows :: [(Mid AuthenticatedUser, AuthentikUserId)] <-
-    liftIO . withResource (acDbPool ctx) $ \conn ->
-      query conn bootstrapQuery (Only name)
-  (userId, authentikUserId) <- case rows of
-    [account] -> pure account
-    _         -> throwError err500 { errBody = fromString ("bootstrap account missing: " <> unpack name) }
+  let awaitAccount announced = do
+        rows :: [(Mid AuthenticatedUser, AuthentikUserId)] <-
+          liftIO . withResource (acDbPool ctx) $ \conn ->
+            query conn bootstrapQuery (Only name)
+        case rows of
+          []        -> do
+            when (not announced) (liftIO (hPutStrLn stderr ("bootstrap account missing: " <> unpack name <> ", waiting")))
+            liftIO (threadDelay 1000000)
+            awaitAccount True
+          [account] -> pure account
+          _         -> throwError err500 { errBody = fromString ("bootstrap account ambiguous: " <> unpack name) }
+  (userId, authentikUserId) <- awaitAccount False
   tokenBytes :: ByteString <- liftIO (getRandomBytes 32)
   let tokenRaw = convertToBase Base64URLUnpadded tokenBytes :: ByteString
   access <- case decodeUtf8' tokenRaw of
     Left _  -> throwError err500
     Right t -> pure (AccessToken t)
   hash <- liftIO (hashToken access)
-  minted <- liftIO (makeJwt (Credentials authentikUserId) hash)
+  minted <- liftIO (makeJwtForTesting (secondsToNominalDiffTime 300) (Credentials authentikUserId) hash)
   jwt <- case minted of
     Left err -> throwError err500 { errBody = fromString ("token mint failed: " <> show err) }
     Right j  -> pure j

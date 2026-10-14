@@ -158,6 +158,8 @@
           pgDir = ".database";
           migrationsDir = ./migrations;
           worldDir = ./sashamud-world/src;
+          bootstrapTokenFile = "bootstrap-token";
+          bootstrapWizard = "wizard";
           oidcBaseUrl = "http://127.0.0.1:9000";
           oidcClientId = "sashamud";
           oidcClientSecret = "sashamud-dev";
@@ -206,19 +208,6 @@
             export HINT_GHC_LIB_DIR=${hintAttrs.HINT_GHC_LIB_DIR}
             export HINT_GHC_PACKAGE_PATH=${hintAttrs.HINT_GHC_PACKAGE_PATH}
             ${lib.getExe inputs.self.packages.${system}.sashamud-integration-tests}
-          '';
-          fakeLogin = pkgs.writeShellScript "fake-login" ''
-            set -euo pipefail
-            URL="''${1:-${dslServerUrl}}"
-            USER="''${2:-wizard}"
-            CURL="${pkgs.curl}/bin/curl"
-            location() {
-              $CURL -sS -o /dev/null -D - "$1" | tr -d '\r' | ${pkgs.gawk}/bin/awk 'tolower($1) == "location:" { print $2 }'
-            }
-            AUTHORIZE=$(location "$URL/api/auth/start?name=$USER&mode=login")
-            CALLBACK=$(location "$AUTHORIZE&fake_user=$USER")
-            FINAL=$(location "$CALLBACK")
-            echo "$FINAL" | ${pkgs.gnused}/bin/sed 's|^/#token=||'
           '';
           accountSigningKey = "\${HOME}/.ssh/sasha_sk";
           accountSigners = pkgs.writeText "sashamud-allowed-signers" ''
@@ -287,11 +276,11 @@
               (set -e
               > .devpids
               here=$(pwd)
-              ${upDown.up}
               trap ${lib.escapeShellArg ''
                   set +e
                   ${upDown.down}
               ''} SIGINT
+              ${upDown.up}
               wait)
             '';
 
@@ -409,14 +398,27 @@
                       up = ''
                         lpg on ${pgDir} up
                         export SASHA_DB_CONNSTR=$(lpg on ${pgDir} get-connstr)
+                        rm -f ${bootstrapTokenFile}
                         nix run .#sasha-client-generator --builders ''' -- web/packages/type-gen-output/src/client.ts
                         (cd web && npm install && npm run build)
                         ${processWrap "caddy-reverse-proxy" "caddy.log" ''
                           caddy run --config Caddyfile &> caddy.log
                         ''}
                         ${processWrap "sasha-server" "server.log" ''
-                          nix run .#sasha-server --builders ''' &> server.log
+                          SASHA_BOOTSTRAP_TOKEN_FILE=${bootstrapTokenFile} nix run .#sasha-server --builders ''' &> server.log
                         ''}
+                        until ${pkgs.postgresql}/bin/psql "$SASHA_DB_CONNSTR" -c 'select 1 from credentials' > /dev/null 2>&1; do sleep 1; done
+                        ${pkgs.postgresql}/bin/psql "$SASHA_DB_CONNSTR" -v ON_ERROR_STOP=1 \
+                          -v name="$(${pkgs.jq}/bin/jq -r .player_name ${wizardAccount})" \
+                          -v authentik_user_id="$(${pkgs.jq}/bin/jq -r .authentik_user_id ${wizardAccount})" \
+                          -v role="$(${pkgs.jq}/bin/jq -r .role ${wizardAccount})" \
+                          -f ${createAccountSql}
+                        until [[ -e ${bootstrapTokenFile} ]]; do sleep 1; done
+                        until ${pkgs.curl}/bin/curl -sS -o /dev/null ${dslServerUrl}; do sleep 1; done
+                        export SASHA_TOKEN=$(cat ${bootstrapTokenFile})
+                        for f in $(find "$SASHA_WORLD_DIR" -name '*.dsl' | sort); do ${deployDsl} "$f"; done
+                        ${pkgs.curl}/bin/curl --fail-with-body -sS -X DELETE ${dslServerUrl}/api/game/logout -H "BEARER: $SASHA_TOKEN"
+                        rm -f ${bootstrapTokenFile}
                       '';
                       down = ''
                         stop-sashamud
@@ -426,12 +428,13 @@
                   stop-sashamud = {
                     description = "stop the server, caddy, and the database";
                     script = ''
-                      pkill sasha-server || true
-                      pkill caddy || true
                       if [[ -e .devpids ]]; then
                         kill -9 $(cat .devpids) 2>/dev/null || true
                         rm -f .devpids
                       fi
+                      pkill sasha-server || true
+                      pkill caddy || true
+                      rm -f ${bootstrapTokenFile}
                       db-server-stop
                     '';
                   };
@@ -509,6 +512,7 @@
                   --set-default SASHA_DB_CONNSTR ${dbConnStr} \
                   --set-default SASHA_MIGRATIONS_DIR ${migrationsDir} \
                   --set-default SASHA_WORLD_DIR ${worldDir} \
+                  --set-default SASHA_BOOTSTRAP_WIZARD ${bootstrapWizard} \
                   --set-default SASHA_OIDC_BASE_URL ${oidcBaseUrl} \
                   --set-default SASHA_OIDC_CLIENT_ID ${oidcClientId} \
                   --set-default SASHA_OIDC_CLIENT_SECRET ${oidcClientSecret} \
@@ -739,17 +743,12 @@
                   wantedBy = [ "multi-user.target" ];
                   after = [ "network.target" "postgresql.service" ];
                   requires = [ "postgresql.service" ];
-                  environment.SASHA_WEB_PORT = "8081";
+                  environment = {
+                    SASHA_WEB_PORT = "8081";
+                    SASHA_BOOTSTRAP_TOKEN_FILE = "/root/bootstrap-token";
+                  };
                   serviceConfig = {
                     ExecStart = lib.getExe inputs.self.packages.${system}.sasha-server;
-                    Restart = "on-failure";
-                  };
-                };
-                systemd.services.sasha-fake-oidc = {
-                  wantedBy = [ "multi-user.target" ];
-                  after = [ "network.target" ];
-                  serviceConfig = {
-                    ExecStart = lib.getExe inputs.self.packages.${system}.sasha-fake-oidc;
                     Restart = "on-failure";
                   };
                 };
@@ -759,15 +758,18 @@
                 };
               };
               testScript = ''
-                machine.wait_for_unit("sashamud.service")
-                machine.wait_for_open_port(8081)
-                machine.wait_for_unit("sasha-fake-oidc.service")
-                machine.wait_for_open_port(9000)
+                machine.wait_until_succeeds("${pkgs.postgresql}/bin/psql ${dbConnStr} -c 'select 1 from credentials'")
                 machine.succeed('${pkgs.openssh}/bin/ssh-keygen -t ed25519 -N "" -f /root/account-key')
                 machine.succeed('echo "sashamud-admin $(cut -d" " -f1,2 /root/account-key.pub)" > /root/account-signers')
                 machine.succeed("SASHA_ACCOUNT_KEY=/root/account-key SASHA_ACCOUNT_SIGNERS=/root/account-signers ${createAccount} ${wizardAccount}")
-                token = machine.succeed("${fakeLogin} ${dslServerUrl} wizard").strip()
+                machine.wait_for_unit("sashamud.service")
+                machine.wait_for_file("/root/bootstrap-token")
+                machine.wait_for_open_port(8081)
+                token = machine.succeed("cat /root/bootstrap-token").strip()
+                print(machine.succeed(f"for f in $(find ${worldDir} -name '*.dsl' | sort); do SASHA_TOKEN={token} ${deployDsl} $f; done"))
                 print(machine.succeed(f"SASHA_TOKEN={token} ${deployDsl} ${./sashamud-server/test-e2e/study.dsl}"))
+                machine.succeed(f"${pkgs.curl}/bin/curl --fail-with-body -sS -X DELETE ${dslServerUrl}/api/game/logout -H 'BEARER: {token}'")
+                machine.succeed("rm -f /root/bootstrap-token")
               '';
             };
             run-end-to-end =
@@ -832,7 +834,10 @@
                     wantedBy = [ "multi-user.target" ];
                     after = [ "network.target" "caddy.service" "postgresql.service" ];
                     requires = [ "postgresql.service" ];
-                    environment.SASHA_WEB_PORT = "8081";
+                    environment = {
+                      SASHA_WEB_PORT = "8081";
+                      SASHA_BOOTSTRAP_TOKEN_FILE = "/root/bootstrap-token";
+                    };
                     serviceConfig = {
                       ExecStart = lib.getExe inputs.self.packages.${system}.sasha-server;
                       Restart = "on-failure";
@@ -858,6 +863,10 @@
                   };
                 };
                 testScript = ''
+                  machine.wait_until_succeeds("${pkgs.postgresql}/bin/psql ${dbConnStr} -c 'select 1 from credentials'")
+                  machine.succeed('${pkgs.openssh}/bin/ssh-keygen -t ed25519 -N "" -f /root/account-key')
+                  machine.succeed('echo "sashamud-admin $(cut -d" " -f1,2 /root/account-key.pub)" > /root/account-signers')
+                  machine.succeed("SASHA_ACCOUNT_KEY=/root/account-key SASHA_ACCOUNT_SIGNERS=/root/account-signers ${createAccount} ${wizardAccount}")
                   machine.wait_for_unit("caddy.service")
                   machine.wait_for_unit("sashamud.service")
                   machine.wait_for_open_port(8081)
