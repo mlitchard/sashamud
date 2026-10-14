@@ -34,6 +34,7 @@ import           API.Types
 import           Control.Concurrent (readMVar, threadDelay)
 import           Control.Concurrent.Async (async, cancel, race_)
 import           Control.Exception (SomeException, finally, try)
+import           Control.Monad.Except (runExceptT)
 import qualified Data.ByteString.Char8 (pack)
 import           Data.ByteString.Lazy (null)
 import           Data.List (lookup)
@@ -56,7 +57,9 @@ import           Database.PostgreSQL.Simple.Migration
   , runMigrations
   )
 import           Database.PostgreSQL.Simple.SqlQQ (sql)
-import           DSL.Builder (WorldBuilderResult (resultCounters))
+import           DSL.Builder
+  ( WorldBuilderResult (resultCounters, resultGameState)
+  )
 import           Engine.Simulation.SignalNetwork (gameLoop)
 import           FakeProvider
   ( fakeApp
@@ -67,6 +70,7 @@ import           FakeProvider
   , seedAccount
   )
 import           Lens.Micro.Platform (view)
+import           Lobby (buildResult, worldLoadFailureText)
 import           Model.Account
   ( AccessToken (AccessToken)
   , ClientId (ClientId)
@@ -104,7 +108,6 @@ import           Network.WebSockets
   , runClientWith
   , sendTextData
   )
-import           SashaMudWorld (buildResult, gameState)
 import           Servant
   ( AuthProtect
   , NoContent (NoContent)
@@ -203,17 +206,21 @@ withTestServer action = do
   migrated `shouldBe` MigrationSuccess
   manager <- newManager defaultManagerSettings
   fakeState <- newFakeState
-  let oidcConfig = OidcConfig
-        (OidcBaseUrl ("http://127.0.0.1:" <> pack (show fakePort)))
-        (ClientId "sashamud")
-        (ClientSecret "sashamud-dev")
-        (RedirectUri ("http://127.0.0.1:" <> pack (show testPort) <> "/api/auth/callback"))
-  ctx <- newAppCtx logCfg pool oidcConfig manager (resultCounters buildResult)
-  serverThread <- async $ race_
-    (race_ (gameLoop ctx gameState) (deliverOutbound ctx))
-    (race_ (run testPort (app ctx)) (run fakePort (fakeApp fakeState)))
-  threadDelay 500000
-  action (testPort, ctx) `finally` cancel serverThread
+  loaded <- runExceptT buildResult
+  case loaded of
+    Left err -> expectationFailure (worldLoadFailureText err)
+    Right result -> do
+      let oidcConfig = OidcConfig
+            (OidcBaseUrl ("http://127.0.0.1:" <> pack (show fakePort)))
+            (ClientId "sashamud")
+            (ClientSecret "sashamud-dev")
+            (RedirectUri ("http://127.0.0.1:" <> pack (show testPort) <> "/api/auth/callback"))
+      ctx <- newAppCtx logCfg pool oidcConfig manager (resultCounters result)
+      serverThread <- async $ race_
+        (race_ (gameLoop ctx (resultGameState result)) (deliverOutbound ctx))
+        (race_ (run testPort (app ctx)) (run fakePort (fakeApp fakeState)))
+      threadDelay 500000
+      action (testPort, ctx) `finally` cancel serverThread
 
 loginAs :: AppCtx -> RoleName -> Text -> IO SessionId
 loginAs ctx role name = do

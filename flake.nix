@@ -832,7 +832,7 @@
                       Restart = "on-failure";
                     };
                   };
-                  environment.variables = {
+                  environment.variables = hintAttrs // {
                     SASHA_DB_CONNSTR = dbConnStr;
                     SASHA_MIGRATIONS_DIR = "${migrationsDir}";
                     SASHA_WEB_DIST = "${inputs.self.packages.${system}.web}";

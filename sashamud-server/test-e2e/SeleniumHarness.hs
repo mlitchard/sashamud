@@ -15,6 +15,7 @@ import           SashaPrelude
 import           API.TSClient (client)
 import           API.Types (SessionId (SessionId))
 import           Control.Concurrent.Async (mapConcurrently_, race_)
+import           Control.Monad.Except (runExceptT)
 import           Control.Monad.Logger (runStdoutLoggingT)
 import           Data.Aeson (Object, object, (.=))
 import           Data.Aeson.Key (fromString)
@@ -33,7 +34,9 @@ import           Database.PostgreSQL.Simple.Migration
   , defaultOptions
   , runMigrations
   )
-import           DSL.Builder (WorldBuilderResult (resultCounters))
+import           DSL.Builder
+  ( WorldBuilderResult (resultCounters, resultGameState)
+  )
 import           Engine.Simulation.SignalNetwork (gameLoop)
 import           FakeProvider
   ( fakeApp
@@ -42,6 +45,7 @@ import           FakeProvider
   , seedAccount
   )
 import           GHC.IO (FilePath)
+import           Lobby (buildResult, worldLoadFailureText)
 import           Model.Account
   ( ClientId (ClientId)
   , ClientSecret (ClientSecret)
@@ -56,7 +60,6 @@ import           Network.HTTP.Client
   , responseTimeoutMicro
   )
 import           Network.Wai.Handler.Warp (testWithApplication)
-import           SashaMudWorld (buildResult, gameState)
 import           Server.App
   ( AppCtx (acDbPool)
   , GameLog (GameLog)
@@ -132,6 +135,12 @@ withServer action = do
       hPutStrLn stderr ("migration failed: " <> err)
       exitFailure
     MigrationSuccess -> pure ()
+  loaded <- runExceptT buildResult
+  result <- case loaded of
+    Left err -> do
+      hPutStrLn stderr (worldLoadFailureText err)
+      exitFailure
+    Right loadedResult -> pure loadedResult
   manager <- newManager defaultManagerSettings
   fakeState <- newFakeState
   testWithApplication (pure (fakeApp fakeState)) $ \fakePort -> do
@@ -140,9 +149,9 @@ withServer action = do
           (ClientId "sashamud")
           (ClientSecret "sashamud-dev")
           (RedirectUri "http://127.0.0.1/api/auth/callback")
-    ctx <- newAppCtx logCfg pool oidcConfig manager (resultCounters buildResult)
+    ctx <- newAppCtx logCfg pool oidcConfig manager (resultCounters result)
     race_
-      (race_ (gameLoop ctx gameState) (deliverOutbound ctx))
+      (race_ (gameLoop ctx (resultGameState result)) (deliverOutbound ctx))
       (action ctx)
 
 indexhtml :: FilePath -> String
