@@ -198,6 +198,17 @@ metadata:
   already read the directory why do you need to read it twice"): a
   tree listing's indentation is the fact. Misreading it and re-reading
   the directory costs a second agent and a wrong proposal.
+- FABLE PLANS, OPUS EXECUTES (2026-10-14, lobby-dsl session, "do you
+  understand your role, stop abusing fable and stick to your role",
+  "have opus run this, you are the planner"): Fable writes specs and
+  plans, and edits cabal, memory and docs. Shell commands, process
+  diagnostics and kills, nix edits, Haskell and .dsl all go to Opus
+  from a spec. Haiku quotes. Fable runs no ps, kill, or file-writing
+  command for code.
+- OPUS MAKES FLAKE EDITS (2026-10-14, lobby-dsl session, "opus makes flake
+  edits", "use opus for this dont abus fable"): flake.nix and other nix
+  edits go to the Opus writer from a spec, like Haskell and .dsl files.
+  Fable writes specs, cabal, memory and docs.
 - DSL FILES ARE OPUS WORK (2026-10-14, same session, "fable does not need
   to write dsl files. let opus do that"): .dsl files are DSL text and go
   to the Opus writer with the Haskell. Fable edits cabal, nix, memory,
