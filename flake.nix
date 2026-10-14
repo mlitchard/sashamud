@@ -768,6 +768,7 @@
                 token = machine.succeed("cat /root/bootstrap-token").strip()
                 print(machine.succeed(f"for f in $(find ${worldDir} -name '*.dsl' | sort); do SASHA_TOKEN={token} ${deployDsl} $f; done"))
                 print(machine.succeed(f"SASHA_TOKEN={token} ${deployDsl} ${./sashamud-server/test-e2e/study.dsl}"))
+                print(machine.succeed(f"SASHA_TOKEN={token} ${deployDsl} ${./sashamud-server/test-e2e/amend-lobby.dsl}"))
                 machine.succeed(f"${pkgs.curl}/bin/curl --fail-with-body -sS -X DELETE ${dslServerUrl}/api/game/logout -H 'BEARER: {token}'")
                 machine.succeed("rm -f /root/bootstrap-token")
               '';

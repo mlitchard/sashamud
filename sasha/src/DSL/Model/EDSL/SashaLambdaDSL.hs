@@ -17,6 +17,9 @@ module DSL.Model.EDSL.SashaLambdaDSL
   , finalizeGameState
   , linkEntityActionEffect
   , linkWorldOutcomeEffect
+  , modifyNewUserAgent
+  , modifyObject
+  , modifyScene
   , newUser
   , objectBehavior
   , playerBehavior
@@ -94,6 +97,9 @@ data SashaLambdaDSL a where Pure :: a -> SashaLambdaDSL a
                             LinkWorldOutcomeEffect :: ActionEffectKey -> WorldOutcome -> SashaLambdaDSL ()
                             LinkEntityActionEffect :: ActionEffectKey -> EntityKey -> ActionManagementOperation -> SashaLambdaDSL ()
                             NewUser :: GID Scene -> (Text -> Agent) -> SashaLambdaDSL ()
+                            ModifyScene :: SceneLabel -> (Scene -> SashaLambdaDSL Scene) -> SashaLambdaDSL ()
+                            ModifyObject :: ObjectLabel -> (Object -> SashaLambdaDSL Object) -> SashaLambdaDSL ()
+                            ModifyNewUserAgent :: ((Text -> Agent) -> SashaLambdaDSL (Text -> Agent)) -> SashaLambdaDSL ()
                             FinalizeGameState :: SashaLambdaDSL GameState
 
 instance Functor SashaLambdaDSL where
@@ -189,6 +195,15 @@ linkEntityActionEffect = LinkEntityActionEffect
 
 newUser :: GID Scene -> (Text -> Agent) -> SashaLambdaDSL ()
 newUser = NewUser
+
+modifyScene :: SceneLabel -> (Scene -> SashaLambdaDSL Scene) -> SashaLambdaDSL ()
+modifyScene = ModifyScene
+
+modifyObject :: ObjectLabel -> (Object -> SashaLambdaDSL Object) -> SashaLambdaDSL ()
+modifyObject = ModifyObject
+
+modifyNewUserAgent :: ((Text -> Agent) -> SashaLambdaDSL (Text -> Agent)) -> SashaLambdaDSL ()
+modifyNewUserAgent = ModifyNewUserAgent
 
 finalizeGameState :: SashaLambdaDSL GameState
 finalizeGameState = FinalizeGameState

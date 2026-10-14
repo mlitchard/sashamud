@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds   #-}
+{-# LANGUAGE LambdaCase  #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
@@ -637,6 +638,26 @@ spec = describe "Integration" . around withTestServer $ do
         Nothing -> expectationFailure "look did not list the delivered cup"
         Just _  -> pure ()
 
+  it "an amended scene keeps its players and shows the new description" $ \(_port, ctx) -> do
+    env <- testClientEnv
+    standingSid <- loginAs ctx Wizard "Standing"
+    connectWS standingSid $ \conn -> do
+      joined <- receiveUntil conn 10000000 (\case
+        GameNarration _ -> True
+        _               -> False)
+      case joined of
+        Nothing -> expectationFailure "no join narration"
+        Just _  -> do
+          wizardSid <- loginAs ctx Wizard "Amender"
+          posted <- runClientM (dslClient (makeAuthRequest wizardSid) (DSLSource amendSource)) env
+          posted `shouldBe` Right NoContent
+          threadDelay 6000000
+          sendTextData conn (GameCommand "look")
+          narr <- receiveUntil conn 10000000 (seesObjects "A spacious lobby with a freshly polished floor.")
+          case narr of
+            Nothing -> expectationFailure "look did not show the amended lobby"
+            Just _  -> pure ()
+
 studySource :: Text
 studySource = unlines
   [ "do"
@@ -650,5 +671,13 @@ studySource = unlines
   , "  registerSpatial (EntityObject cupGID)   (SupportedBy (EntityObject tableGID))"
   , "  registerSpatial (EntityObject tableGID) (Supports (Data.Set.singleton (EntityObject cupGID)))"
   , "  registerScene studyGID (defaultScene & title \"the study\")"
+  , "  finalizeGameState"
+  ]
+
+amendSource :: Text
+amendSource = unlines
+  [ "do"
+  , "  modifyScene (SceneLabel \"lobby\") (sceneDescriptionRich (colored White \"A spacious lobby with a freshly polished floor.\"))"
+  , "  modifyObject (ObjectLabel \"ball\") (description (colored White \"A small blue ball.\"))"
   , "  finalizeGameState"
   ]
