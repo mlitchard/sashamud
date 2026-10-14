@@ -13,9 +13,11 @@ import           Language.Haskell.Interpreter
   , ModuleQualification (NotQualified, QualifiedAs)
   , OptionVal ((:=))
   , as
+  , getLoadedModules
   , installedModulesInScope
   , interpret
   , languageExtensions
+  , loadModules
   , reset
   , set
   , setImportsF
@@ -24,6 +26,7 @@ import           Language.Haskell.Interpreter.Unsafe
   ( unsafeRunInterpreterWithArgsLibdir
   )
 import           Model.Core (GameState)
+import           System.Directory (doesDirectoryExist, listDirectory)
 import           System.Environment (lookupEnv)
 
 reifyDSL :: String -> IO (Either InterpreterError (SashaLambdaDSL GameState))
@@ -37,8 +40,16 @@ reifyDSL source = do
         libDir
         do
           reset
+          worldDir <- liftIO (fromMaybe "sashamud-world/src" <$> lookupEnv "SASHA_WORLD_DIR")
+          let modulesDir = worldDir <> "/modules"
+          present <- liftIO (doesDirectoryExist modulesDir)
+          moduleFiles <- if present
+            then liftIO (fmap (fmap (\f -> modulesDir <> "/" <> f)) (listDirectory modulesDir))
+            else pure []
+          loadModules moduleFiles
+          loaded <- getLoadedModules
           set [installedModulesInScope := False, languageExtensions := [OverloadedStrings]]
-          setImportsF dslImports
+          setImportsF (dslImports <> fmap (\m -> ModuleImport m NotQualified NoImportList) loaded)
           interpret source (as :: SashaLambdaDSL GameState)
     (Nothing, _) -> pure (Left (UnknownError "HINT_GHC_LIB_DIR is not set"))
     (_, Nothing) -> pure (Left (UnknownError "HINT_GHC_PACKAGE_PATH is not set"))

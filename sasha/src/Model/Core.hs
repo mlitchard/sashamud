@@ -72,6 +72,7 @@ module Model.Core
   , defaultObject
   , defaultScene
   , defaultWorld
+  , defaultGameState
     -- * Lenses
   , agentShortName
   , agentDescription
@@ -508,6 +509,22 @@ defaultWorld = World
   , _spatialRelationshipMap = SpatialRelationshipMap mempty
   , _declaredSceneGIDs      = mempty
   , _declaredObjectGIDs     = mempty
+  }
+
+defaultGameState :: GameState
+defaultGameState = GameState
+  { _world            = defaultWorld
+  , _narrationMap     = NarrationMap mempty
+  , _evaluation       = mempty
+  , _agentLocationMap = mempty
+  , _actionMaps      = emptyActionMaps
+  , _possibilityGraph = PossibilityGraph
+      { _entityActionEffects = mempty
+      , _worldOutcomeEffects = mempty
+      , _witnessMap          = mempty
+      , _newUserStartScene   = Nothing
+      , _newUserMkAgent      = Nothing
+      }
   }
 
 -- Template Haskell (single stage — all types visible)
