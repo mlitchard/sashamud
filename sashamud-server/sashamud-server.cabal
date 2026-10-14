@@ -27,10 +27,8 @@ executable sasha-server
   hs-source-dirs: app
   ghc-options:    -threaded -rtsopts
   build-depends:
-    , base            >=4.7 && <5
-    , mtl
+    , base   >=4.7 && <5
     , sasha
-    , sashamud-world
 
 executable sasha-fake-oidc
   import:         shared
@@ -94,7 +92,6 @@ executable sasha-e2e-tests
     , random
     , resource-pool
     , sasha
-    , sashamud-world
     , servant
     , servant-server
     , string-interpolate
@@ -131,7 +128,6 @@ executable sashamud-integration-tests
     , postgresql-simple
     , resource-pool
     , sasha
-    , sashamud-world
     , servant
     , servant-client
     , servant-client-core

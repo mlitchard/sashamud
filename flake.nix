@@ -157,6 +157,7 @@
           localPostgres = import inputs.local-postgres { inherit pkgs; };
           pgDir = ".database";
           migrationsDir = ./migrations;
+          worldDir = ./sashamud-world/src;
           oidcBaseUrl = "http://127.0.0.1:9000";
           oidcClientId = "sashamud";
           oidcClientSecret = "sashamud-dev";
@@ -187,6 +188,7 @@
             lpg on ${pgDir} up
             export SASHA_DB_CONNSTR=$(lpg on ${pgDir} get-connstr)
             export SASHA_MIGRATIONS_DIR=${migrationsDir}
+            export SASHA_WORLD_DIR=${worldDir}
             export HINT_GHC_LIB_DIR=${hintAttrs.HINT_GHC_LIB_DIR}
             export HINT_GHC_PACKAGE_PATH=${hintAttrs.HINT_GHC_PACKAGE_PATH}
             ${lib.getExe inputs.self.packages.${system}.sasha-tests}
@@ -200,6 +202,7 @@
             lpg on ${pgDir} up
             export SASHA_DB_CONNSTR=$(lpg on ${pgDir} get-connstr)
             export SASHA_MIGRATIONS_DIR=${migrationsDir}
+            export SASHA_WORLD_DIR=${worldDir}
             export HINT_GHC_LIB_DIR=${hintAttrs.HINT_GHC_LIB_DIR}
             export HINT_GHC_PACKAGE_PATH=${hintAttrs.HINT_GHC_PACKAGE_PATH}
             ${lib.getExe inputs.self.packages.${system}.sashamud-integration-tests}
@@ -466,6 +469,7 @@
                 ];
                 shellHook = ''
                   export SASHA_MIGRATIONS_DIR=${migrationsDir}
+                  export SASHA_WORLD_DIR=${worldDir}
                   ${shelpersConfig.functions}
                   shelp
                 '';
@@ -504,6 +508,7 @@
                   --set-default HINT_GHC_PACKAGE_PATH ${hintAttrs.HINT_GHC_PACKAGE_PATH} \
                   --set-default SASHA_DB_CONNSTR ${dbConnStr} \
                   --set-default SASHA_MIGRATIONS_DIR ${migrationsDir} \
+                  --set-default SASHA_WORLD_DIR ${worldDir} \
                   --set-default SASHA_OIDC_BASE_URL ${oidcBaseUrl} \
                   --set-default SASHA_OIDC_CLIENT_ID ${oidcClientId} \
                   --set-default SASHA_OIDC_CLIENT_SECRET ${oidcClientSecret} \
@@ -709,6 +714,7 @@
                 environment.variables = hintAttrs // {
                   SASHA_DB_CONNSTR = dbConnStr;
                   SASHA_MIGRATIONS_DIR = "${migrationsDir}";
+                  SASHA_WORLD_DIR = "${worldDir}";
                 };
                 virtualisation = {
                   memorySize = 32768;
@@ -835,6 +841,7 @@
                   environment.variables = hintAttrs // {
                     SASHA_DB_CONNSTR = dbConnStr;
                     SASHA_MIGRATIONS_DIR = "${migrationsDir}";
+                    SASHA_WORLD_DIR = "${worldDir}";
                     SASHA_WEB_DIST = "${inputs.self.packages.${system}.web}";
                   };
                   environment.systemPackages = [

@@ -1,17 +1,35 @@
+{-# LANGUAGE QuasiQuotes #-}
+
 module Server.World
   ( WorldLoadFailure (WorldDecodeFailed, WorldReifyFailed, WorldBuildFailed)
   , loadWorld
+  , mintBootstrapToken
   , worldLoadFailureText
   ) where
 
 import           SashaPrelude
 
+import           API.Types (AuthenticatedUser, SessionId (SessionId))
+import           Control.Concurrent (modifyMVar)
 import           Control.Monad (foldM)
 import           Control.Monad.Except (ExceptT, throwError)
+import           Control.Monad.Reader (ask)
+import           Crypto.Random (getRandomBytes)
+import           Data.ByteArray.Encoding
+  ( Base (Base64URLUnpadded)
+  , convertToBase
+  )
+import           Data.ByteString (ByteString)
 import qualified Data.ByteString (readFile)
 import           Data.List (isSuffixOf, sort)
+import qualified Data.Map.Strict (filter, insert)
+import           Data.Pool (withResource)
+import           Data.String (fromString)
 import           Data.Text.Encoding (decodeUtf8')
 import           Data.Text.Encoding.Error (UnicodeException)
+import qualified Data.Text.IO (writeFile)
+import           Database.PostgreSQL.Simple (Only (Only), query)
+import           Database.PostgreSQL.Simple.SqlQQ (sql)
 import           DSL.Builder
   ( WorldBuilderError
   , WorldBuilderResult (WorldBuilderResult, resultCounters, resultGameState)
@@ -20,11 +38,29 @@ import           DSL.Builder
   , runWorldBuilder
   )
 import           DSL.Reify (reifyDSL)
+import           GHC.IO (FilePath)
 import           Language.Haskell.Interpreter (InterpreterError)
+import           Model.Account (AccessToken (AccessToken), AuthentikUserId)
 import           Model.Core (defaultGameState)
-import           Server.App (initialCounters)
-import           System.Directory (listDirectory)
-import           System.Environment (lookupEnv)
+import           Model.GID (GID (GID))
+import           Model.Jwt
+  ( Credentials (Credentials)
+  , Jwt (unJwt)
+  , hashToken
+  , makeJwt
+  , tryAddHashAndJwt
+  )
+import           Model.Mid (Mid, unMid)
+import           Servant (ServerError (errBody), err409, err500)
+import           Server.App
+  ( AppCtx (acDbPool, acSessions)
+  , AppM
+  , SessionPhase (SessionPhase)
+  , SessionState (AwaitingSocket)
+  , initialCounters
+  )
+import           Server.Validator (PlayerNameVAL (PlayerNameVAL))
+import           System.Directory (doesDirectoryExist, listDirectory)
 
 type WorldLoadFailure :: Type
 data WorldLoadFailure = WorldDecodeFailed UnicodeException
@@ -32,13 +68,19 @@ data WorldLoadFailure = WorldDecodeFailed UnicodeException
                       | WorldBuildFailed WorldBuilderError
   deriving stock (Generic, Show)
 
-loadWorld :: ExceptT WorldLoadFailure IO WorldBuilderResult
-loadWorld = do
-  worldDir <- liftIO (fromMaybe "sashamud-world/src" <$> lookupEnv "SASHA_WORLD_DIR")
-  entries  <- liftIO (listDirectory worldDir)
-  let programs = sort (filter (".dsl" `isSuffixOf`) entries)
-      runSubmission prev file = do
-        bytes   <- liftIO (Data.ByteString.readFile (worldDir <> "/" <> file))
+loadWorld :: FilePath -> ExceptT WorldLoadFailure IO WorldBuilderResult
+loadWorld worldDir = do
+  let collect dir = do
+        entries <- listDirectory dir
+        found <- forM (sort entries) $ \entry -> do
+          let path = dir <> "/" <> entry
+          isDir <- doesDirectoryExist path
+          if isDir
+            then collect path
+            else pure (filter (".dsl" `isSuffixOf`) [path])
+        pure (mconcat found)
+      runSubmission prev path = do
+        bytes   <- liftIO (Data.ByteString.readFile path)
         source  <- case decodeUtf8' bytes of
           Left err   -> throwError (WorldDecodeFailed err)
           Right text -> pure (unpack text)
@@ -49,9 +91,55 @@ loadWorld = do
             case runWorldBuilder (interpretDSL dsl) (initialBuilderState (resultGameState prev) (resultCounters prev)) of
               Left err   -> throwError (WorldBuildFailed err)
               Right next -> pure next
+  programs <- liftIO (collect worldDir)
   foldM runSubmission (WorldBuilderResult defaultGameState initialCounters) programs
 
 worldLoadFailureText :: WorldLoadFailure -> String
 worldLoadFailureText (WorldDecodeFailed err) = "Failed to decode world source: " <> show err
 worldLoadFailureText (WorldReifyFailed err) = "Failed to reify world source: " <> show err
 worldLoadFailureText (WorldBuildFailed err) = "Failed to build game state: " <> show err
+
+mintBootstrapToken :: PlayerNameVAL -> FilePath -> AppM ()
+mintBootstrapToken playerName@(PlayerNameVAL name) path = do
+  ctx <- ask
+  rows :: [(Mid AuthenticatedUser, AuthentikUserId)] <-
+    liftIO . withResource (acDbPool ctx) $ \conn ->
+      query conn bootstrapQuery (Only name)
+  (userId, authentikUserId) <- case rows of
+    [account] -> pure account
+    _         -> throwError err500 { errBody = fromString ("bootstrap account missing: " <> unpack name) }
+  tokenBytes :: ByteString <- liftIO (getRandomBytes 32)
+  let tokenRaw = convertToBase Base64URLUnpadded tokenBytes :: ByteString
+  access <- case decodeUtf8' tokenRaw of
+    Left _  -> throwError err500
+    Right t -> pure (AccessToken t)
+  hash <- liftIO (hashToken access)
+  minted <- liftIO (makeJwt (Credentials authentikUserId) hash)
+  jwt <- case minted of
+    Left err -> throwError err500 { errBody = fromString ("token mint failed: " <> show err) }
+    Right j  -> pure j
+  tokenText <- case decodeUtf8' (unJwt jwt) of
+    Left _  -> throwError err500
+    Right t -> pure t
+  tryAddHashAndJwt userId hash jwt
+  let sessionId = SessionId tokenText
+      agentGid = GID (unMid userId)
+      hasActiveSession (SessionPhase _ _ AwaitingSocket) = False
+      hasActiveSession (SessionPhase n _ _)              = n == playerName
+      keepEntry (SessionPhase n _ AwaitingSocket) = n /= playerName
+      keepEntry _                                 = True
+  alreadyActive <- liftIO . modifyMVar (acSessions ctx) $ \sessions ->
+    if any hasActiveSession sessions
+      then pure (sessions, True)
+      else pure (Data.Map.Strict.insert sessionId (SessionPhase playerName agentGid AwaitingSocket)
+                   (Data.Map.Strict.filter keepEntry sessions), False)
+  when alreadyActive (throwError err409)
+  liftIO (Data.Text.IO.writeFile path tokenText)
+  where
+    bootstrapQuery =
+      [sql|
+        SELECT credentials.user_id, credentials.authentik_user_id FROM credentials
+          JOIN users ON users.user_id = credentials.user_id
+          WHERE credentials.player_name = ?
+            AND users.status = 'active'
+      |]

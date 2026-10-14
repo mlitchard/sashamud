@@ -70,7 +70,6 @@ import           FakeProvider
   , seedAccount
   )
 import           Lens.Micro.Platform (view)
-import           Lobby (buildResult, worldLoadFailureText)
 import           Model.Account
   ( AccessToken (AccessToken)
   , ClientId (ClientId)
@@ -144,6 +143,7 @@ import           Server.Authentication (CanDo)
 import           Server.Migration (buildCommand)
 import           Server.Server (app, deliverOutbound)
 import           Server.Validator (PlayerNameVAL (PlayerNameVAL))
+import           Server.World (loadWorld, worldLoadFailureText)
 import           System.Environment (lookupEnv)
 import           System.Timeout (timeout)
 import           Test.Hspec
@@ -206,21 +206,25 @@ withTestServer action = do
   migrated `shouldBe` MigrationSuccess
   manager <- newManager defaultManagerSettings
   fakeState <- newFakeState
-  loaded <- runExceptT buildResult
-  case loaded of
-    Left err -> expectationFailure (worldLoadFailureText err)
-    Right result -> do
-      let oidcConfig = OidcConfig
-            (OidcBaseUrl ("http://127.0.0.1:" <> pack (show fakePort)))
-            (ClientId "sashamud")
-            (ClientSecret "sashamud-dev")
-            (RedirectUri ("http://127.0.0.1:" <> pack (show testPort) <> "/api/auth/callback"))
-      ctx <- newAppCtx logCfg pool oidcConfig manager (resultCounters result)
-      serverThread <- async $ race_
-        (race_ (gameLoop ctx (resultGameState result)) (deliverOutbound ctx))
-        (race_ (run testPort (app ctx)) (run fakePort (fakeApp fakeState)))
-      threadDelay 500000
-      action (testPort, ctx) `finally` cancel serverThread
+  worldDir <- lookupEnv "SASHA_WORLD_DIR"
+  case worldDir of
+    Nothing -> expectationFailure "SASHA_WORLD_DIR unset"
+    Just dir -> do
+      loaded <- runExceptT (loadWorld dir)
+      case loaded of
+        Left err -> expectationFailure (worldLoadFailureText err)
+        Right result -> do
+          let oidcConfig = OidcConfig
+                (OidcBaseUrl ("http://127.0.0.1:" <> pack (show fakePort)))
+                (ClientId "sashamud")
+                (ClientSecret "sashamud-dev")
+                (RedirectUri ("http://127.0.0.1:" <> pack (show testPort) <> "/api/auth/callback"))
+          ctx <- newAppCtx logCfg pool oidcConfig manager (resultCounters result)
+          serverThread <- async $ race_
+            (race_ (gameLoop ctx (resultGameState result)) (deliverOutbound ctx))
+            (race_ (run testPort (app ctx)) (run fakePort (fakeApp fakeState)))
+          threadDelay 500000
+          action (testPort, ctx) `finally` cancel serverThread
 
 loginAs :: AppCtx -> RoleName -> Text -> IO SessionId
 loginAs ctx role name = do
@@ -325,9 +329,9 @@ spec = describe "Integration" . around withTestServer $ do
     sid1 <- loginAs ctx Wizard "Twice"
     manager <- newManager defaultManagerSettings
     sid2 <- loginThroughFake manager testPort "Twice"
-    first <- runClientM (dslClient (makeAuthRequest sid1) (DSLSource worldSource)) env
+    first <- runClientM (dslClient (makeAuthRequest sid1) (DSLSource studySource)) env
     isErrorCode 401 first `shouldBe` True
-    second <- runClientM (dslClient (makeAuthRequest sid2) (DSLSource worldSource)) env
+    second <- runClientM (dslClient (makeAuthRequest sid2) (DSLSource studySource)) env
     second `shouldBe` Right NoContent
 
   it "an expired token is rejected" $ \(_port, ctx) -> do
@@ -345,14 +349,14 @@ spec = describe "Integration" . around withTestServer $ do
         case decodeUtf8' (unJwt jwt) of
           Left _ -> expectationFailure "minted token is not UTF-8"
           Right token -> do
-            result <- runClientM (dslClient (makeAuthRequest (SessionId token)) (DSLSource worldSource)) env
+            result <- runClientM (dslClient (makeAuthRequest (SessionId token)) (DSLSource studySource)) env
             isErrorCode 401 result `shouldBe` True
 
   it "logout stops the token working" $ \(_port, ctx) -> do
     env <- testClientEnv
     sid <- loginAs ctx Wizard "LoggedOut"
     _ <- runClientM (logoutClient (makeAuthRequest sid)) env
-    result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource worldSource)) env
+    result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource studySource)) env
     isErrorCode 401 result `shouldBe` True
 
   it "invalid token on WebSocket connect is rejected" $ \(_port, _ctx) -> do
@@ -520,7 +524,7 @@ spec = describe "Integration" . around withTestServer $ do
 
   it "POST /api/game/dsl with unknown token returns 401" $ \(_port, _ctx) -> do
     env <- testClientEnv
-    result <- runClientM (dslClient (makeAuthRequest (SessionId "unknown")) (DSLSource worldSource)) env
+    result <- runClientM (dslClient (makeAuthRequest (SessionId "unknown")) (DSLSource studySource)) env
     isErrorCode 401 result `shouldBe` True
 
   it "POST /api/game/dsl with bad source returns 400 with an error body" $ \(_port, ctx) -> do
@@ -535,7 +539,7 @@ spec = describe "Integration" . around withTestServer $ do
   it "POST /api/game/dsl by a player without dsl/create returns 403" $ \(_port, ctx) -> do
     env <- testClientEnv
     sid <- loginAs ctx Player "Peasant"
-    result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource worldSource)) env
+    result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource studySource)) env
     isErrorCode 403 result `shouldBe` True
 
   it "GET /api/auth/available answers 204 for a free name" $ \(_port, _ctx) -> do
@@ -593,13 +597,13 @@ spec = describe "Integration" . around withTestServer $ do
     case stripPrefix "/#token=" final of
       Nothing -> expectationFailure ("expected a token, got " <> show final)
       Just token -> do
-        result <- runClientM (dslClient (makeAuthRequest (SessionId token)) (DSLSource worldSource)) env
+        result <- runClientM (dslClient (makeAuthRequest (SessionId token)) (DSLSource studySource)) env
         result `shouldBe` Right NoContent
 
   it "POST /api/game/dsl with the world source returns NoContent" $ \(_port, ctx) -> do
     env <- testClientEnv
     sid <- loginAs ctx Wizard "Wizard"
-    result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource worldSource)) env
+    result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource studySource)) env
     result `shouldBe` Right NoContent
 
   it "a delivered submission appears in look after DSLTick" $ \(_port, ctx) -> do
@@ -614,85 +618,6 @@ spec = describe "Integration" . around withTestServer $ do
       case narr of
         Nothing -> expectationFailure "look did not list the delivered cup"
         Just _  -> pure ()
-
-worldSource :: Text
-worldSource = unlines
-  [ "let"
-  , "  buildLobby :: ActionManagement -> ActionManagement -> SashaLambdaDSL Scene"
-  , "  buildLobby sceneLookKey sceneLookAtKey ="
-  , "    defaultScene"
-  , "      & (title \"the lobby\" `andThen`"
-  , "         sceneDescriptionRich (colored White \"A spacious lobby with high ceilings.\") `andThen`"
-  , "         flip sceneBehavior sceneLookKey `andThen`"
-  , "         flip sceneBehavior sceneLookAtKey)"
-  , ""
-  , "  buildFloor :: ActionManagement -> SashaLambdaDSL Object"
-  , "  buildFloor lookAtKey ="
-  , "    defaultObject"
-  , "      & (shortName \"floor\" `andThen`"
-  , "         description (colored White \"A plain stone floor.\") `andThen`"
-  , "         flip objectBehavior lookAtKey)"
-  , ""
-  , "  buildBall :: ActionManagement -> SashaLambdaDSL Object"
-  , "  buildBall lookAtKey ="
-  , "    defaultObject"
-  , "      & (shortName \"ball\" `andThen`"
-  , "         description (colored White \"A small red ball.\") `andThen`"
-  , "         flip objectBehavior lookAtKey)"
-  , ""
-  , "  defaultDenizen :: Text -> Agent"
-  , "  defaultDenizen playerName = Agent"
-  , "    { _agentShortName         = plain playerName"
-  , "    , _agentDescription       = colored White \"A player.\""
-  , "    , _agentTitle             = mempty"
-  , "    , _agentActionManagement  = ActionManagementFunctions mempty"
-  , "    , _agentWitnessManagement = mempty"
-  , "    , _agentKind              = Denizen"
-  , "    }"
-  , "in do"
-  , "  lobbyGID      <- declareSceneGID (SceneLabel \"lobby\")"
-  , ""
-  , "  sceneLookGID  <- declareImplicitStimulusGID lookF"
-  , "  playerLookGID <- declareImplicitStimulusGID lookF"
-  , "  sceneLookKey  <- createISAManagement isaLook sceneLookGID"
-  , "  playerLookKey <- createISAManagement isaLook playerLookGID"
-  , ""
-  , "  sceneLookAtGID  <- declareDirectionalStimulusGID lookAtF"
-  , "  playerLookAtGID <- declareDirectionalStimulusGID lookAtF"
-  , "  floorLookAtGID  <- declareDirectionalStimulusGID lookAtF"
-  , "  ballLookAtGID   <- declareDirectionalStimulusGID lookAtF"
-  , "  sceneLookAtKey  <- createDSAManagement dsaLook sceneLookAtGID"
-  , "  playerLookAtKey <- createDSAManagement dsaLook playerLookAtGID"
-  , "  floorLookAtKey  <- createDSAManagement dsaLook floorLookAtGID"
-  , "  ballLookAtKey   <- createDSAManagement dsaLook ballLookAtGID"
-  , ""
-  , "  witnessGID <- declareWitnessGID witnessF"
-  , ""
-  , "  floorGID <- declareObjectGID (ObjectLabel \"floor\")"
-  , "  ballGID  <- declareObjectGID (ObjectLabel \"ball\")"
-  , ""
-  , "  registerObject floorGID (buildFloor floorLookAtKey)"
-  , "  registerObject ballGID  (buildBall ballLookAtKey)"
-  , ""
-  , "  registerObjectToScene lobbyGID floorGID \"FLOOR\""
-  , "  registerObjectToScene lobbyGID ballGID  \"BALL\""
-  , ""
-  , "  registerSpatial (EntityObject ballGID)  (SupportedBy (EntityObject floorGID))"
-  , "  registerSpatial (EntityObject floorGID) (Supports (Data.Set.singleton (EntityObject ballGID)))"
-  , ""
-  , "  registerScene lobbyGID (buildLobby sceneLookKey sceneLookAtKey)"
-  , ""
-  , "  denizen       <- playerBehavior defaultDenizen playerLookKey"
-  , "  denizen'      <- playerBehavior denizen playerLookAtKey"
-  , "  w1            <- witnessBehavior denizen' (ImplicitStimulusKey isaLook) witnessGID"
-  , "  w2            <- witnessBehavior w1 (DirectionalStimulusKey dsaLook) witnessGID"
-  , "  newUser lobbyGID w2"
-  , ""
-  , "  linkWorldOutcomeEffect (ImplicitStimulusActionKey sceneLookGID) (NarrationEffect LookNarration)"
-  , "  linkWorldOutcomeEffect (DirectionalStimulusActionKey ballLookAtGID) (NarrationEffect (LookAtNarration ballGID))"
-  , "  linkWorldOutcomeEffect (DirectionalStimulusActionKey floorLookAtGID) (NarrationEffect (LookAtNarration floorGID))"
-  , "  finalizeGameState"
-  ]
 
 studySource :: Text
 studySource = unlines

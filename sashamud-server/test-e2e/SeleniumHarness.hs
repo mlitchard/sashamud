@@ -45,7 +45,6 @@ import           FakeProvider
   , seedAccount
   )
 import           GHC.IO (FilePath)
-import           Lobby (buildResult, worldLoadFailureText)
 import           Model.Account
   ( ClientId (ClientId)
   , ClientSecret (ClientSecret)
@@ -69,6 +68,7 @@ import           Server.App
 import           Server.Migration (buildCommand)
 import           Server.Server (appWithStaticFiles, deliverOutbound)
 import           Server.Validator (PlayerNameVAL (PlayerNameVAL))
+import           Server.World (loadWorld, worldLoadFailureText)
 import           System.Directory
   ( createDirectoryIfMissing
   , doesFileExist
@@ -135,7 +135,12 @@ withServer action = do
       hPutStrLn stderr ("migration failed: " <> err)
       exitFailure
     MigrationSuccess -> pure ()
-  loaded <- runExceptT buildResult
+  worldDir <- lookupEnv "SASHA_WORLD_DIR"
+  loaded <- case worldDir of
+    Nothing  -> do
+      hPutStrLn stderr "SASHA_WORLD_DIR unset"
+      exitFailure
+    Just dir -> runExceptT (loadWorld dir)
   result <- case loaded of
     Left err -> do
       hPutStrLn stderr (worldLoadFailureText err)
