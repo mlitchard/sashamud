@@ -103,19 +103,23 @@ reifyDSL source = do
             , "ActionManagementOperation (AddAcquisitionVerb, AddDivestmentVerb)"
             , "Agent (Agent, _agentActionManagement, _agentDescription, _agentKind, _agentShortName, _agentTitle, _agentWitnessManagement)"
             , "AgentKind (Denizen)"
+            , "DirectionalStimulusF"
             , "DivestmentTargetType (DivestToSurface')"
             , "EntityID (EntityObject)"
             , "EntityKey (ActingAgentKey, AgentKey', ObjectKey', SceneKey')"
             , "GameState"
+            , "ImplicitStimulusF"
             , "NarrationComputation (LookAtNarration, LookNarration, StaticNarration)"
             , "Object"
             , "Scene"
             , "SpatialRelationship (Inventory, SupportedBy, Supports)"
             , "SpatialRelationshipComputation (Acquisition, Divestiture)"
+            , "WitnessF"
             , "WorldOutcome (NarrationEffect, SpatialRelationshipEffect)"
             , "defaultObject"
             , "defaultScene"
             ])
+      , ModuleImport "Model.GID" NotQualified (ImportList ["GID"])
       , ModuleImport "Model.RichText" NotQualified
           (ImportList ["TextColor (White)", "colored", "plain"])
       ]

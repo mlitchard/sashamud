@@ -32,32 +32,40 @@ data WorldLoadFailure = WorldReifyFailed InterpreterError
                       | WorldBuildFailed WorldBuilderError
   deriving stock (Generic, Show)
 
-worldSource :: String
-worldSource = unlines
-    [ "let"
-    , "  buildLobby :: ActionManagement -> ActionManagement -> SashaLambdaDSL Scene"
+lobbyBuilder :: [String]
+lobbyBuilder =
+    [ "  buildLobby :: ActionManagement -> ActionManagement -> SashaLambdaDSL Scene"
     , "  buildLobby sceneLookKey sceneLookAtKey ="
     , "    defaultScene"
     , "      & (title \"the lobby\" `andThen`"
     , "         sceneDescriptionRich (colored White \"A spacious lobby with high ceilings.\") `andThen`"
     , "         flip sceneBehavior sceneLookKey `andThen`"
     , "         flip sceneBehavior sceneLookAtKey)"
-    , ""
-    , "  buildFloor :: ActionManagement -> SashaLambdaDSL Object"
+    ]
+
+floorBuilder :: [String]
+floorBuilder =
+    [ "  buildFloor :: ActionManagement -> SashaLambdaDSL Object"
     , "  buildFloor lookAtKey ="
     , "    defaultObject"
     , "      & (shortName \"floor\" `andThen`"
     , "         description (colored White \"A plain stone floor.\") `andThen`"
     , "         flip objectBehavior lookAtKey)"
-    , ""
-    , "  buildBall :: ActionManagement -> SashaLambdaDSL Object"
+    ]
+
+ballBuilder :: [String]
+ballBuilder =
+    [ "  buildBall :: ActionManagement -> SashaLambdaDSL Object"
     , "  buildBall lookAtKey ="
     , "    defaultObject"
     , "      & (shortName \"ball\" `andThen`"
     , "         description (colored White \"A small red ball.\") `andThen`"
     , "         flip objectBehavior lookAtKey)"
-    , ""
-    , "  defaultDenizen :: Text -> Agent"
+    ]
+
+denizenBuilder :: [String]
+denizenBuilder =
+    [ "  defaultDenizen :: Text -> Agent"
     , "  defaultDenizen playerName = Agent"
     , "    { _agentShortName         = plain playerName"
     , "    , _agentDescription       = colored White \"A player.\""
@@ -66,50 +74,83 @@ worldSource = unlines
     , "    , _agentWitnessManagement = mempty"
     , "    , _agentKind              = Denizen"
     , "    }"
-    , "in do"
-    , "  lobbyGID      <- declareSceneGID \"lobby\""
-    , ""
-    , "  sceneLookGID  <- declareImplicitStimulusGID lookF"
-    , "  playerLookGID <- declareImplicitStimulusGID lookF"
-    , "  sceneLookKey  <- createISAManagement isaLook sceneLookGID"
-    , "  playerLookKey <- createISAManagement isaLook playerLookGID"
-    , ""
-    , "  sceneLookAtGID  <- declareDirectionalStimulusGID lookAtF"
-    , "  playerLookAtGID <- declareDirectionalStimulusGID lookAtF"
-    , "  floorLookAtGID  <- declareDirectionalStimulusGID lookAtF"
-    , "  ballLookAtGID   <- declareDirectionalStimulusGID lookAtF"
-    , "  sceneLookAtKey  <- createDSAManagement dsaLook sceneLookAtGID"
-    , "  playerLookAtKey <- createDSAManagement dsaLook playerLookAtGID"
-    , "  floorLookAtKey  <- createDSAManagement dsaLook floorLookAtGID"
-    , "  ballLookAtKey   <- createDSAManagement dsaLook ballLookAtGID"
-    , ""
+    ]
+
+lookDeclarations :: [String]
+lookDeclarations =
+    [ "  declareLook :: SashaLambdaDSL (GID ImplicitStimulusF, ActionManagement)"
+    , "  declareLook = do"
+    , "    gid <- declareImplicitStimulusGID lookF"
+    , "    key <- createISAManagement isaLook gid"
+    , "    pure (gid, key)"
+    , "  declareLookAt :: SashaLambdaDSL (GID DirectionalStimulusF, ActionManagement)"
+    , "  declareLookAt = do"
+    , "    gid <- declareDirectionalStimulusGID lookAtF"
+    , "    key <- createDSAManagement dsaLook gid"
+    , "    pure (gid, key)"
+    ]
+
+objectPlacement :: [String]
+objectPlacement =
+    [ "  placeFloor :: GID Scene -> ActionManagement -> SashaLambdaDSL (GID Object)"
+    , "  placeFloor lobbyGID lookAtKey = do"
+    , "    floorGID <- declareObjectGID"
+    , "    registerObject floorGID (buildFloor lookAtKey)"
+    , "    registerObjectToScene lobbyGID floorGID \"FLOOR\""
+    , "    pure floorGID"
+    , "  placeBall :: GID Scene -> GID Object -> ActionManagement -> SashaLambdaDSL (GID Object)"
+    , "  placeBall lobbyGID floorGID lookAtKey = do"
+    , "    ballGID <- declareObjectGID"
+    , "    registerObject ballGID (buildBall lookAtKey)"
+    , "    registerObjectToScene lobbyGID ballGID \"BALL\""
+    , "    registerSpatial (EntityObject ballGID)  (SupportedBy (EntityObject floorGID))"
+    , "    registerSpatial (EntityObject floorGID) (Supports (Data.Set.singleton (EntityObject ballGID)))"
+    , "    pure ballGID"
+    ]
+
+playerTemplate :: [String]
+playerTemplate =
+    [ "  playerTemplate :: ActionManagement -> ActionManagement -> GID WitnessF -> SashaLambdaDSL (Text -> Agent)"
+    , "  playerTemplate lookKey lookAtKey witnessGID = do"
+    , "    denizen  <- playerBehavior defaultDenizen lookKey"
+    , "    denizen' <- playerBehavior denizen lookAtKey"
+    , "    w1       <- witnessBehavior denizen' (ImplicitStimulusKey isaLook) witnessGID"
+    , "    witnessBehavior w1 (DirectionalStimulusKey dsaLook) witnessGID"
+    ]
+
+worldAssembly :: [String]
+worldAssembly =
+    [ "in do"
+    , "  lobbyGID <- declareSceneGID \"lobby\""
+    , "  (sceneLookGID, sceneLookKey) <- declareLook"
+    , "  (_, playerLookKey)           <- declareLook"
+    , "  (_, sceneLookAtKey)          <- declareLookAt"
+    , "  (_, playerLookAtKey)         <- declareLookAt"
+    , "  (floorLookAtGID, floorLookAtKey) <- declareLookAt"
+    , "  (ballLookAtGID, ballLookAtKey)   <- declareLookAt"
     , "  witnessGID <- declareWitnessGID witnessF"
-    , ""
-    , "  floorGID <- declareObjectGID"
-    , "  ballGID  <- declareObjectGID"
-    , ""
-    , "  registerObject floorGID (buildFloor floorLookAtKey)"
-    , "  registerObject ballGID  (buildBall ballLookAtKey)"
-    , ""
     , "  registerScene lobbyGID (buildLobby sceneLookKey sceneLookAtKey)"
-    , ""
-    , "  registerObjectToScene lobbyGID floorGID \"FLOOR\""
-    , "  registerObjectToScene lobbyGID ballGID  \"BALL\""
-    , ""
-    , "  registerSpatial (EntityObject ballGID)  (SupportedBy (EntityObject floorGID))"
-    , "  registerSpatial (EntityObject floorGID) (Supports (Data.Set.singleton (EntityObject ballGID)))"
-    , ""
-    , "  denizen       <- playerBehavior defaultDenizen playerLookKey"
-    , "  denizen'      <- playerBehavior denizen playerLookAtKey"
-    , "  w1            <- witnessBehavior denizen' (ImplicitStimulusKey isaLook) witnessGID"
-    , "  w2            <- witnessBehavior w1 (DirectionalStimulusKey dsaLook) witnessGID"
-    , "  newUser lobbyGID w2"
-    , ""
+    , "  floorGID <- placeFloor lobbyGID floorLookAtKey"
+    , "  ballGID  <- placeBall lobbyGID floorGID ballLookAtKey"
+    , "  template <- playerTemplate playerLookKey playerLookAtKey witnessGID"
+    , "  newUser lobbyGID template"
     , "  linkWorldOutcomeEffect (ImplicitStimulusActionKey sceneLookGID) (NarrationEffect LookNarration)"
     , "  linkWorldOutcomeEffect (DirectionalStimulusActionKey ballLookAtGID) (NarrationEffect (LookAtNarration ballGID))"
     , "  linkWorldOutcomeEffect (DirectionalStimulusActionKey floorLookAtGID) (NarrationEffect (LookAtNarration floorGID))"
     , "  finalizeGameState"
     ]
+
+worldSource :: String
+worldSource = unlines $
+     ["let"]
+  <> lobbyBuilder
+  <> floorBuilder
+  <> ballBuilder
+  <> denizenBuilder
+  <> lookDeclarations
+  <> objectPlacement
+  <> playerTemplate
+  <> worldAssembly
 
 defaultGameState :: GameState
 defaultGameState = GameState
