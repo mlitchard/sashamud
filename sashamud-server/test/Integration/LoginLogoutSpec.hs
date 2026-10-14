@@ -15,6 +15,7 @@ import           SashaPrelude
   , Text
   , elem
   , fmap
+  , forM_
   , fromMaybe
   , not
   , pack
@@ -34,7 +35,7 @@ import           API.Types
 import           Control.Concurrent (readMVar, threadDelay)
 import           Control.Concurrent.Async (async, cancel, race_)
 import           Control.Exception (SomeException, finally, try)
-import           Control.Monad.Except (runExceptT)
+import qualified Data.ByteString (readFile)
 import qualified Data.ByteString.Char8 (pack)
 import           Data.ByteString.Lazy (null)
 import           Data.List (lookup)
@@ -57,9 +58,6 @@ import           Database.PostgreSQL.Simple.Migration
   , runMigrations
   )
 import           Database.PostgreSQL.Simple.SqlQQ (sql)
-import           DSL.Builder
-  ( WorldBuilderResult (resultCounters, resultGameState)
-  )
 import           Engine.Simulation.SignalNetwork (gameLoop)
 import           FakeProvider
   ( fakeApp
@@ -79,7 +77,11 @@ import           Model.Account
   , StartMode (StartCreate, StartLogin)
   )
 import           Model.Authorization (RoleName (Player, Wizard))
-import           Model.Core (actionConsequence, presenceListing)
+import           Model.Core
+  ( actionConsequence
+  , defaultGameState
+  , presenceListing
+  )
 import           Model.Jwt
   ( Credentials (Credentials)
   , Jwt (unJwt)
@@ -137,13 +139,14 @@ import           Server.App
   ( AppCtx (acDbPool, acKnownPlayers, acSessions)
   , GameLog (GameLog)
   , OidcConfig (OidcConfig)
+  , initialCounters
   , newAppCtx
   )
 import           Server.Authentication (CanDo)
 import           Server.Migration (buildCommand)
 import           Server.Server (app, deliverOutbound)
 import           Server.Validator (PlayerNameVAL (PlayerNameVAL))
-import           Server.World (loadWorld, worldLoadFailureText)
+import           Server.World (worldPrograms)
 import           System.Environment (lookupEnv)
 import           System.Timeout (timeout)
 import           Test.Hspec
@@ -210,21 +213,36 @@ withTestServer action = do
   case worldDir of
     Nothing -> expectationFailure "SASHA_WORLD_DIR unset"
     Just dir -> do
-      loaded <- runExceptT (loadWorld dir)
-      case loaded of
-        Left err -> expectationFailure (worldLoadFailureText err)
-        Right result -> do
-          let oidcConfig = OidcConfig
-                (OidcBaseUrl ("http://127.0.0.1:" <> pack (show fakePort)))
-                (ClientId "sashamud")
-                (ClientSecret "sashamud-dev")
-                (RedirectUri ("http://127.0.0.1:" <> pack (show testPort) <> "/api/auth/callback"))
-          ctx <- newAppCtx logCfg pool oidcConfig manager (resultCounters result)
-          serverThread <- async $ race_
-            (race_ (gameLoop ctx (resultGameState result)) (deliverOutbound ctx))
-            (race_ (run testPort (app ctx)) (run fakePort (fakeApp fakeState)))
-          threadDelay 500000
-          action (testPort, ctx) `finally` cancel serverThread
+      let oidcConfig = OidcConfig
+            (OidcBaseUrl ("http://127.0.0.1:" <> pack (show fakePort)))
+            (ClientId "sashamud")
+            (ClientSecret "sashamud-dev")
+            (RedirectUri ("http://127.0.0.1:" <> pack (show testPort) <> "/api/auth/callback"))
+      ctx <- newAppCtx logCfg pool oidcConfig manager initialCounters
+      serverThread <- async $ race_
+        (race_ (gameLoop ctx defaultGameState) (deliverOutbound ctx))
+        (race_ (run testPort (app ctx)) (run fakePort (fakeApp fakeState)))
+      threadDelay 500000
+      (do
+          sid <- loginAs ctx Wizard "Bootstrap"
+          env <- testClientEnv
+          paths <- worldPrograms dir
+          forM_ paths $ \path -> do
+            bytes <- Data.ByteString.readFile path
+            case decodeUtf8' bytes of
+              Left err -> expectationFailure ("lobby file is not UTF-8: " <> path <> " " <> show err)
+              Right source -> do
+                delivered <- runClientM (dslClient (makeAuthRequest sid) (DSLSource source)) env
+                case delivered of
+                  Left err        -> expectationFailure ("lobby delivery failed: " <> show err)
+                  Right NoContent -> pure ()
+          threadDelay 6000000
+          loggedOut <- runClientM (logoutClient (makeAuthRequest sid)) env
+          case loggedOut of
+            Left err        -> expectationFailure ("bootstrap logout failed: " <> show err)
+            Right NoContent -> pure ()
+          action (testPort, ctx))
+        `finally` cancel serverThread
 
 loginAs :: AppCtx -> RoleName -> Text -> IO SessionId
 loginAs ctx role name = do

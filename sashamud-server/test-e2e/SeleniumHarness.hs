@@ -14,10 +14,10 @@ import           SashaPrelude
 
 import           API.TSClient (client)
 import           API.Types (SessionId (SessionId))
+import           Control.Concurrent (threadDelay)
 import           Control.Concurrent.Async (mapConcurrently_, race_)
-import           Control.Monad.Except (runExceptT)
 import           Control.Monad.Logger (runStdoutLoggingT)
-import           Data.Aeson (Object, object, (.=))
+import           Data.Aeson (Object, encode, object, (.=))
 import           Data.Aeson.Key (fromString)
 import           Data.Aeson.KeyMap (fromList)
 import qualified Data.ByteString as BS
@@ -25,7 +25,7 @@ import qualified Data.ByteString.Char8 (pack)
 import           Data.Pool (defaultPoolConfig, newPool, withResource)
 import           Data.String.Interpolate (i)
 import           Data.Text (intercalate)
-import           Data.Text.Encoding (decodeUtf8')
+import           Data.Text.Encoding (decodeUtf8', encodeUtf8)
 import qualified Data.Text.IO as TIO
 import           Data.Time.Clock.POSIX (getPOSIXTime)
 import           Database.PostgreSQL.Simple (close, connectPostgreSQL)
@@ -33,9 +33,6 @@ import           Database.PostgreSQL.Simple.Migration
   ( MigrationResult (MigrationError, MigrationSuccess)
   , defaultOptions
   , runMigrations
-  )
-import           DSL.Builder
-  ( WorldBuilderResult (resultCounters, resultGameState)
   )
 import           Engine.Simulation.SignalNetwork (gameLoop)
 import           FakeProvider
@@ -52,23 +49,31 @@ import           Model.Account
   , RedirectUri (RedirectUri)
   )
 import           Model.Authorization (RoleName (Wizard))
+import           Model.Core (defaultGameState)
 import           Network.HTTP.Client
-  ( defaultManagerSettings
+  ( Request (method, requestBody, requestHeaders)
+  , RequestBody (RequestBodyLBS)
+  , Response (responseBody, responseStatus)
+  , defaultManagerSettings
+  , httpLbs
   , managerResponseTimeout
   , newManager
+  , parseRequest
   , responseTimeoutMicro
   )
+import           Network.HTTP.Types.Status (statusIsSuccessful)
 import           Network.Wai.Handler.Warp (testWithApplication)
 import           Server.App
   ( AppCtx (acDbPool)
   , GameLog (GameLog)
   , OidcConfig (OidcConfig)
+  , initialCounters
   , newAppCtx
   )
 import           Server.Migration (buildCommand)
-import           Server.Server (appWithStaticFiles, deliverOutbound)
+import           Server.Server (app, appWithStaticFiles, deliverOutbound)
 import           Server.Validator (PlayerNameVAL (PlayerNameVAL))
-import           Server.World (loadWorld, worldLoadFailureText)
+import           Server.World (worldPrograms)
 import           System.Directory
   ( createDirectoryIfMissing
   , doesFileExist
@@ -136,16 +141,11 @@ withServer action = do
       exitFailure
     MigrationSuccess -> pure ()
   worldDir <- lookupEnv "SASHA_WORLD_DIR"
-  loaded <- case worldDir of
+  dir <- case worldDir of
     Nothing  -> do
       hPutStrLn stderr "SASHA_WORLD_DIR unset"
       exitFailure
-    Just dir -> runExceptT (loadWorld dir)
-  result <- case loaded of
-    Left err -> do
-      hPutStrLn stderr (worldLoadFailureText err)
-      exitFailure
-    Right loadedResult -> pure loadedResult
+    Just worldPath -> pure worldPath
   manager <- newManager defaultManagerSettings
   fakeState <- newFakeState
   testWithApplication (pure (fakeApp fakeState)) $ \fakePort -> do
@@ -154,10 +154,36 @@ withServer action = do
           (ClientId "sashamud")
           (ClientSecret "sashamud-dev")
           (RedirectUri "http://127.0.0.1/api/auth/callback")
-    ctx <- newAppCtx logCfg pool oidcConfig manager (resultCounters result)
+    ctx <- newAppCtx logCfg pool oidcConfig manager initialCounters
     race_
-      (race_ (gameLoop ctx (resultGameState result)) (deliverOutbound ctx))
-      (action ctx)
+      (race_ (gameLoop ctx defaultGameState) (deliverOutbound ctx))
+      (do
+        testWithApplication (pure (app ctx)) $ \port -> do
+          seedAccount (acDbPool ctx) Wizard (PlayerNameVAL "Bootstrap")
+          SessionId token <- loginThroughFake manager port "Bootstrap"
+          paths <- worldPrograms dir
+          forM_ paths $ \path -> do
+            bytes <- BS.readFile path
+            case decodeUtf8' bytes of
+              Left err -> error ("lobby file is not UTF-8: " <> path <> " " <> show err)
+              Right source -> do
+                dslReq <- parseRequest ("http://127.0.0.1:" <> show port <> "/api/game/dsl")
+                resp <- httpLbs dslReq
+                  { method = "POST"
+                  , requestHeaders = [("BEARER", encodeUtf8 token), ("Content-Type", "application/json")]
+                  , requestBody = RequestBodyLBS (encode source)
+                  } manager
+                when (not (statusIsSuccessful (responseStatus resp))) $
+                  error ("lobby delivery failed: " <> show (responseStatus resp) <> " " <> show (responseBody resp))
+          threadDelay 6000000
+          logoutReq <- parseRequest ("http://127.0.0.1:" <> show port <> "/api/game/logout")
+          logoutResp <- httpLbs logoutReq
+            { method = "DELETE"
+            , requestHeaders = [("BEARER", encodeUtf8 token)]
+            } manager
+          when (not (statusIsSuccessful (responseStatus logoutResp))) $
+            error ("bootstrap logout failed: " <> show (responseStatus logoutResp) <> " " <> show (responseBody logoutResp))
+        action ctx)
 
 indexhtml :: FilePath -> String
 indexhtml path = [i|<html>

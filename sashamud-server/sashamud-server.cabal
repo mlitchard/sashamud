@@ -85,7 +85,6 @@ executable sasha-e2e-tests
     , http-types
     , memory
     , monad-logger
-    , mtl
     , postgresql-migration
     , postgresql-simple
     , process
@@ -123,7 +122,6 @@ executable sashamud-integration-tests
     , http-types
     , memory
     , microlens-platform
-    , mtl
     , postgresql-migration
     , postgresql-simple
     , resource-pool

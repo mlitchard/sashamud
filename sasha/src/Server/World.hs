@@ -5,6 +5,7 @@ module Server.World
   , loadWorld
   , mintBootstrapToken
   , worldLoadFailureText
+  , worldPrograms
   ) where
 
 import           SashaPrelude
@@ -69,18 +70,20 @@ data WorldLoadFailure = WorldDecodeFailed UnicodeException
                       | WorldBuildFailed WorldBuilderError
   deriving stock (Generic, Show)
 
+worldPrograms :: FilePath -> IO [FilePath]
+worldPrograms dir = do
+  entries <- listDirectory dir
+  found <- forM (sort entries) $ \entry -> do
+    let path = dir <> "/" <> entry
+    isDir <- doesDirectoryExist path
+    if isDir
+      then worldPrograms path
+      else pure (filter (".dsl" `isSuffixOf`) [path])
+  pure (mconcat found)
+
 loadWorld :: FilePath -> ExceptT WorldLoadFailure IO WorldBuilderResult
 loadWorld worldDir = do
-  let collect dir = do
-        entries <- listDirectory dir
-        found <- forM (sort entries) $ \entry -> do
-          let path = dir <> "/" <> entry
-          isDir <- doesDirectoryExist path
-          if isDir
-            then collect path
-            else pure (filter (".dsl" `isSuffixOf`) [path])
-        pure (mconcat found)
-      runSubmission prev path = do
+  let runSubmission prev path = do
         bytes   <- liftIO (Data.ByteString.readFile path)
         source  <- case decodeUtf8' bytes of
           Left err   -> throwError (WorldDecodeFailed err)
@@ -92,7 +95,7 @@ loadWorld worldDir = do
             case runWorldBuilder (interpretDSL dsl) (initialBuilderState (resultGameState prev) (resultCounters prev)) of
               Left err   -> throwError (WorldBuildFailed err)
               Right next -> pure next
-  programs <- liftIO (collect worldDir)
+  programs <- liftIO (worldPrograms worldDir)
   foldM runSubmission (WorldBuilderResult defaultGameState initialCounters) programs
 
 worldLoadFailureText :: WorldLoadFailure -> String
