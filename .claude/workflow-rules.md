@@ -186,3 +186,7 @@ metadata:
   "step one passes" is a status report, never an order to start the next
   step; "show me your proposal" is a request to see text, never approval
   to write it. A write happens only after he says write.
+- DSL FILES ARE OPUS WORK (2026-10-14, same session, "fable does not need
+  to write dsl files. let opus do that"): .dsl files are DSL text and go
+  to the Opus writer with the Haskell. Fable edits cabal, nix, memory,
+  and other non-code files only.
