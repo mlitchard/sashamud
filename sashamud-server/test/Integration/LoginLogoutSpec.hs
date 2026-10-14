@@ -34,13 +34,15 @@ import           API.Types
   , SessionId (SessionId)
   )
 import           Control.Concurrent (readMVar, threadDelay)
-import           Control.Concurrent.Async (async, cancel, race_)
+import           Control.Concurrent.Async (async, cancel, race_, wait)
 import           Control.Exception (SomeException, finally, try)
+import           Control.Monad.Trans.Reader (runReaderT)
 import qualified Data.ByteString (readFile)
 import qualified Data.ByteString.Char8 (pack)
 import           Data.ByteString.Lazy (null)
 import           Data.List (lookup)
 import           Data.Map.Strict (member)
+import qualified Data.Map.Strict (lookup)
 import           Data.Pool (defaultPoolConfig, newPool, withResource)
 import           Data.Text (isInfixOf, isPrefixOf, stripPrefix, unlines)
 import           Data.Text.Encoding (decodeUtf8', encodeUtf8)
@@ -144,10 +146,14 @@ import           Servant.Client.Core
   , addHeader
   , mkAuthenticatedRequest
   )
+import           Servant.Server.Internal.Handler (runHandler)
 import           Server.App
   ( AppCtx (acDbPool, acGameLog, acKnownPlayers, acSessions)
+  , AppM (unAppM)
   , GameLog (GameLog, logPath)
   , OidcConfig (OidcConfig)
+  , SessionPhase (SessionPhase)
+  , SessionState (AwaitingJoin, AwaitingSocket, InGame)
   , initialCounters
   , newAppCtx
   )
@@ -156,11 +162,12 @@ import           Server.Log (LogEntry (DSLBuildSucceeded))
 import           Server.Migration (buildCommand)
 import           Server.Server (app, deliverOutbound)
 import           Server.Validator (PlayerNameVAL (PlayerNameVAL))
-import           Server.World (worldPrograms)
+import           Server.World (mintBootstrapToken, worldPrograms)
 import           System.Directory (getTemporaryDirectory)
 import           System.Environment (lookupEnv)
 import           System.IO
   ( BufferMode (LineBuffering)
+  , hClose
   , hSetBuffering
   , openTempFile
   )
@@ -751,6 +758,38 @@ spec = describe "Integration" . around withTestServer $ do
           Right logText ->
             logText `shouldSatisfy` isInfixOf (pack (show (DSLBuildSucceeded
               [SceneModified (SceneLabel "lobby"), ObjectModified (ObjectLabel "ball")])))
+
+  it "the bootstrap mint waits for the account and writes a working five-minute token" $ \(_port, ctx) -> do
+    tmpDir <- getTemporaryDirectory
+    (tokenPath, tokenHandle) <- openTempFile tmpDir "bootstrap-token"
+    hClose tokenHandle
+    minting <- async (runHandler (runReaderT (unAppM (mintBootstrapToken (PlayerNameVAL "Minted") tokenPath)) ctx))
+    threadDelay 1500000
+    seedAccount (acDbPool ctx) Wizard (PlayerNameVAL "Minted")
+    minted <- wait minting
+    case minted of
+      Left err -> expectationFailure ("mint failed: " <> show err)
+      Right () -> do
+        bytes <- Data.ByteString.readFile tokenPath
+        case decodeUtf8' bytes of
+          Left err -> expectationFailure ("token file is not UTF-8: " <> show err)
+          Right token -> do
+            sessions <- readMVar (acSessions ctx)
+            case Data.Map.Strict.lookup (SessionId token) sessions of
+              Nothing -> expectationFailure "mint inserted no session"
+              Just (SessionPhase name _ AwaitingSocket) -> name `shouldBe` PlayerNameVAL "Minted"
+              Just (SessionPhase _ _ (AwaitingJoin _)) -> expectationFailure "session is past AwaitingSocket"
+              Just (SessionPhase _ _ (InGame _)) -> expectationFailure "session is past AwaitingSocket"
+            env <- testClientEnv
+            posted <- runClientM (dslClient (makeAuthRequest (SessionId token)) (DSLSource studySource)) env
+            posted `shouldBe` Right NoContent
+            rows <- withResource (acDbPool ctx) $ \conn ->
+              query conn [sql| SELECT expires_at - created = interval '5 minutes' FROM tokens JOIN credentials ON credentials.user_id = tokens.user_id WHERE credentials.player_name = ? |] (Only ("Minted" :: Text))
+            case rows of
+              [Only fiveMinutes] -> (fiveMinutes :: Bool) `shouldBe` True
+              _                  -> expectationFailure "expected one token row for Minted"
+            loggedOut <- runClientM (logoutClient (makeAuthRequest (SessionId token))) env
+            loggedOut `shouldBe` Right NoContent
 
 studySource :: Text
 studySource = unlines

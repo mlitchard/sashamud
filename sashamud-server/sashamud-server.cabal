@@ -134,6 +134,7 @@ executable sashamud-integration-tests
     , servant-websockets
     , text
     , time
+    , transformers
     , uuid
     , warp
     , websockets
