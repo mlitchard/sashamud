@@ -151,30 +151,22 @@ start-sashamud
 
 ## 8. Log in and take the token
 
-The browser that did the admin setup is logged into authentik as the
-admin. Authentik sees that session, skips its login page, and the
-account created is bound to the admin user's UUID. To go through
-GitHub, use a private window.
+The server starts with an empty world. A wizard session delivers the
+world as DSL files.
 
-1. Open `https://localhost:8080`.
-2. Type a player name in the name field and click Create account, or
-   press Log in for an account that exists.
-3. You get bounced to `localhost:9000`. On authentik's login page, do
-   not type a username or password. Click the GitHub button below the
-   form.
-4. GitHub asks you to authorize the OAuth App. Approve it.
-5. Authentik may show its enrollment step for a first-time GitHub
-   user, then sends you back to `localhost:8080/api/auth/callback`.
-6. The browser lands on `https://localhost:8080/` with the token in
-   the `sashamud_token` cookie, and the game client connects. Press
-   **Settings** on the toolbar, then **dsl token**. The token appears
-   with a **Copy token** button. Press it.
+1. Create the wizard account after the schema exists. Use
+   createAccount, signed with the admin sk key. In development,
+   start-sashamud does this with psql.
+2. Start sasha-server with `SASHA_BOOTSTRAP_TOKEN_FILE` pointing at a
+   writable path. The server waits for the wizard account and writes a
+   five-minute bearer token to that path. `SASHA_BOOTSTRAP_WIZARD`
+   names the account. The flake default is `wizard`.
+3. Post each `.dsl` file under the world directory, in sorted order, to
+   `POST /api/game/dsl`. Send the token in the `BEARER` header and the
+   file contents as a JSON string. The build runs on the next DSL tick,
+   which comes every five seconds. The submitter receives the change
+   list or the build error.
+4. Call `DELETE /api/game/logout` and delete the token file.
 
-If there is no GitHub button on authentik's login page, step 5 above
-was missed.
-
-To deploy DSL with it:
-
-```
-SASHA_TOKEN=<token> nix run .#deploy-dsl -- sashamud-server/test-e2e/study.dsl
-```
+start-sashamud runs all four steps. The VM tests run the same four
+steps.
