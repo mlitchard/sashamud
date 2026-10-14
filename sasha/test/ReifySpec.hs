@@ -3,17 +3,27 @@ module ReifySpec (spec) where
 import           SashaPrelude
   ( Either (Left, Right)
   , Maybe (Just, Nothing)
+  , Monoid (mempty)
   , pure
   , show
+  , when
   , ($)
+  , (<>)
   )
 
 import           Control.Monad.Except (runExceptT)
+import qualified Data.ByteString (writeFile)
 import           DSL.Reify (reifyDSL)
 import           Language.Haskell.Interpreter (InterpreterError (WontCompile))
-import           Server.World (loadWorld, worldLoadFailureText)
+import           Server.World (loadWorld, worldLoadFailureText, worldPrograms)
+import           System.Directory
+  ( createDirectory
+  , doesDirectoryExist
+  , getTemporaryDirectory
+  , removeDirectoryRecursive
+  )
 import           System.Environment (lookupEnv)
-import           Test.Hspec (Spec, describe, expectationFailure, it)
+import           Test.Hspec (Spec, describe, expectationFailure, it, shouldBe)
 
 spec :: Spec
 spec = describe "reifyDSL" $ do
@@ -26,6 +36,23 @@ spec = describe "reifyDSL" $ do
                 case result of
                     Right _  -> pure ()
                     Left err -> expectationFailure (worldLoadFailureText err)
+    it "worldPrograms walks nested directories in sorted order" $ do
+        tmpDir <- getTemporaryDirectory
+        let root = tmpDir <> "/sasha-world-programs-test"
+        existing <- doesDirectoryExist root
+        when existing (removeDirectoryRecursive root)
+        createDirectory root
+        createDirectory (root <> "/b")
+        createDirectory (root <> "/c")
+        createDirectory (root <> "/c/x")
+        Data.ByteString.writeFile (root <> "/a.dsl") mempty
+        Data.ByteString.writeFile (root <> "/b/2.dsl") mempty
+        Data.ByteString.writeFile (root <> "/b/1.dsl") mempty
+        Data.ByteString.writeFile (root <> "/c/x/3.dsl") mempty
+        Data.ByteString.writeFile (root <> "/notes.txt") mempty
+        paths <- worldPrograms root
+        removeDirectoryRecursive root
+        paths `shouldBe` [root <> "/a.dsl", root <> "/b/1.dsl", root <> "/b/2.dsl", root <> "/c/x/3.dsl"]
     it "rejects a submission of the wrong type" $ do
         result <- reifyDSL "declareSceneGID"
         case result of
