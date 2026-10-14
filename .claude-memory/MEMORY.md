@@ -256,3 +256,11 @@
 - IX (reactive EventNetwork): /home/mlitchard/github/ix/
 - Attic (SashaPrelude, old core types): /home/mlitchard/gitlab/sashamud/attic/
 - Memory: /home/mlitchard/gitlab/sashamud/.claude-memory/MEMORY.md (NOT the auto directory with - prefix)
+
+## Live DSL / Lobby (user-ruled 2026-10-14, branch 15-lobby-dsl-mechanic)
+- The lobby is delivered as reified DSL text, one self-contained block (the text in docs/roadmap/live-dsl-step2-world.txt). SashaMudWorld.hs is replaced by Lobby.hs holding that text. The compiled-base-plus-reified-increments split was analysed and rejected: an increment cannot name an earlier submission's GIDs.
+- Startup reify and build failures are managed with ExceptT, rendered at the boundary.
+- Builder facts: `DeclareSceneGID` ignores its name and mints from the counter; `registerScene` throws `DuplicateSceneGID` on a known GID; `registerObject` overwrites by GID silently; the DSL tick seeds `initialBuilderState` from the running GameState and `acBuilderCounters`, and a failed submission is a `DSLBuildFailed` log line with the previous state kept.
+- Old-code shapes for the next mechanism: old BuilderState keeps `_bsDeclaredSceneGIDs`, an object table keyed by noun phrase then `ObjectScope`, and `_bsDeclaredAgentGIDs :: Map AgentName (GID Agent)` whose repeat declaration returns the existing GID (`Just gid -> pure gid`). Old amendment is runtime only: `WorldOutcome (FieldUpdateEffect FieldUpdateOperation)` applied by `modifySceneM`/`modifyObjectM`/`modifyAgentM` in GameComputation, plus `LinkEntityActionEffect`. No old builder-time amendment exists.
+- Rulings for the amendment mechanism: (1) `declareSceneGID` takes a newtype label in place of Text, and the table is `Map SceneLabel (GID Scene)`; (2) amending a scene must keep the players standing in it, so amendment composes on the stored value; (3) objects get a newtype label too, and an overwrite is loud: whoever changes a thing is told what changed. Anything used to make a puzzle must be amendable.
+- Further rulings (2026-10-14): the labels and the amendment mechanism land on this same branch after the lobby. A label never changes once declared; behaviors of existing objects, new objects, and other behaviors can change and are announced. Every submission's success or failure, with what changed, goes to both the submitting player's narration and the game log.

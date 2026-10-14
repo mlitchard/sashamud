@@ -21,10 +21,15 @@ common shared
 library
   import:          shared
   hs-source-dirs:  src
-  exposed-modules: SashaMudWorld
+  exposed-modules:
+    Lobby
+    SashaMudWorld
+
   build-depends:
     , base           >=4.7 && <5
     , containers
+    , hint
+    , mtl
     , sasha
     , sasha-grammar
 
