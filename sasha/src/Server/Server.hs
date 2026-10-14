@@ -66,6 +66,7 @@ import           Servant
   , serveWithContext
   , type (:<|>) ((:<|>))
   )
+import           Servant.Server.Internal.Handler (runHandler)
 import           Server.App
   ( AppCtx (acDSLChan, acDbPool, acGameLog, acOutbound, acSessions)
   , AppM (..)
@@ -88,6 +89,8 @@ import           Server.Log
   , writeLog
   )
 import           Server.Migration (buildCommand)
+import           Server.Validator (PlayerNameVAL (PlayerNameVAL))
+import           Server.World (mintBootstrapToken)
 import           System.Environment (lookupEnv)
 import           System.Exit (exitFailure)
 import           Text.Read (readMaybe)
@@ -168,6 +171,22 @@ startServer result = do
   manager <- newTlsManager
   let logCfg = GameLog stderr
   ctx <- newAppCtx logCfg pool oidcConfig manager (resultCounters result)
+  bootstrapTokenFile <- lookupEnv "SASHA_BOOTSTRAP_TOKEN_FILE"
+  case bootstrapTokenFile of
+    Nothing -> pure ()
+    Just path -> do
+      bootstrapWizard <- lookupEnv "SASHA_BOOTSTRAP_WIZARD"
+      wizard <- case bootstrapWizard of
+        Nothing -> do
+          hPutStrLn stderr "bootstrap token failed: SASHA_BOOTSTRAP_WIZARD unset"
+          exitFailure
+        Just name -> pure name
+      minted <- runHandler (runReaderT (unAppM (mintBootstrapToken (PlayerNameVAL (pack wizard)) path)) ctx)
+      case minted of
+        Left err -> do
+          hPutStrLn stderr ("bootstrap token failed: " <> show err)
+          exitFailure
+        Right () -> pure ()
   writeLog logCfg (ServerStart port)
   hPutStrLn stderr ("sasha-web server starting on port " <> show port)
   case environment of
