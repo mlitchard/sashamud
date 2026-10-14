@@ -1,6 +1,6 @@
-// Defined in API.Types of sasha-0.1.0.0-IMxAJI7THrIH0Ss4AaUVRW
+// Defined in API.Types of sasha-0.1.0.0-E0LnI1JGJ46BicTKUm2cNZ
 export type DSLSource = string;
-// Defined in API.Types of sasha-0.1.0.0-IMxAJI7THrIH0Ss4AaUVRW
+// Defined in API.Types of sasha-0.1.0.0-E0LnI1JGJ46BicTKUm2cNZ
 export type MessageTo = Ping | GameCommand;
 export interface Ping {
   readonly tag: "Ping";
@@ -9,7 +9,7 @@ export interface GameCommand {
   readonly tag: "GameCommand";
   readonly contents: string;
 }
-// Defined in Model.Core of sasha-0.1.0.0-IMxAJI7THrIH0Ss4AaUVRW
+// Defined in Model.Core of sasha-0.1.0.0-E0LnI1JGJ46BicTKUm2cNZ
 export interface Narration {
   // readonly tag: "Narration";
   readonly _playerAction: Array<RichText>;
@@ -17,28 +17,28 @@ export interface Narration {
   readonly _presenceListing: Array<RichText>;
   readonly _actionEpilogue: Array<RichText>;
 }
-// Defined in Model.Core of sasha-0.1.0.0-IMxAJI7THrIH0Ss4AaUVRW
+// Defined in Model.Core of sasha-0.1.0.0-E0LnI1JGJ46BicTKUm2cNZ
 export type SessionId = string;
-// Defined in Model.RichText of sasha-0.1.0.0-IMxAJI7THrIH0Ss4AaUVRW
+// Defined in Model.RichText of sasha-0.1.0.0-E0LnI1JGJ46BicTKUm2cNZ
 export interface StyledSpan {
   // readonly tag: "StyledSpan";
   readonly _ssStyle: TextStyle;
   readonly _ssText: string;
 }
-// Defined in Model.RichText of sasha-0.1.0.0-IMxAJI7THrIH0Ss4AaUVRW
+// Defined in Model.RichText of sasha-0.1.0.0-E0LnI1JGJ46BicTKUm2cNZ
 export interface TextStyle {
   // readonly tag: "TextStyle";
   readonly _tsFgColor: TextColor | null;
   readonly _tsBold: boolean;
   readonly _tsItalic: boolean;
 }
-// Defined in Model.RichText of sasha-0.1.0.0-IMxAJI7THrIH0Ss4AaUVRW
+// Defined in Model.RichText of sasha-0.1.0.0-E0LnI1JGJ46BicTKUm2cNZ
 export type RichText = Array<StyledSpan>;
-// Defined in Model.RichText of sasha-0.1.0.0-IMxAJI7THrIH0Ss4AaUVRW
+// Defined in Model.RichText of sasha-0.1.0.0-E0LnI1JGJ46BicTKUm2cNZ
 export type TextColor = "Red" | "Green" | "Blue" | "Yellow" | "Cyan" | "Magenta" | "White" | "BrightWhite" | "BrightRed" | "BrightGreen" | "BrightBlue" | "BrightYellow" | "BrightCyan" | "BrightMagenta";
-// Defined in Model.WireProtocol of sasha-0.1.0.0-IMxAJI7THrIH0Ss4AaUVRW
+// Defined in Model.WireProtocol of sasha-0.1.0.0-E0LnI1JGJ46BicTKUm2cNZ
 export type AnalysisViewport = "Parser" | "State" | "Meta" | "Graphics" | "GameMap";
-// Defined in Model.WireProtocol of sasha-0.1.0.0-IMxAJI7THrIH0Ss4AaUVRW
+// Defined in Model.WireProtocol of sasha-0.1.0.0-E0LnI1JGJ46BicTKUm2cNZ
 export type MessageFrom = SessionAck | GameNarration | CommandResponse | ChatMessage | SystemMessage | Pong | AnalysisData;
 export interface SessionAck {
   readonly tag: "SessionAck";
@@ -67,9 +67,9 @@ export interface AnalysisData {
   readonly tag: "AnalysisData";
   readonly contents: [AnalysisViewport,Array<RichText>][];
 }
-// Defined in Server.Validator of sasha-0.1.0.0-IMxAJI7THrIH0Ss4AaUVRW
+// Defined in Server.Validator of sasha-0.1.0.0-E0LnI1JGJ46BicTKUm2cNZ
 export type PlayerNameUNV = string;
-// Defined in Server.Validator of sasha-0.1.0.0-IMxAJI7THrIH0Ss4AaUVRW
+// Defined in Server.Validator of sasha-0.1.0.0-E0LnI1JGJ46BicTKUm2cNZ
 export type PlayerNameVAL = string;
 //API
 export const API = {
