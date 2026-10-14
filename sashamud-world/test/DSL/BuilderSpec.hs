@@ -21,6 +21,7 @@ import           DSL.Model.EDSL.SashaLambdaDSL
   , modifyNewUserAgent
   , modifyObject
   , modifyScene
+  , newUser
   , registerObject
   , registerScene
   , sceneDescriptionRich
@@ -299,3 +300,20 @@ spec = describe "DSL.Builder" $ do
               Left err -> expectationFailure (show err)
               Right amended ->
                 resultChanges amended `shouldBe` [SceneCreated (GID 1)]
+
+  it "registering and amending the new user are reported" $ do
+    worldDir <- lookupEnv "SASHA_WORLD_DIR"
+    case worldDir of
+      Nothing -> expectationFailure "SASHA_WORLD_DIR unset"
+      Just dir -> do
+        loaded <- runExceptT (loadWorld dir)
+        case loaded of
+          Left err -> expectationFailure (worldLoadFailureText err)
+          Right result ->
+            case view (possibilityGraph . newUserMkAgent) (resultGameState result) of
+              Nothing -> expectationFailure "no new user template"
+              Just template ->
+                case runWorldBuilder (interpretDSL (newUser (GID 0) template >> modifyNewUserAgent pure >> finalizeGameState)) (initialBuilderState (resultGameState result) (resultCounters result)) of
+                  Left err -> expectationFailure (show err)
+                  Right amended ->
+                    resultChanges amended `shouldBe` [NewUserRegistered (GID 0), NewUserAgentModified]

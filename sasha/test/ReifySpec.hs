@@ -8,13 +8,19 @@ import           SashaPrelude
   , show
   , when
   , ($)
+  , (.)
   , (<>)
   )
 
 import           Control.Monad.Except (runExceptT)
 import qualified Data.ByteString (writeFile)
+import           Data.Map.Strict (lookup)
+import           DSL.Builder (WorldBuilderResult (resultGameState))
 import           DSL.Reify (reifyDSL)
 import           Language.Haskell.Interpreter (InterpreterError (WontCompile))
+import           Lens.Micro.Platform (view)
+import           Model.Core (getGIDToDataMap, sceneMap, title, world)
+import           Model.GID (GID (GID))
 import           Server.World (loadWorld, worldLoadFailureText, worldPrograms)
 import           System.Directory
   ( createDirectory
@@ -32,10 +38,12 @@ spec = describe "reifyDSL" $ do
         case worldDir of
             Nothing  -> expectationFailure "SASHA_WORLD_DIR unset"
             Just dir -> do
-                result <- runExceptT (loadWorld dir)
-                case result of
-                    Right _  -> pure ()
-                    Left err -> expectationFailure (worldLoadFailureText err)
+                loaded <- runExceptT (loadWorld dir)
+                case loaded of
+                    Right result -> case lookup (GID 0) (view (world . sceneMap . getGIDToDataMap) (resultGameState result)) of
+                        Nothing    -> expectationFailure "lobby scene not found at GID 0"
+                        Just lobby -> view title lobby `shouldBe` "the lobby"
+                    Left err     -> expectationFailure (worldLoadFailureText err)
     it "worldPrograms walks nested directories in sorted order" $ do
         tmpDir <- getTemporaryDirectory
         let root = tmpDir <> "/sasha-world-programs-test"
