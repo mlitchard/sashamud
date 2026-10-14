@@ -177,3 +177,12 @@ metadata:
   for the whole session. Stopping to re-ask, or drifting back to a
   behaviour he already corrected, costs him a correction he should never
   have to make twice.
+- A REJECTION STOPS EVERYTHING (2026-10-14, lobby-dsl session, "if i
+  reject something i want you to stop immediately because we would need
+  to discuss rejection. instead you just keep going even if i reject
+  something. this wastes time"): when he rejects an edit at the
+  permission prompt, every writer agent stops, nothing else is written,
+  and the next message is about the rejection. Same session, earlier:
+  "step one passes" is a status report, never an order to start the next
+  step; "show me your proposal" is a request to see text, never approval
+  to write it. A write happens only after he says write.
