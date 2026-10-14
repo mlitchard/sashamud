@@ -21,10 +21,7 @@ common shared
 library
   import:          shared
   hs-source-dirs:  src
-  exposed-modules:
-    Lobby
-    SashaMudWorld
-
+  exposed-modules: Lobby
   build-depends:
     , base           >=4.7 && <5
     , containers
