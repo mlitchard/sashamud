@@ -130,7 +130,7 @@ withServer :: (AppCtx -> IO ()) -> IO ()
 withServer action = do
   hSetEncoding stdout utf8
   hSetBuffering stdout LineBuffering
-  let logCfg = GameLog stderr
+  let logCfg = GameLog stderr Nothing
   connStr <- fromMaybe "dbname=sashamud" <$> lookupEnv "SASHA_DB_CONNSTR"
   migrationsDir <- fromMaybe "migrations" <$> lookupEnv "SASHA_MIGRATIONS_DIR"
   pool <- newPool (defaultPoolConfig (connectPostgreSQL (Data.ByteString.Char8.pack connStr)) close 60 10)

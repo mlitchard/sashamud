@@ -8,4 +8,4 @@ import           Server.App (initialCounters)
 import           Server.Server (startServer)
 
 main :: IO ()
-main = startServer (WorldBuilderResult defaultGameState initialCounters)
+main = startServer (WorldBuilderResult defaultGameState initialCounters [])

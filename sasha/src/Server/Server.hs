@@ -127,7 +127,7 @@ dslHandler (AuthenticatedUser sessionId _ _) (DSLSource source) = do
         Left err ->
           throwError err400 { errBody = fromString (show err) }
         Right dsl -> do
-          liftIO . atomically $ writeTChan (acDSLChan ctx) dsl
+          liftIO . atomically $ writeTChan (acDSLChan ctx) (Routed sessionId dsl)
           pure NoContent
 
 deliverOutbound :: AppCtx -> IO ()
@@ -169,7 +169,7 @@ startServer result = do
         (ClientSecret (pack oidcClientSecret))
         (RedirectUri (pack oidcRedirectUri))
   manager <- newTlsManager
-  let logCfg = GameLog stderr
+  let logCfg = GameLog stderr Nothing
   ctx <- newAppCtx logCfg pool oidcConfig manager (resultCounters result)
   bootstrapTokenFile <- lookupEnv "SASHA_BOOTSTRAP_TOKEN_FILE"
   case bootstrapTokenFile of

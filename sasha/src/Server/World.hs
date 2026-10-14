@@ -96,7 +96,7 @@ loadWorld worldDir = do
               Left err   -> throwError (WorldBuildFailed err)
               Right next -> pure next
   programs <- liftIO (worldPrograms worldDir)
-  foldM runSubmission (WorldBuilderResult defaultGameState initialCounters) programs
+  foldM runSubmission (WorldBuilderResult defaultGameState initialCounters []) programs
 
 worldLoadFailureText :: WorldLoadFailure -> String
 worldLoadFailureText (WorldDecodeFailed err) = "Failed to decode world source: " <> show err

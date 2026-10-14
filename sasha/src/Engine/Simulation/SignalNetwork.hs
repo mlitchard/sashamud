@@ -50,10 +50,12 @@ import qualified Data.Set as Set
   , toList
   )
 import           DSL.Builder
-  ( WorldBuilderResult (WorldBuilderResult, resultCounters, resultGameState)
+  ( WorldBuilderResult (WorldBuilderResult, resultChanges, resultCounters, resultGameState)
   , initialBuilderState
   , interpretDSL
   , runWorldBuilder
+  , worldBuilderErrorText
+  , worldChangeText
   )
 import           Engine.Evaluators.Player.General (eval)
 import           Engine.Simulation.Clocks (DSLTick, HeartbeatTick, PlayerTick)
@@ -115,7 +117,10 @@ import           Server.App
   , SessionState (AwaitingJoin, AwaitingSocket, InGame)
   , sessionGid
   )
-import           Server.Log (LogEntry (DSLBuildFailed), writeLog)
+import           Server.Log
+  ( LogEntry (DSLBuildFailed, DSLBuildSucceeded)
+  , writeLog
+  )
 import           Server.Validator (PlayerNameVAL, unPlayerNameVAL)
 
 data JoinResult = NewPlayerJoined SessionId PlayerNameVAL (GID Agent)
@@ -175,14 +180,18 @@ dslTickSF = constMCl $ do
   when (not (null submissions)) $ do
     gs <- lookGameState
     counters <- liftIO $ readIORef (acBuilderCounters appCtx)
-    let runSubmission prev dsl =
+    let runSubmission prev (Routed sid dsl) =
           case runWorldBuilder (interpretDSL dsl)
                  (initialBuilderState (resultGameState prev) (resultCounters prev)) of
             Left err -> do
               liftIO $ writeLog (acGameLog appCtx) (DSLBuildFailed err)
+              liftIO . atomically $ writeTChan (acOutbound appCtx) (Routed sid (GameNarration (mempty { _actionConsequence = [plain (worldBuilderErrorText err)] })))
               pure prev
-            Right next -> pure next
-    result <- foldM runSubmission (WorldBuilderResult gs counters) submissions
+            Right next -> do
+              liftIO $ writeLog (acGameLog appCtx) (DSLBuildSucceeded (resultChanges next))
+              liftIO . atomically $ writeTChan (acOutbound appCtx) (Routed sid (GameNarration (mempty { _actionConsequence = fmap (plain . worldChangeText) (resultChanges next) })))
+              pure next
+    result <- foldM runSubmission (WorldBuilderResult gs counters []) submissions
     liftIO $ writeIORef (acBuilderCounters appCtx) (resultCounters result)
     addGameState (resultGameState result)
 

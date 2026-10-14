@@ -14,6 +14,7 @@ import           SashaPrelude
   , Maybe (Just, Nothing)
   , Show (show)
   , Text
+  , any
   , elem
   , fmap
   , forM_
@@ -21,7 +22,6 @@ import           SashaPrelude
   , not
   , pack
   , pure
-  , stderr
   , ($)
   , (.)
   , (<>)
@@ -42,7 +42,7 @@ import           Data.ByteString.Lazy (null)
 import           Data.List (lookup)
 import           Data.Map.Strict (member)
 import           Data.Pool (defaultPoolConfig, newPool, withResource)
-import           Data.Text (isPrefixOf, stripPrefix, unlines)
+import           Data.Text (isInfixOf, isPrefixOf, stripPrefix, unlines)
 import           Data.Text.Encoding (decodeUtf8', encodeUtf8)
 import           Data.Time.Clock (secondsToNominalDiffTime)
 import           Database.PostgreSQL.Simple
@@ -59,6 +59,12 @@ import           Database.PostgreSQL.Simple.Migration
   , runMigrations
   )
 import           Database.PostgreSQL.Simple.SqlQQ (sql)
+import           DSL.Builder
+  ( WorldBuilderError (UndeclaredSceneLabel)
+  , WorldChange (ObjectModified, SceneModified)
+  , worldBuilderErrorText
+  , worldChangeText
+  )
 import           Engine.Simulation.SignalNetwork (gameLoop)
 import           FakeProvider
   ( fakeApp
@@ -79,7 +85,9 @@ import           Model.Account
   )
 import           Model.Authorization (RoleName (Player, Wizard))
 import           Model.Core
-  ( actionConsequence
+  ( ObjectLabel (ObjectLabel)
+  , SceneLabel (SceneLabel)
+  , actionConsequence
   , defaultGameState
   , presenceListing
   )
@@ -89,7 +97,7 @@ import           Model.Jwt
   , hashToken
   , makeJwtForTesting
   )
-import           Model.RichText (toPlainText)
+import           Model.RichText (plain, toPlainText)
 import           Model.WireProtocol
   ( MessageFrom (GameNarration, Pong, SystemMessage)
   )
@@ -137,18 +145,25 @@ import           Servant.Client.Core
   , mkAuthenticatedRequest
   )
 import           Server.App
-  ( AppCtx (acDbPool, acKnownPlayers, acSessions)
-  , GameLog (GameLog)
+  ( AppCtx (acDbPool, acGameLog, acKnownPlayers, acSessions)
+  , GameLog (GameLog, logPath)
   , OidcConfig (OidcConfig)
   , initialCounters
   , newAppCtx
   )
 import           Server.Authentication (CanDo)
+import           Server.Log (LogEntry (DSLBuildSucceeded))
 import           Server.Migration (buildCommand)
 import           Server.Server (app, deliverOutbound)
 import           Server.Validator (PlayerNameVAL (PlayerNameVAL))
 import           Server.World (worldPrograms)
+import           System.Directory (getTemporaryDirectory)
 import           System.Environment (lookupEnv)
+import           System.IO
+  ( BufferMode (LineBuffering)
+  , hSetBuffering
+  , openTempFile
+  )
 import           System.Timeout (timeout)
 import           Test.Hspec
   ( Spec
@@ -202,7 +217,10 @@ testClientEnv = do
 
 withTestServer :: ((Int, AppCtx) -> IO ()) -> IO ()
 withTestServer action = do
-  let logCfg = GameLog stderr
+  tmpDir <- getTemporaryDirectory
+  (logFilePath, logFileHandle) <- openTempFile tmpDir "sashamud-integration.log"
+  hSetBuffering logFileHandle LineBuffering
+  let logCfg = GameLog logFileHandle (Just logFilePath)
   connStr <- fmap (fromMaybe "dbname=sashamud") (lookupEnv "SASHA_DB_CONNSTR")
   migrationsDir <- fmap (fromMaybe "migrations") (lookupEnv "SASHA_MIGRATIONS_DIR")
   pool <- newPool (defaultPoolConfig (connectPostgreSQL (Data.ByteString.Char8.pack connStr)) close 60 10)
@@ -658,6 +676,82 @@ spec = describe "Integration" . around withTestServer $ do
             Nothing -> expectationFailure "look did not show the amended lobby"
             Just _  -> pure ()
 
+  it "the submitter receives the list of changes" $ \(_port, ctx) -> do
+    env <- testClientEnv
+    sid <- loginAs ctx Wizard "Reporter"
+    connectWS sid $ \conn -> do
+      joined <- receiveUntil conn 10000000 (\case
+        GameNarration _ -> True
+        _               -> False)
+      case joined of
+        Nothing -> expectationFailure "no join narration"
+        Just _  -> do
+          posted <- runClientM (dslClient (makeAuthRequest sid) (DSLSource amendSource)) env
+          posted `shouldBe` Right NoContent
+          report <- receiveUntil conn 10000000 (\case
+            GameNarration narr ->
+              view actionConsequence narr
+                == fmap (plain . worldChangeText)
+                     [SceneModified (SceneLabel "lobby"), ObjectModified (ObjectLabel "ball")]
+            _ -> False)
+          case report of
+            Nothing -> expectationFailure "no change report on the submitter's socket"
+            Just _  -> pure ()
+
+  it "the submitter receives the build error" $ \(_port, ctx) -> do
+    env <- testClientEnv
+    sid <- loginAs ctx Wizard "Reporter"
+    connectWS sid $ \conn -> do
+      joined <- receiveUntil conn 10000000 (\case
+        GameNarration _ -> True
+        _               -> False)
+      case joined of
+        Nothing -> expectationFailure "no join narration"
+        Just _  -> do
+          posted <- runClientM (dslClient (makeAuthRequest sid) (DSLSource failSource)) env
+          posted `shouldBe` Right NoContent
+          report <- receiveUntil conn 10000000
+            (seesObjects (worldBuilderErrorText (UndeclaredSceneLabel (SceneLabel "nowhere"))))
+          case report of
+            Nothing -> expectationFailure "no error report on the submitter's socket"
+            Just _  -> pure ()
+
+  it "a bystander receives no report" $ \(_port, ctx) -> do
+    env <- testClientEnv
+    bystanderSid <- loginAs ctx Wizard "Bystander"
+    connectWS bystanderSid $ \conn -> do
+      joined <- receiveUntil conn 10000000 (\case
+        GameNarration _ -> True
+        _               -> False)
+      case joined of
+        Nothing -> expectationFailure "no join narration"
+        Just _  -> do
+          reporterSid <- loginAs ctx Wizard "Reporter"
+          posted <- runClientM (dslClient (makeAuthRequest reporterSid) (DSLSource amendSource)) env
+          posted `shouldBe` Right NoContent
+          leaked <- receiveUntil conn 8000000 (\case
+            GameNarration narr ->
+              any ((\line -> line `elem` fmap toPlainText (view actionConsequence narr)) . worldChangeText)
+                [SceneModified (SceneLabel "lobby"), ObjectModified (ObjectLabel "ball")]
+            _ -> False)
+          leaked `shouldBe` Nothing
+
+  it "the game log records the successful build" $ \(_port, ctx) -> do
+    env <- testClientEnv
+    sid <- loginAs ctx Wizard "Reporter"
+    posted <- runClientM (dslClient (makeAuthRequest sid) (DSLSource amendSource)) env
+    posted `shouldBe` Right NoContent
+    threadDelay 6000000
+    case logPath (acGameLog ctx) of
+      Nothing -> expectationFailure "test server has no log file"
+      Just path -> do
+        bytes <- Data.ByteString.readFile path
+        case decodeUtf8' bytes of
+          Left err -> expectationFailure ("log is not UTF-8: " <> show err)
+          Right logText ->
+            logText `shouldSatisfy` isInfixOf (pack (show (DSLBuildSucceeded
+              [SceneModified (SceneLabel "lobby"), ObjectModified (ObjectLabel "ball")])))
+
 studySource :: Text
 studySource = unlines
   [ "do"
@@ -679,5 +773,12 @@ amendSource = unlines
   [ "do"
   , "  modifyScene (SceneLabel \"lobby\") (sceneDescriptionRich (colored White \"A spacious lobby with a freshly polished floor.\"))"
   , "  modifyObject (ObjectLabel \"ball\") (description (colored White \"A small blue ball.\"))"
+  , "  finalizeGameState"
+  ]
+
+failSource :: Text
+failSource = unlines
+  [ "do"
+  , "  modifyScene (SceneLabel \"nowhere\") (title \"nowhere\")"
   , "  finalizeGameState"
   ]

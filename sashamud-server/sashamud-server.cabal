@@ -115,6 +115,7 @@ executable sashamud-integration-tests
     , bytestring
     , containers
     , crypton
+    , directory
     , hspec
     , hspec-discover
     , http-api-data
