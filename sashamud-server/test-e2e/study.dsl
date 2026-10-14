@@ -1,7 +1,7 @@
 do
-  studyGID <- declareSceneGID "study"
-  tableGID <- declareObjectGID
-  cupGID   <- declareObjectGID
+  studyGID <- declareSceneGID (SceneLabel "study")
+  tableGID <- declareObjectGID (ObjectLabel "table")
+  cupGID   <- declareObjectGID (ObjectLabel "cup")
   registerObject tableGID (defaultObject & shortName "table")
   registerObject cupGID   (defaultObject & shortName "cup")
   registerObjectToScene studyGID tableGID "TABLE"

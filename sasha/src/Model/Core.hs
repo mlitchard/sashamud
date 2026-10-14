@@ -17,6 +17,9 @@ module Model.Core
   , SpatialRelationshipMap (SpatialRelationshipMap)
     -- * Session
   , SessionId (SessionId, unSessionId)
+    -- * Labels
+  , SceneLabel (SceneLabel, unSceneLabel)
+  , ObjectLabel (ObjectLabel, unObjectLabel)
     -- * Evaluator
   , Evaluator (Evaluator)
   , runEvaluator
@@ -90,6 +93,8 @@ module Model.Core
   , objectMap
   , globalSemanticMap
   , spatialRelationshipMap
+  , declaredSceneGIDs
+  , declaredObjectGIDs
   , unSpatialRelationshipMap
   , playerAction
   , actionConsequence
@@ -176,6 +181,14 @@ newtype SessionId = SessionId { unSessionId :: Text }
   deriving stock (Generic, Show)
   deriving newtype (Eq, FromJSON, NFData, Ord, ToJSON)
 
+newtype SceneLabel = SceneLabel { unSceneLabel :: Text }
+  deriving stock (Generic, Show)
+  deriving newtype (Eq, NFData, Ord)
+
+newtype ObjectLabel = ObjectLabel { unObjectLabel :: Text }
+  deriving stock (Generic, Show)
+  deriving newtype (Eq, NFData, Ord)
+
 -- Entity Types
 
 type AgentKind :: Type
@@ -255,11 +268,13 @@ data World = World
   , _globalSemanticMap      :: Map Text (Set (GID Object))
   , _agentMap               :: AgentMap
   , _spatialRelationshipMap :: SpatialRelationshipMap
+  , _declaredSceneGIDs      :: Map SceneLabel (GID Scene)
+  , _declaredObjectGIDs     :: Map ObjectLabel (GID Object)
   }
   deriving stock (Eq, Ord, Show)
 
 instance NFData World where
-  rnf (World om sm gs am srm) = rnf om `seq` rnf sm `seq` rnf gs `seq` rnf am `seq` rnf srm
+  rnf (World om sm gs am srm dsg dog) = rnf om `seq` rnf sm `seq` rnf gs `seq` rnf am `seq` rnf srm `seq` rnf dsg `seq` rnf dog
 
 type Narrative :: Type
 data Narrative
@@ -491,6 +506,8 @@ defaultWorld = World
   , _globalSemanticMap      = mempty
   , _agentMap               = AgentMap mempty
   , _spatialRelationshipMap = SpatialRelationshipMap mempty
+  , _declaredSceneGIDs      = mempty
+  , _declaredObjectGIDs     = mempty
   }
 
 -- Template Haskell (single stage — all types visible)

@@ -3,7 +3,7 @@ module DSL.Builder
   , runWorldBuilder
   , initialBuilderState
   , WorldBuilder
-  , WorldBuilderError (InvalidSceneGID, DuplicateSceneGID)
+  , WorldBuilderError (InvalidSceneGID, DuplicateSceneGID, DuplicateObjectGID)
   , WorldBuilderResult (WorldBuilderResult, resultCounters, resultGameState)
   ) where
 
@@ -33,6 +33,7 @@ import           Model.Core
   , Agent
   , EntityActionRegistry
   , GameState
+  , Object
   , PossibilityGraph (PossibilityGraph, _entityActionEffects, _newUserMkAgent, _newUserStartScene, _witnessMap, _worldOutcomeEffects)
   , Scene (_sceneDescription, _title)
   , WitnessMap
@@ -42,6 +43,8 @@ import           Model.Core
   , actionMaps
   , agentActionManagement
   , agentWitnessManagement
+  , declaredObjectGIDs
+  , declaredSceneGIDs
   , description
   , directionalStimulusMap
   , divestmentActionMap
@@ -92,6 +95,7 @@ data BuilderState = BuilderState
 type WorldBuilderError :: Type
 data WorldBuilderError = InvalidSceneGID (GID Scene) String
                        | DuplicateSceneGID (GID Scene) String
+                       | DuplicateObjectGID (GID Object) String
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
@@ -126,11 +130,17 @@ interpretDSL :: SashaLambdaDSL a -> WorldBuilder a
 interpretDSL (Pure a) = pure a
 interpretDSL (Bind m f) = interpretDSL m >>= (interpretDSL . f)
 
-interpretDSL (DeclareSceneGID _name) = do
+interpretDSL (DeclareSceneGID label) = do
   st <- get
-  let gid = GID (unPInt (view nextSceneId (bsCounters st)))
-  put st { bsCounters = bsCounters st & nextSceneId %~ succPInt }
-  pure gid
+  case lookup label (view (world . declaredSceneGIDs) (bsGameState st)) of
+    Just gid -> pure gid
+    Nothing -> do
+      let gid = GID (unPInt (view nextSceneId (bsCounters st)))
+          gs' = bsGameState st & world . declaredSceneGIDs %~ insert label gid
+      put st { bsCounters  = bsCounters st & nextSceneId %~ succPInt
+             , bsGameState = gs'
+             }
+      pure gid
 
 interpretDSL (RegisterScene gid sceneBuilder) = do
   scene <- interpretDSL sceneBuilder
@@ -144,15 +154,23 @@ interpretDSL (Title t scene) = pure scene { _title = t }
 
 interpretDSL (SceneDescription rt scene) = pure scene { _sceneDescription = rt }
 
-interpretDSL DeclareObjectGID = do
+interpretDSL (DeclareObjectGID label) = do
   st <- get
-  let gid = GID (unPInt (view nextObjectId (bsCounters st)))
-  put st { bsCounters = bsCounters st & nextObjectId %~ succPInt }
-  pure gid
+  case lookup label (view (world . declaredObjectGIDs) (bsGameState st)) of
+    Just gid -> pure gid
+    Nothing -> do
+      let gid = GID (unPInt (view nextObjectId (bsCounters st)))
+          gs' = bsGameState st & world . declaredObjectGIDs %~ insert label gid
+      put st { bsCounters  = bsCounters st & nextObjectId %~ succPInt
+             , bsGameState = gs'
+             }
+      pure gid
 
 interpretDSL (RegisterObject gid objBuilder) = do
   obj <- interpretDSL objBuilder
   st <- get
+  when (member gid (view (world . objectMap . getGIDToDataMap) (bsGameState st))) $
+    throwError (DuplicateObjectGID gid "Object already registered")
   let gs' = bsGameState st & world . objectMap . getGIDToDataMap %~ insert gid obj
   put st { bsGameState = gs' }
 

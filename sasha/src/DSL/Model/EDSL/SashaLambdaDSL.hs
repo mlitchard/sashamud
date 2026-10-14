@@ -53,7 +53,9 @@ import           Model.Core
   , GameState
   , ImplicitStimulusF
   , Object
+  , ObjectLabel
   , Scene
+  , SceneLabel
   , SpatialRelationship
   , WitnessF
   , WorldOutcome
@@ -64,11 +66,11 @@ import           Model.RichText (RichText)
 type SashaLambdaDSL :: Type -> Type
 data SashaLambdaDSL a where Pure :: a -> SashaLambdaDSL a
                             Bind :: SashaLambdaDSL a -> (a -> SashaLambdaDSL b) -> SashaLambdaDSL b
-                            DeclareSceneGID :: Text -> SashaLambdaDSL (GID Scene)
+                            DeclareSceneGID :: SceneLabel -> SashaLambdaDSL (GID Scene)
                             RegisterScene :: GID Scene -> SashaLambdaDSL Scene -> SashaLambdaDSL ()
                             Title :: Text -> Scene -> SashaLambdaDSL Scene
                             SceneDescription :: RichText -> Scene -> SashaLambdaDSL Scene
-                            DeclareObjectGID :: SashaLambdaDSL (GID Object)
+                            DeclareObjectGID :: ObjectLabel -> SashaLambdaDSL (GID Object)
                             RegisterObject :: GID Object -> SashaLambdaDSL Object -> SashaLambdaDSL ()
                             ShortName :: Text -> Object -> SashaLambdaDSL Object
                             Description :: RichText -> Object -> SashaLambdaDSL Object
@@ -104,7 +106,7 @@ instance Applicative SashaLambdaDSL where
 instance Monad SashaLambdaDSL where
   (>>=) = Bind
 
-declareSceneGID :: Text -> SashaLambdaDSL (GID Scene)
+declareSceneGID :: SceneLabel -> SashaLambdaDSL (GID Scene)
 declareSceneGID = DeclareSceneGID
 
 registerScene :: GID Scene -> SashaLambdaDSL Scene -> SashaLambdaDSL ()
@@ -116,7 +118,7 @@ title = Title
 sceneDescriptionRich :: RichText -> Scene -> SashaLambdaDSL Scene
 sceneDescriptionRich = SceneDescription
 
-declareObjectGID :: SashaLambdaDSL (GID Object)
+declareObjectGID :: ObjectLabel -> SashaLambdaDSL (GID Object)
 declareObjectGID = DeclareObjectGID
 
 registerObject :: GID Object -> SashaLambdaDSL Object -> SashaLambdaDSL ()

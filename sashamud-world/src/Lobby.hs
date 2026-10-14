@@ -94,13 +94,13 @@ objectPlacement :: [String]
 objectPlacement =
     [ "  placeFloor :: GID Scene -> ActionManagement -> SashaLambdaDSL (GID Object)"
     , "  placeFloor lobbyGID lookAtKey = do"
-    , "    floorGID <- declareObjectGID"
+    , "    floorGID <- declareObjectGID (ObjectLabel \"floor\")"
     , "    registerObject floorGID (buildFloor lookAtKey)"
     , "    registerObjectToScene lobbyGID floorGID \"FLOOR\""
     , "    pure floorGID"
     , "  placeBall :: GID Scene -> GID Object -> ActionManagement -> SashaLambdaDSL (GID Object)"
     , "  placeBall lobbyGID floorGID lookAtKey = do"
-    , "    ballGID <- declareObjectGID"
+    , "    ballGID <- declareObjectGID (ObjectLabel \"ball\")"
     , "    registerObject ballGID (buildBall lookAtKey)"
     , "    registerObjectToScene lobbyGID ballGID \"BALL\""
     , "    registerSpatial (EntityObject ballGID)  (SupportedBy (EntityObject floorGID))"
@@ -121,7 +121,7 @@ playerTemplate =
 worldAssembly :: [String]
 worldAssembly =
     [ "in do"
-    , "  lobbyGID <- declareSceneGID \"lobby\""
+    , "  lobbyGID <- declareSceneGID (SceneLabel \"lobby\")"
     , "  (sceneLookGID, sceneLookKey) <- declareLook"
     , "  (_, playerLookKey)           <- declareLook"
     , "  (_, sceneLookAtKey)          <- declareLookAt"
