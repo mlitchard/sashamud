@@ -15,11 +15,14 @@ import           DSL.Builder
   )
 import           DSL.Model.EDSL.SashaLambdaDSL
   ( declareObjectGID
+  , declareSceneGID
   , description
   , finalizeGameState
   , modifyNewUserAgent
   , modifyObject
   , modifyScene
+  , registerObject
+  , registerScene
   , sceneDescriptionRich
   )
 import           Lens.Micro.Platform (ix, view, (%~), (&), (.~))
@@ -29,6 +32,8 @@ import           Model.Core
   , actionMaps
   , agentShortName
   , defaultGameState
+  , defaultObject
+  , defaultScene
   , getGIDToDataMap
   , implicitStimulusMap
   , newUserMkAgent
@@ -54,6 +59,7 @@ import           SashaPrelude
   , (.)
   , (<>)
   , (>>)
+  , (>>=)
   )
 import           Server.App (initialCounters)
 import           Server.World (loadWorld, worldLoadFailureText)
@@ -253,3 +259,43 @@ spec = describe "DSL.Builder" $ do
     case runWorldBuilder (interpretDSL (modifyNewUserAgent pure >> finalizeGameState)) (initialBuilderState defaultGameState initialCounters) of
       Left err -> err `shouldBe` MissingNewUserAgent
       Right _  -> expectationFailure "expected an error"
+
+  it "a known scene label returns its GID" $ do
+    worldDir <- lookupEnv "SASHA_WORLD_DIR"
+    case worldDir of
+      Nothing -> expectationFailure "SASHA_WORLD_DIR unset"
+      Just dir -> do
+        loaded <- runExceptT (loadWorld dir)
+        case loaded of
+          Left err -> expectationFailure (worldLoadFailureText err)
+          Right result ->
+            case runWorldBuilder (interpretDSL (declareSceneGID (SceneLabel "lobby") >>= \gid -> registerScene gid (pure defaultScene) >> finalizeGameState)) (initialBuilderState (resultGameState result) (resultCounters result)) of
+              Left err -> err `shouldBe` DuplicateSceneGID (GID 0) "Scene already registered"
+              Right _ -> expectationFailure "expected a duplicate scene error"
+
+  it "a known object label returns its GID" $ do
+    worldDir <- lookupEnv "SASHA_WORLD_DIR"
+    case worldDir of
+      Nothing -> expectationFailure "SASHA_WORLD_DIR unset"
+      Just dir -> do
+        loaded <- runExceptT (loadWorld dir)
+        case loaded of
+          Left err -> expectationFailure (worldLoadFailureText err)
+          Right result ->
+            case runWorldBuilder (interpretDSL (declareObjectGID (ObjectLabel "ball") >>= \gid -> registerObject gid (pure defaultObject) >> finalizeGameState)) (initialBuilderState (resultGameState result) (resultCounters result)) of
+              Left err -> err `shouldBe` DuplicateObjectGID (GID 1) "Object already registered"
+              Right _ -> expectationFailure "expected a duplicate object error"
+
+  it "a new scene label mints the next GID" $ do
+    worldDir <- lookupEnv "SASHA_WORLD_DIR"
+    case worldDir of
+      Nothing -> expectationFailure "SASHA_WORLD_DIR unset"
+      Just dir -> do
+        loaded <- runExceptT (loadWorld dir)
+        case loaded of
+          Left err -> expectationFailure (worldLoadFailureText err)
+          Right result ->
+            case runWorldBuilder (interpretDSL (declareSceneGID (SceneLabel "annex") >>= \gid -> registerScene gid (pure defaultScene) >> finalizeGameState)) (initialBuilderState (resultGameState result) (resultCounters result)) of
+              Left err -> expectationFailure (show err)
+              Right amended ->
+                resultChanges amended `shouldBe` [SceneCreated (GID 1)]
