@@ -217,6 +217,11 @@ metadata:
   to write dsl files. let opus do that"): .dsl files are DSL text and go
   to the Opus writer with the Haskell. Fable edits cabal, nix, memory,
   and other non-code files only.
+- SONNET MAKES DIRECTIVE UPDATES (2026-10-15, get-drop session, "let
+  sonnet handle directive updates"): edits to MEMORY.md,
+  workflow-rules.md and the .claude-plans files go to a Sonnet writer
+  from an exact spec the planner writes. The planner shows the spec in
+  chat first, then hands it over.
 - PLANS LIVE IN .claude-plans (2026-10-15, get-drop session, "i like
   this new workflow where you write a plan in .claude-plans"): for any
   task that changes code, the workflow is:
