@@ -169,7 +169,7 @@
 
           dslServerUrl = "http://127.0.0.1:8081";
           sashaEnvironment = "production";
-          deployDsl = pkgs.writeShellScript "deploy-dsl" ''
+          deployDsl = (pkgs.writeShellScriptBin "deploy-dsl" ''
             set -euo pipefail
             SRC="''${1:?usage: nix run .#deploy-dsl -- <file.dsl>}"
             URL="''${SASHA_URL:-${dslServerUrl}}"
@@ -180,7 +180,7 @@
               -H "BEARER: $TOKEN" -H "Content-Type: application/json" \
               --data @-
             echo "deployed $SRC to $URL"
-          '';
+          '').overrideAttrs { meta.mainProgram = "deploy-dsl"; };
           sashaTests = pkgs.writeShellScript "sasha-tests" ''
             set -euo pipefail
             export PATH=${localPostgres}/bin:$PATH
@@ -416,7 +416,7 @@
                         until [[ -e ${bootstrapTokenFile} ]]; do sleep 1; done
                         until ${pkgs.curl}/bin/curl -sS -o /dev/null ${dslServerUrl}; do sleep 1; done
                         export SASHA_TOKEN=$(cat ${bootstrapTokenFile})
-                        for f in $(find "$SASHA_WORLD_DIR" -name '*.dsl' | sort); do ${deployDsl} "$f"; done
+                        for f in $(find "$SASHA_WORLD_DIR" -name '*.dsl' | sort); do ${lib.getExe deployDsl} "$f"; done
                         ${pkgs.curl}/bin/curl --fail-with-body -sS -X DELETE ${dslServerUrl}/api/game/logout -H "BEARER: $SASHA_TOKEN"
                         rm -f ${bootstrapTokenFile}
                       '';
@@ -532,6 +532,7 @@
               (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sashamud-server "exe:sasha-e2e-tests"))).overrideAttrs { meta.mainProgram = "sasha-e2e-tests"; };
             sashamud-integration-tests = (hlib.justStaticExecutables
               (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sashamud-server "exe:sashamud-integration-tests"))).overrideAttrs { meta.mainProgram = "sashamud-integration-tests"; };
+            deploy-dsl = deployDsl;
             web =
               let
                 generated-ts-path = "packages/type-gen-output/src/client.ts";
@@ -573,7 +574,7 @@
 
           apps.deploy-dsl = {
             type = "app";
-            program = toString deployDsl;
+            program = lib.getExe deployDsl;
           };
 
           apps.create-account = {
@@ -766,9 +767,9 @@
                 machine.wait_for_file("/root/bootstrap-token")
                 machine.wait_for_open_port(8081)
                 token = machine.succeed("cat /root/bootstrap-token").strip()
-                print(machine.succeed(f"for f in $(find ${worldDir} -name '*.dsl' | sort); do SASHA_TOKEN={token} ${deployDsl} $f; done"))
-                print(machine.succeed(f"SASHA_TOKEN={token} ${deployDsl} ${./sashamud-server/test-e2e/study.dsl}"))
-                print(machine.succeed(f"SASHA_TOKEN={token} ${deployDsl} ${./sashamud-server/test-e2e/amend-lobby.dsl}"))
+                print(machine.succeed(f"for f in $(find ${worldDir} -name '*.dsl' | sort); do SASHA_TOKEN={token} ${lib.getExe deployDsl} $f; done"))
+                print(machine.succeed(f"SASHA_TOKEN={token} ${lib.getExe deployDsl} ${./sashamud-server/test-e2e/study.dsl}"))
+                print(machine.succeed(f"SASHA_TOKEN={token} ${lib.getExe deployDsl} ${./sashamud-server/test-e2e/amend-lobby.dsl}"))
                 machine.succeed(f"${pkgs.curl}/bin/curl --fail-with-body -sS -X DELETE ${dslServerUrl}/api/game/logout -H 'BEARER: {token}'")
                 machine.succeed("rm -f /root/bootstrap-token")
               '';
