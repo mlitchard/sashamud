@@ -1,0 +1,19 @@
+do
+  sceneGetGID <- declareAcquisitionActionGID getF
+  sceneGetKey <- createAVTargetManagement getAV sceneGetGID
+  sceneDropGID <- declareDivestmentActionGID dropF
+  sceneDropKey <- createDVManagement dropDV sceneDropGID
+  modifyScene (SceneLabel "lobby") (flip sceneBehavior sceneGetKey `andThen` flip sceneBehavior sceneDropKey)
+  floorGetGID <- declareAcquisitionActionGID getF
+  floorGetKey <- createAVSupportManagement getAV floorGetGID
+  floorDropGID <- declareDivestmentActionGID dropF
+  floorDropKey <- createDVSurfaceManagement dropDV floorDropGID
+  modifyObject (ObjectLabel "floor") (flip objectBehavior floorGetKey `andThen` flip objectBehavior floorDropKey)
+  ballGetGID <- declareAcquisitionActionGID getF
+  ballGetKey <- createAVTargetManagement getAV ballGetGID
+  ballDropGID <- declareDivestmentActionGID dropF
+  ballDropKey <- createDVManagement dropDV ballDropGID
+  modifyObject (ObjectLabel "ball") (flip objectBehavior ballGetKey `andThen` flip objectBehavior ballDropKey)
+  linkWorldOutcomeEffect (AcquisitionalActionKey ballGetGID) (NarrationEffect (StaticNarration "You pick up the ball."))
+  linkWorldOutcomeEffect (DivestmentActionKey ballDropGID) (NarrationEffect (StaticNarration "You drop the ball."))
+  finalizeGameState
