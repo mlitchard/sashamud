@@ -68,6 +68,10 @@ metadata:
   EXTENDED 2026-10-12: no Co-Authored-By or other attribution lines in
   commit messages I draft for him ("if you are a co-author, then so is
   gcc, ghc, nvim").
+  EXTENDED 2026-10-15 ("when i ask for commit organization, i want exact
+  git commands"): a request to organize commits is answered with the
+  exact commands for him to run: `git add` with every path, then
+  `git commit -F - <<'EOF' ... EOF` with the message. I never run them.
 - User often executes fixes/commands HIMSELF mid-session (rejects Bash
   calls, then does the work). Propose + diagnose; expect takeovers. Do
   NOT chain unrequested verification/status checks after his actions
@@ -213,3 +217,20 @@ metadata:
   to write dsl files. let opus do that"): .dsl files are DSL text and go
   to the Opus writer with the Haskell. Fable edits cabal, nix, memory,
   and other non-code files only.
+- PLANS LIVE IN .claude-plans (2026-10-15, get-drop session, "i like
+  this new workflow where you write a plan in .claude-plans"): for any
+  task that changes code, the workflow is:
+  1. He states the task.
+  2. Agents gather facts from sashamud, the old code and the plans; I
+     report them with file and line.
+  3. I write `.claude-plans/<topic>.md` with: goal, his rulings, what
+     exists today, old-code precedent, a decisions list, and numbered
+     steps headed by the step rule (every step builds and is green on
+     its own; any fix a step needs, including imports, exports, callers,
+     instances and tests, lands in that step).
+  4. Decisions are discussed one at a time. Each ruling is recorded in
+     the plan as "RULED (user, date)" when he gives it.
+  5. Before execution I audit each step: buildable, every caller changed
+     in the same step, tests present. Fixes go into the step that needs
+     them.
+  6. He says write; Opus executes the plan step by step.
