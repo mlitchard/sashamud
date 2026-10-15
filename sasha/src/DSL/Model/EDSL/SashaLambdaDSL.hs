@@ -29,6 +29,8 @@ module DSL.Model.EDSL.SashaLambdaDSL
   , registerSpatial
   , sceneBehavior
   , sceneDescriptionRich
+  , sharedBehavior
+  , sharedWitnessBehavior
   , shortName
   , title
   , witnessBehavior
@@ -94,6 +96,8 @@ data SashaLambdaDSL a where Pure :: a -> SashaLambdaDSL a
                             SceneBehavior :: Scene -> ActionManagement -> SashaLambdaDSL Scene
                             PlayerBehavior :: (Text -> Agent) -> ActionManagement -> SashaLambdaDSL (Text -> Agent)
                             WitnessBehavior :: (Text -> Agent) -> VerbKey -> GID WitnessF -> SashaLambdaDSL (Text -> Agent)
+                            SharedBehavior :: ActionManagement -> SashaLambdaDSL ()
+                            SharedWitnessBehavior :: VerbKey -> GID WitnessF -> SashaLambdaDSL ()
                             LinkWorldOutcomeEffect :: ActionEffectKey -> WorldOutcome -> SashaLambdaDSL ()
                             LinkEntityActionEffect :: ActionEffectKey -> EntityKey -> ActionManagementOperation -> SashaLambdaDSL ()
                             NewUser :: GID Scene -> (Text -> Agent) -> SashaLambdaDSL ()
@@ -186,6 +190,12 @@ playerBehavior = PlayerBehavior
 
 witnessBehavior :: (Text -> Agent) -> VerbKey -> GID WitnessF -> SashaLambdaDSL (Text -> Agent)
 witnessBehavior = WitnessBehavior
+
+sharedBehavior :: ActionManagement -> SashaLambdaDSL ()
+sharedBehavior = SharedBehavior
+
+sharedWitnessBehavior :: VerbKey -> GID WitnessF -> SashaLambdaDSL ()
+sharedWitnessBehavior = SharedWitnessBehavior
 
 linkWorldOutcomeEffect :: ActionEffectKey -> WorldOutcome -> SashaLambdaDSL ()
 linkWorldOutcomeEffect = LinkWorldOutcomeEffect

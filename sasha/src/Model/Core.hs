@@ -91,6 +91,8 @@ module Model.Core
   , sceneAgents
   , sceneMap
   , agentMap
+  , sharedActionManagement
+  , sharedWitnessManagement
   , objectMap
   , globalSemanticMap
   , spatialRelationshipMap
@@ -264,18 +266,20 @@ newtype SpatialRelationshipMap = SpatialRelationshipMap { _unSpatialRelationship
 
 type World :: Type
 data World = World
-  { _objectMap              :: GIDToDataMap Object Object
-  , _sceneMap               :: GIDToDataMap Scene Scene
-  , _globalSemanticMap      :: Map Text (Set (GID Object))
-  , _agentMap               :: AgentMap
-  , _spatialRelationshipMap :: SpatialRelationshipMap
-  , _declaredSceneGIDs      :: Map SceneLabel (GID Scene)
-  , _declaredObjectGIDs     :: Map ObjectLabel (GID Object)
+  { _objectMap               :: GIDToDataMap Object Object
+  , _sceneMap                :: GIDToDataMap Scene Scene
+  , _globalSemanticMap       :: Map Text (Set (GID Object))
+  , _agentMap                :: AgentMap
+  , _sharedActionManagement  :: ActionManagementFunctions
+  , _sharedWitnessManagement :: Map VerbKey (GID WitnessF)
+  , _spatialRelationshipMap  :: SpatialRelationshipMap
+  , _declaredSceneGIDs       :: Map SceneLabel (GID Scene)
+  , _declaredObjectGIDs      :: Map ObjectLabel (GID Object)
   }
   deriving stock (Eq, Ord, Show)
 
 instance NFData World where
-  rnf (World om sm gs am srm dsg dog) = rnf om `seq` rnf sm `seq` rnf gs `seq` rnf am `seq` rnf srm `seq` rnf dsg `seq` rnf dog
+  rnf (World om sm gs am sam swm srm dsg dog) = rnf om `seq` rnf sm `seq` rnf gs `seq` rnf am `seq` rnf sam `seq` rnf swm `seq` rnf srm `seq` rnf dsg `seq` rnf dog
 
 type Narrative :: Type
 data Narrative
@@ -506,6 +510,8 @@ defaultWorld = World
   , _sceneMap               = GIDToDataMap mempty
   , _globalSemanticMap      = mempty
   , _agentMap               = AgentMap mempty
+  , _sharedActionManagement  = ActionManagementFunctions mempty
+  , _sharedWitnessManagement = mempty
   , _spatialRelationshipMap = SpatialRelationshipMap mempty
   , _declaredSceneGIDs      = mempty
   , _declaredObjectGIDs     = mempty

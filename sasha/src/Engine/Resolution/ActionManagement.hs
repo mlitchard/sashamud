@@ -75,6 +75,7 @@ import           Model.Core
   , sceneAgents
   , sceneMap
   , sceneObjects
+  , sharedWitnessManagement
   , shortName
   , spatialRelationshipMap
   , unSpatialRelationshipMap
@@ -320,6 +321,7 @@ processWitnesses actorGid verbKey witnessCtx = do
              (lookup sceneGid sMap)
   aMap <- use (world . agentMap . getAgentMap)
   wMap <- use (possibilityGraph . witnessMap)
+  shared <- use (world . sharedWitnessManagement)
   let witnesses =
         [ (gid, agent)
         | gid <- toList (view sceneAgents scene)
@@ -327,7 +329,7 @@ processWitnesses actorGid verbKey witnessCtx = do
         , Just agent <- [lookup gid aMap]
         ]
   forM_ witnesses $ \(witnessGid, witnessAgent) ->
-    case lookup verbKey (view agentWitnessManagement witnessAgent) of
+    case lookup verbKey (view agentWitnessManagement witnessAgent) <|> lookup verbKey shared of
       Nothing -> pure ()
       Just witnessFGid -> do
         witnessFn <- throwMaybeM ("Witness function not found: " <> pack (show witnessFGid))
