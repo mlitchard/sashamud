@@ -87,7 +87,7 @@ loadWorld worldDir = do
         bytes   <- liftIO (Data.ByteString.readFile path)
         source  <- case decodeUtf8' bytes of
           Left err   -> throwError (WorldDecodeFailed err)
-          Right text -> pure (unpack text)
+          Right text -> pure ("{-# LINE 1 \"" <> path <> "\" #-}\n" <> unpack text)
         reified <- liftIO (reifyDSL source)
         case reified of
           Left err  -> throwError (WorldReifyFailed err)
