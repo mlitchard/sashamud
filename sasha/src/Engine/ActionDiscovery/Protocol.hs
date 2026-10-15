@@ -26,6 +26,7 @@ import           Model.Core
   , getGIDToDataMap
   , sceneActionManagement
   , sceneMap
+  , sharedActionManagement
   , world
   )
 import           Model.GID (GID)
@@ -82,8 +83,10 @@ fetchAgentAction :: forall actionF. ActionProtocol actionF
 fetchAgentAction input actionMap agentGID = do
   aMap <- use (world . agentMap . getAgentMap)
   agent <- throwMaybeM ("Agent not found in agent map: " <> pack (show agentGID)) (lookup agentGID aMap)
+  shared <- use (world . sharedActionManagement)
   gid <- throwMaybeM ("Agent: " <> noGIDError @actionF)
-           (lookupActionGID @actionF input (view agentActionManagement agent))
+           (lookupActionGID @actionF input (view agentActionManagement agent)
+              <|> lookupActionGID @actionF input shared)
   action <- fetchAction @actionF actionMap gid
   pure (gid, action)
 

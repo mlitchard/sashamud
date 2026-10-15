@@ -67,6 +67,8 @@ import           Model.Core
   , sceneAgents
   , sceneMap
   , sceneObjects
+  , sharedActionManagement
+  , sharedWitnessManagement
   , shortName
   , spatialRelationshipMap
   , unObjectLabel
@@ -292,6 +294,16 @@ interpretDSL (PlayerBehavior mkAgent actionMgmt) =
 
 interpretDSL (WitnessBehavior mkAgent verbKey witnessGid) =
   pure (\name -> mkAgent name & agentWitnessManagement %~ insert verbKey witnessGid)
+
+interpretDSL (SharedBehavior actionMgmt) = do
+  st <- get
+  let gs' = bsGameState st & world . sharedActionManagement . actionManagementFunctions %~ Data.Set.insert actionMgmt
+  put st { bsGameState = gs' }
+
+interpretDSL (SharedWitnessBehavior verbKey witnessGid) = do
+  st <- get
+  let gs' = bsGameState st & world . sharedWitnessManagement %~ insert verbKey witnessGid
+  put st { bsGameState = gs' }
 
 interpretDSL (LinkWorldOutcomeEffect actionKey worldOutcome) = do
   st <- get

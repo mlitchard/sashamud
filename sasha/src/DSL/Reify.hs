@@ -82,6 +82,8 @@ reifyDSL source = do
             , "registerSpatial"
             , "sceneBehavior"
             , "sceneDescriptionRich"
+            , "sharedBehavior"
+            , "sharedWitnessBehavior"
             , "shortName"
             , "title"
             , "witnessBehavior"
