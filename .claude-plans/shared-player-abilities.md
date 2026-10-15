@@ -61,7 +61,10 @@ step. No step relies on a later step to repair it.
    - Release order: RULED Order 1 (user, 2026-10-15). Steps 1 and 2 ship
      and the live server is redeployed with them. Get and drop then reach
      the running server through the token deploy of the two Step 3 files.
-     The next server release carries those files.
+     The next server release carries those files. Deploys build from
+     main (user, 2026-10-15). Stage 1: branch 14-stage-1 at the Step 2
+     commit is merged into main and deployed. Stage 2:
+     14-get-drop-ball-dsl is merged into main after the token deploy.
    - File locations: RULED (user, 2026-10-15). World-wide files in
      `sashamud-world/src/1/World/`, the lobby in `sashamud-world/src/2/Lobby/`.
    - `dslServerUrl` stays local (user, 2026-10-15).
