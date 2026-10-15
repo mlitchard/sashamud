@@ -184,9 +184,12 @@
             TOKEN="''${SASHA_TOKEN:?SASHA_TOKEN must hold a login token}"
             CURL="${pkgs.curl}/bin/curl"
             JQ="${pkgs.jq}/bin/jq"
-            $JQ -Rs . < "$SRC" | $CURL --fail-with-body -sS -X POST "$URL/api/game/dsl" \
-              -H "BEARER: $TOKEN" -H "Content-Type: application/json" \
-              --data @-
+            if ! BODY=$($JQ -Rs . < "$SRC" | $CURL --fail-with-body -sS -X POST "$URL/api/game/dsl" \
+                -H "BEARER: $TOKEN" -H "Content-Type: application/json" \
+                --data @-); then
+              printf '\n==== deploy failed: %s ====\n%s\n\n' "$SRC" "$BODY" >&2
+              exit 1
+            fi
             echo "deployed $SRC to $URL"
           '').overrideAttrs { meta.mainProgram = "deploy-dsl"; };
           sashaTests = pkgs.writeShellScript "sasha-tests" ''
@@ -273,8 +276,6 @@
               processWrap = processName: logPath: command: ''
                 cd $here
                 rm -rf ${logPath}
-                tail -F ${logPath} &
-                echo $! >> .devpids
                 ${pkgs.writeShellScript processName command} &
                 echo $! >> .devpids
               '';
@@ -424,7 +425,13 @@
                         until [[ -e ${bootstrapTokenFile} ]]; do sleep 1; done
                         until ${pkgs.curl}/bin/curl -sS -o /dev/null ${dslServerUrl}; do sleep 1; done
                         export SASHA_TOKEN=$(cat ${bootstrapTokenFile})
-                        for f in $(find "$SASHA_WORLD_DIR" -name '*.dsl' | sort); do ${lib.getExe deployDsl} local "$f"; done
+                        for f in $(find "$SASHA_WORLD_DIR" -name '*.dsl' | sort); do
+                          if ! DEPLOY_ERR=$(${lib.getExe deployDsl} local "$f" 2>&1 >/dev/null); then
+                            stop-sashamud
+                            printf '%s\n' "$DEPLOY_ERR" >&2
+                            exit 1
+                          fi
+                        done
                         ${pkgs.curl}/bin/curl --fail-with-body -sS -X DELETE ${dslServerUrl}/api/game/logout -H "BEARER: $SASHA_TOKEN"
                         rm -f ${bootstrapTokenFile}
                       '';
@@ -442,6 +449,8 @@
                       fi
                       pkill sasha-server || true
                       pkill caddy || true
+                      pkill -f 'tail -F caddy.log' || true
+                      pkill -f 'tail -F server.log' || true
                       rm -f ${bootstrapTokenFile}
                       db-server-stop
                     '';
@@ -480,7 +489,7 @@
                 ];
                 shellHook = ''
                   export SASHA_MIGRATIONS_DIR=${migrationsDir}
-                  export SASHA_WORLD_DIR=${worldDir}
+                  export SASHA_WORLD_DIR=$PWD/sashamud-world/src
                   ${shelpersConfig.functions}
                   shelp
                 '';
