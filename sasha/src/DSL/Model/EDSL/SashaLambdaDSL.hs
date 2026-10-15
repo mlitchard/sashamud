@@ -17,6 +17,9 @@ module DSL.Model.EDSL.SashaLambdaDSL
   , finalizeGameState
   , linkEntityActionEffect
   , linkWorldOutcomeEffect
+  , modifyNewUserAgent
+  , modifyObject
+  , modifyScene
   , newUser
   , objectBehavior
   , playerBehavior
@@ -53,7 +56,9 @@ import           Model.Core
   , GameState
   , ImplicitStimulusF
   , Object
+  , ObjectLabel
   , Scene
+  , SceneLabel
   , SpatialRelationship
   , WitnessF
   , WorldOutcome
@@ -64,11 +69,11 @@ import           Model.RichText (RichText)
 type SashaLambdaDSL :: Type -> Type
 data SashaLambdaDSL a where Pure :: a -> SashaLambdaDSL a
                             Bind :: SashaLambdaDSL a -> (a -> SashaLambdaDSL b) -> SashaLambdaDSL b
-                            DeclareSceneGID :: Text -> SashaLambdaDSL (GID Scene)
+                            DeclareSceneGID :: SceneLabel -> SashaLambdaDSL (GID Scene)
                             RegisterScene :: GID Scene -> SashaLambdaDSL Scene -> SashaLambdaDSL ()
                             Title :: Text -> Scene -> SashaLambdaDSL Scene
                             SceneDescription :: RichText -> Scene -> SashaLambdaDSL Scene
-                            DeclareObjectGID :: SashaLambdaDSL (GID Object)
+                            DeclareObjectGID :: ObjectLabel -> SashaLambdaDSL (GID Object)
                             RegisterObject :: GID Object -> SashaLambdaDSL Object -> SashaLambdaDSL ()
                             ShortName :: Text -> Object -> SashaLambdaDSL Object
                             Description :: RichText -> Object -> SashaLambdaDSL Object
@@ -92,6 +97,9 @@ data SashaLambdaDSL a where Pure :: a -> SashaLambdaDSL a
                             LinkWorldOutcomeEffect :: ActionEffectKey -> WorldOutcome -> SashaLambdaDSL ()
                             LinkEntityActionEffect :: ActionEffectKey -> EntityKey -> ActionManagementOperation -> SashaLambdaDSL ()
                             NewUser :: GID Scene -> (Text -> Agent) -> SashaLambdaDSL ()
+                            ModifyScene :: SceneLabel -> (Scene -> SashaLambdaDSL Scene) -> SashaLambdaDSL ()
+                            ModifyObject :: ObjectLabel -> (Object -> SashaLambdaDSL Object) -> SashaLambdaDSL ()
+                            ModifyNewUserAgent :: ((Text -> Agent) -> SashaLambdaDSL (Text -> Agent)) -> SashaLambdaDSL ()
                             FinalizeGameState :: SashaLambdaDSL GameState
 
 instance Functor SashaLambdaDSL where
@@ -104,7 +112,7 @@ instance Applicative SashaLambdaDSL where
 instance Monad SashaLambdaDSL where
   (>>=) = Bind
 
-declareSceneGID :: Text -> SashaLambdaDSL (GID Scene)
+declareSceneGID :: SceneLabel -> SashaLambdaDSL (GID Scene)
 declareSceneGID = DeclareSceneGID
 
 registerScene :: GID Scene -> SashaLambdaDSL Scene -> SashaLambdaDSL ()
@@ -116,7 +124,7 @@ title = Title
 sceneDescriptionRich :: RichText -> Scene -> SashaLambdaDSL Scene
 sceneDescriptionRich = SceneDescription
 
-declareObjectGID :: SashaLambdaDSL (GID Object)
+declareObjectGID :: ObjectLabel -> SashaLambdaDSL (GID Object)
 declareObjectGID = DeclareObjectGID
 
 registerObject :: GID Object -> SashaLambdaDSL Object -> SashaLambdaDSL ()
@@ -187,6 +195,15 @@ linkEntityActionEffect = LinkEntityActionEffect
 
 newUser :: GID Scene -> (Text -> Agent) -> SashaLambdaDSL ()
 newUser = NewUser
+
+modifyScene :: SceneLabel -> (Scene -> SashaLambdaDSL Scene) -> SashaLambdaDSL ()
+modifyScene = ModifyScene
+
+modifyObject :: ObjectLabel -> (Object -> SashaLambdaDSL Object) -> SashaLambdaDSL ()
+modifyObject = ModifyObject
+
+modifyNewUserAgent :: ((Text -> Agent) -> SashaLambdaDSL (Text -> Agent)) -> SashaLambdaDSL ()
+modifyNewUserAgent = ModifyNewUserAgent
 
 finalizeGameState :: SashaLambdaDSL GameState
 finalizeGameState = FinalizeGameState

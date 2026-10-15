@@ -41,6 +41,7 @@ import           Data.Pool (Pool)
 import           Data.Time.Clock (UTCTime)
 import           Database.PostgreSQL.Simple (Connection)
 import           DSL.Model.EDSL.SashaLambdaDSL (SashaLambdaDSL)
+import           GHC.IO (FilePath)
 import           Lens.Micro.Platform (makeLenses)
 import           Model.Account
   ( ClientId
@@ -61,6 +62,7 @@ import           Server.Validator (PlayerNameVAL)
 
 data GameLog = GameLog
   { logHandle :: Handle
+  , logPath   :: Maybe FilePath
   }
 
 newtype PInt = PInt Int
@@ -140,7 +142,7 @@ data AppCtx = AppCtx
   { acInbound :: TChan (Routed MessageTo)
   , acOutbound :: TChan (Routed MessageFrom)
   , acJoinChan :: TChan PlayerJoined
-  , acDSLChan :: TChan (SashaLambdaDSL GameState)
+  , acDSLChan :: TChan (Routed (SashaLambdaDSL GameState))
   , acSessions :: MVar (Map SessionId SessionPhase)
   , acKnownPlayers :: MVar (Map PlayerNameVAL (GID Agent))
   , acBuilderCounters :: IORef BuilderCounters

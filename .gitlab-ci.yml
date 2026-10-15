@@ -93,13 +93,13 @@ checks:run-deploy-tests:
     - apps:create-account
     - apps:deploy-dsl
     - packages:hint-ghc
-    - packages:sasha-fake-oidc
     - packages:sasha-server
   script:
     - nix build .#checks.x86_64-linux.run-deploy-tests --no-link --print-build-logs
   stage: test
 checks:run-end-to-end:
   needs:
+    - apps:create-account
     - packages:hint-ghc
     - packages:sasha-e2e-tests
     - packages:sasha-server

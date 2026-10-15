@@ -108,6 +108,10 @@ metadata:
   git commands you do not need them"): neither I nor any agent runs git
   (log, show, tag, status, diff). Versions come from .cabal files, APIs
   from source reads. Every agent prompt states the ban explicitly.
+  STRUCK AGAIN 2026-10-14 (lobby-dsl session, "you were never told to
+  use git"): reasoned from the session-start git status snapshot about
+  which files were tracked. That snapshot is git output; the ban covers
+  it. File facts come from his statements or a file read.
 - SHOW EVERY EDIT (2026-09-27, live-dsl step 7, "dont just say you are
   updating, show me what you are updating as you do it"): before each file
   edit, show the new code in chat (file + the lines being added/replaced),
@@ -148,6 +152,10 @@ metadata:
   is green. A schema change lands in the same step as the code that reads
   it. When a plan's step would leave a check red, weave in the later step
   that makes it green. Never report a red check as acceptable.
+  STRUCK AGAIN 2026-10-14 (lobby-dsl session, "each step must be
+  buildable"): changed loadWorld's signature in one step and left its
+  callers for later steps. A signature change and every caller of it
+  land in the same step.
 - COMMAND NAMES COME FROM flake.nix, QUOTED (2026-09-29, auth-token step
   4, "please stop making things up": told him to run `client-check`,
   which is a flake check, as if it were a shell command): a name I hand
@@ -177,3 +185,31 @@ metadata:
   for the whole session. Stopping to re-ask, or drifting back to a
   behaviour he already corrected, costs him a correction he should never
   have to make twice.
+- A REJECTION STOPS EVERYTHING (2026-10-14, lobby-dsl session, "if i
+  reject something i want you to stop immediately because we would need
+  to discuss rejection. instead you just keep going even if i reject
+  something. this wastes time"): when he rejects an edit at the
+  permission prompt, every writer agent stops, nothing else is written,
+  and the next message is about the rejection. Same session, earlier:
+  "step one passes" is a status report, never an order to start the next
+  step; "show me your proposal" is a request to see text, never approval
+  to write it. A write happens only after he says write.
+- READ A LISTING ONCE, CORRECTLY (2026-10-14, lobby-dsl session, "you
+  already read the directory why do you need to read it twice"): a
+  tree listing's indentation is the fact. Misreading it and re-reading
+  the directory costs a second agent and a wrong proposal.
+- FABLE PLANS, OPUS EXECUTES (2026-10-14, lobby-dsl session, "do you
+  understand your role, stop abusing fable and stick to your role",
+  "have opus run this, you are the planner"): Fable writes specs and
+  plans, and edits cabal, memory and docs. Shell commands, process
+  diagnostics and kills, nix edits, Haskell and .dsl all go to Opus
+  from a spec. Haiku quotes. Fable runs no ps, kill, or file-writing
+  command for code.
+- OPUS MAKES FLAKE EDITS (2026-10-14, lobby-dsl session, "opus makes flake
+  edits", "use opus for this dont abus fable"): flake.nix and other nix
+  edits go to the Opus writer from a spec, like Haskell and .dsl files.
+  Fable writes specs, cabal, memory and docs.
+- DSL FILES ARE OPUS WORK (2026-10-14, same session, "fable does not need
+  to write dsl files. let opus do that"): .dsl files are DSL text and go
+  to the Opus writer with the Haskell. Fable edits cabal, nix, memory,
+  and other non-code files only.

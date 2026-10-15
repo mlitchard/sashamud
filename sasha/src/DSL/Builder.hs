@@ -3,8 +3,11 @@ module DSL.Builder
   , runWorldBuilder
   , initialBuilderState
   , WorldBuilder
-  , WorldBuilderError (InvalidSceneGID, DuplicateSceneGID)
-  , WorldBuilderResult (WorldBuilderResult, resultCounters, resultGameState)
+  , WorldBuilderError (InvalidSceneGID, DuplicateSceneGID, DuplicateObjectGID, UndeclaredSceneLabel, UndeclaredObjectLabel, InvalidObjectGID, MissingNewUserAgent)
+  , WorldBuilderResult (WorldBuilderResult, resultChanges, resultCounters, resultGameState)
+  , WorldChange (SceneCreated, ObjectCreated, SceneModified, ObjectModified, NewUserAgentModified, NewUserRegistered)
+  , worldBuilderErrorText
+  , worldChangeText
   ) where
 
 import           SashaPrelude
@@ -33,8 +36,11 @@ import           Model.Core
   , Agent
   , EntityActionRegistry
   , GameState
+  , Object
+  , ObjectLabel
   , PossibilityGraph (PossibilityGraph, _entityActionEffects, _newUserMkAgent, _newUserStartScene, _witnessMap, _worldOutcomeEffects)
   , Scene (_sceneDescription, _title)
+  , SceneLabel
   , WitnessMap
   , WorldOutcomeRegistry
   , acquisitionActionMap
@@ -42,6 +48,8 @@ import           Model.Core
   , actionMaps
   , agentActionManagement
   , agentWitnessManagement
+  , declaredObjectGIDs
+  , declaredSceneGIDs
   , description
   , directionalStimulusMap
   , divestmentActionMap
@@ -56,10 +64,13 @@ import           Model.Core
   , objectSemanticMap
   , possibilityGraph
   , sceneActionManagement
+  , sceneAgents
   , sceneMap
   , sceneObjects
   , shortName
   , spatialRelationshipMap
+  , unObjectLabel
+  , unSceneLabel
   , unSpatialRelationshipMap
   , witnessMap
   , world
@@ -87,11 +98,27 @@ data BuilderState = BuilderState
   , bsWorldOutcomeRegistry :: WorldOutcomeRegistry
   , bsNewUserStartScene    :: Maybe (GID Scene)
   , bsNewUserMkAgent       :: Maybe (Text -> Agent)
+  , bsChanges              :: [WorldChange]
   }
+
+type WorldChange :: Type
+data WorldChange = SceneCreated (GID Scene)
+                 | ObjectCreated (GID Object)
+                 | SceneModified SceneLabel
+                 | ObjectModified ObjectLabel
+                 | NewUserAgentModified
+                 | NewUserRegistered (GID Scene)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 type WorldBuilderError :: Type
 data WorldBuilderError = InvalidSceneGID (GID Scene) String
                        | DuplicateSceneGID (GID Scene) String
+                       | DuplicateObjectGID (GID Object) String
+                       | UndeclaredSceneLabel SceneLabel
+                       | UndeclaredObjectLabel ObjectLabel
+                       | InvalidObjectGID (GID Object) String
+                       | MissingNewUserAgent
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
@@ -109,6 +136,7 @@ type WorldBuilderResult :: Type
 data WorldBuilderResult = WorldBuilderResult
   { resultGameState :: GameState
   , resultCounters  :: BuilderCounters
+  , resultChanges   :: [WorldChange]
   }
 
 initialBuilderState :: GameState -> BuilderCounters -> BuilderState
@@ -120,17 +148,24 @@ initialBuilderState gs counters = BuilderState
   , bsWorldOutcomeRegistry    = view (possibilityGraph . worldOutcomeEffects) gs
   , bsNewUserStartScene       = view (possibilityGraph . newUserStartScene) gs
   , bsNewUserMkAgent          = view (possibilityGraph . newUserMkAgent) gs
+  , bsChanges                 = []
   }
 
 interpretDSL :: SashaLambdaDSL a -> WorldBuilder a
 interpretDSL (Pure a) = pure a
 interpretDSL (Bind m f) = interpretDSL m >>= (interpretDSL . f)
 
-interpretDSL (DeclareSceneGID _name) = do
+interpretDSL (DeclareSceneGID label) = do
   st <- get
-  let gid = GID (unPInt (view nextSceneId (bsCounters st)))
-  put st { bsCounters = bsCounters st & nextSceneId %~ succPInt }
-  pure gid
+  case lookup label (view (world . declaredSceneGIDs) (bsGameState st)) of
+    Just gid -> pure gid
+    Nothing -> do
+      let gid = GID (unPInt (view nextSceneId (bsCounters st)))
+          gs' = bsGameState st & world . declaredSceneGIDs %~ insert label gid
+      put st { bsCounters  = bsCounters st & nextSceneId %~ succPInt
+             , bsGameState = gs'
+             }
+      pure gid
 
 interpretDSL (RegisterScene gid sceneBuilder) = do
   scene <- interpretDSL sceneBuilder
@@ -138,23 +173,35 @@ interpretDSL (RegisterScene gid sceneBuilder) = do
   when (member gid (view (world . sceneMap . getGIDToDataMap) (bsGameState st))) $
     throwError (DuplicateSceneGID gid "Scene already registered")
   let gs' = bsGameState st & world . sceneMap . getGIDToDataMap %~ insert gid scene
-  put st { bsGameState = gs' }
+  put st { bsGameState = gs'
+         , bsChanges   = bsChanges st <> [SceneCreated gid]
+         }
 
 interpretDSL (Title t scene) = pure scene { _title = t }
 
 interpretDSL (SceneDescription rt scene) = pure scene { _sceneDescription = rt }
 
-interpretDSL DeclareObjectGID = do
+interpretDSL (DeclareObjectGID label) = do
   st <- get
-  let gid = GID (unPInt (view nextObjectId (bsCounters st)))
-  put st { bsCounters = bsCounters st & nextObjectId %~ succPInt }
-  pure gid
+  case lookup label (view (world . declaredObjectGIDs) (bsGameState st)) of
+    Just gid -> pure gid
+    Nothing -> do
+      let gid = GID (unPInt (view nextObjectId (bsCounters st)))
+          gs' = bsGameState st & world . declaredObjectGIDs %~ insert label gid
+      put st { bsCounters  = bsCounters st & nextObjectId %~ succPInt
+             , bsGameState = gs'
+             }
+      pure gid
 
 interpretDSL (RegisterObject gid objBuilder) = do
   obj <- interpretDSL objBuilder
   st <- get
+  when (member gid (view (world . objectMap . getGIDToDataMap) (bsGameState st))) $
+    throwError (DuplicateObjectGID gid "Object already registered")
   let gs' = bsGameState st & world . objectMap . getGIDToDataMap %~ insert gid obj
-  put st { bsGameState = gs' }
+  put st { bsGameState = gs'
+         , bsChanges   = bsChanges st <> [ObjectCreated gid]
+         }
 
 interpretDSL (ShortName text obj) = pure (obj & shortName .~ text)
 
@@ -260,7 +307,46 @@ interpretDSL (NewUser sceneGid mkAgent) = do
   st <- get
   put st { bsNewUserStartScene = Just sceneGid
          , bsNewUserMkAgent    = Just mkAgent
+         , bsChanges           = bsChanges st <> [NewUserRegistered sceneGid]
          }
+
+interpretDSL (ModifyScene label f) = do
+  st <- get
+  case lookup label (view (world . declaredSceneGIDs) (bsGameState st)) of
+    Nothing -> throwError (UndeclaredSceneLabel label)
+    Just gid -> case lookup gid (view (world . sceneMap . getGIDToDataMap) (bsGameState st)) of
+      Nothing -> throwError (InvalidSceneGID gid "Scene not registered")
+      Just stored -> do
+        scene <- interpretDSL (f stored)
+        let kept = scene & sceneAgents .~ view sceneAgents stored
+        st' <- get
+        put st' { bsGameState = bsGameState st' & world . sceneMap . getGIDToDataMap %~ insert gid kept
+                , bsChanges   = bsChanges st' <> [SceneModified label]
+                }
+
+interpretDSL (ModifyObject label f) = do
+  st <- get
+  case lookup label (view (world . declaredObjectGIDs) (bsGameState st)) of
+    Nothing -> throwError (UndeclaredObjectLabel label)
+    Just gid -> case lookup gid (view (world . objectMap . getGIDToDataMap) (bsGameState st)) of
+      Nothing -> throwError (InvalidObjectGID gid "Object not registered")
+      Just stored -> do
+        obj <- interpretDSL (f stored)
+        st' <- get
+        put st' { bsGameState = bsGameState st' & world . objectMap . getGIDToDataMap %~ insert gid obj
+                , bsChanges   = bsChanges st' <> [ObjectModified label]
+                }
+
+interpretDSL (ModifyNewUserAgent f) = do
+  st <- get
+  case bsNewUserMkAgent st of
+    Nothing -> throwError MissingNewUserAgent
+    Just mkAgent -> do
+      mkAgent' <- interpretDSL (f mkAgent)
+      st' <- get
+      put st' { bsNewUserMkAgent = Just mkAgent'
+              , bsChanges        = bsChanges st' <> [NewUserAgentModified]
+              }
 
 interpretDSL FinalizeGameState =
   gets bsGameState
@@ -280,4 +366,22 @@ runWorldBuilder (WorldBuilder builder) initState =
       in Right WorldBuilderResult
            { resultGameState = gs & possibilityGraph .~ pg
            , resultCounters  = bsCounters finalState
+           , resultChanges   = bsChanges finalState
            }
+
+worldChangeText :: WorldChange -> Text
+worldChangeText (SceneCreated gid)      = "Scene created: " <> pack (show gid)
+worldChangeText (ObjectCreated gid)     = "Object created: " <> pack (show gid)
+worldChangeText (SceneModified label)   = "Scene modified: " <> unSceneLabel label
+worldChangeText (ObjectModified label)  = "Object modified: " <> unObjectLabel label
+worldChangeText NewUserAgentModified    = "New user agent modified"
+worldChangeText (NewUserRegistered gid) = "New user registered in " <> pack (show gid)
+
+worldBuilderErrorText :: WorldBuilderError -> Text
+worldBuilderErrorText (InvalidSceneGID gid reason)    = "Invalid scene " <> pack (show gid) <> ": " <> pack reason
+worldBuilderErrorText (DuplicateSceneGID gid reason)  = "Duplicate scene " <> pack (show gid) <> ": " <> pack reason
+worldBuilderErrorText (DuplicateObjectGID gid reason) = "Duplicate object " <> pack (show gid) <> ": " <> pack reason
+worldBuilderErrorText (UndeclaredSceneLabel label)    = "Undeclared scene label: " <> unSceneLabel label
+worldBuilderErrorText (UndeclaredObjectLabel label)   = "Undeclared object label: " <> unObjectLabel label
+worldBuilderErrorText (InvalidObjectGID gid reason)   = "Invalid object " <> pack (show gid) <> ": " <> pack reason
+worldBuilderErrorText MissingNewUserAgent             = "No new user agent to modify"

@@ -77,6 +77,7 @@ library
     Server.Migration
     Server.Server
     Server.Validator
+    Server.World
 
   build-depends:
     , aeson
@@ -87,6 +88,7 @@ library
     , containers
     , crypton
     , deepseq
+    , directory
     , generic-arbitrary
     , hashable
     , hint
@@ -173,6 +175,7 @@ executable sasha-tests
     Server.Migration
     Server.Server
     Server.Validator
+    Server.World
 
   build-depends:
     , aeson
@@ -183,6 +186,7 @@ executable sasha-tests
     , containers
     , crypton
     , deepseq
+    , directory
     , generic-arbitrary
     , hashable
     , hint

@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds   #-}
+{-# LANGUAGE LambdaCase  #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
@@ -13,13 +14,14 @@ import           SashaPrelude
   , Maybe (Just, Nothing)
   , Show (show)
   , Text
+  , any
   , elem
   , fmap
+  , forM_
   , fromMaybe
   , not
   , pack
   , pure
-  , stderr
   , ($)
   , (.)
   , (<>)
@@ -32,14 +34,17 @@ import           API.Types
   , SessionId (SessionId)
   )
 import           Control.Concurrent (readMVar, threadDelay)
-import           Control.Concurrent.Async (async, cancel, race_)
+import           Control.Concurrent.Async (async, cancel, race_, wait)
 import           Control.Exception (SomeException, finally, try)
+import           Control.Monad.Trans.Reader (runReaderT)
+import qualified Data.ByteString (readFile)
 import qualified Data.ByteString.Char8 (pack)
 import           Data.ByteString.Lazy (null)
 import           Data.List (lookup)
 import           Data.Map.Strict (member)
+import qualified Data.Map.Strict (lookup)
 import           Data.Pool (defaultPoolConfig, newPool, withResource)
-import           Data.Text (isPrefixOf, stripPrefix, unlines)
+import           Data.Text (isInfixOf, isPrefixOf, stripPrefix, unlines)
 import           Data.Text.Encoding (decodeUtf8', encodeUtf8)
 import           Data.Time.Clock (secondsToNominalDiffTime)
 import           Database.PostgreSQL.Simple
@@ -56,7 +61,12 @@ import           Database.PostgreSQL.Simple.Migration
   , runMigrations
   )
 import           Database.PostgreSQL.Simple.SqlQQ (sql)
-import           DSL.Builder (WorldBuilderResult (resultCounters))
+import           DSL.Builder
+  ( WorldBuilderError (UndeclaredSceneLabel)
+  , WorldChange (ObjectModified, SceneModified)
+  , worldBuilderErrorText
+  , worldChangeText
+  )
 import           Engine.Simulation.SignalNetwork (gameLoop)
 import           FakeProvider
   ( fakeApp
@@ -76,14 +86,20 @@ import           Model.Account
   , StartMode (StartCreate, StartLogin)
   )
 import           Model.Authorization (RoleName (Player, Wizard))
-import           Model.Core (actionConsequence, presenceListing)
+import           Model.Core
+  ( ObjectLabel (ObjectLabel)
+  , SceneLabel (SceneLabel)
+  , actionConsequence
+  , defaultGameState
+  , presenceListing
+  )
 import           Model.Jwt
   ( Credentials (Credentials)
   , Jwt (unJwt)
   , hashToken
   , makeJwtForTesting
   )
-import           Model.RichText (toPlainText)
+import           Model.RichText (plain, toPlainText)
 import           Model.WireProtocol
   ( MessageFrom (GameNarration, Pong, SystemMessage)
   )
@@ -104,7 +120,6 @@ import           Network.WebSockets
   , runClientWith
   , sendTextData
   )
-import           SashaMudWorld (buildResult, gameState)
 import           Servant
   ( AuthProtect
   , NoContent (NoContent)
@@ -131,17 +146,31 @@ import           Servant.Client.Core
   , addHeader
   , mkAuthenticatedRequest
   )
+import           Servant.Server.Internal.Handler (runHandler)
 import           Server.App
-  ( AppCtx (acDbPool, acKnownPlayers, acSessions)
-  , GameLog (GameLog)
+  ( AppCtx (acDbPool, acGameLog, acKnownPlayers, acSessions)
+  , AppM (unAppM)
+  , GameLog (GameLog, logPath)
   , OidcConfig (OidcConfig)
+  , SessionPhase (SessionPhase)
+  , SessionState (AwaitingJoin, AwaitingSocket, InGame)
+  , initialCounters
   , newAppCtx
   )
 import           Server.Authentication (CanDo)
+import           Server.Log (LogEntry (DSLBuildSucceeded))
 import           Server.Migration (buildCommand)
 import           Server.Server (app, deliverOutbound)
 import           Server.Validator (PlayerNameVAL (PlayerNameVAL))
+import           Server.World (mintBootstrapToken, worldPrograms)
+import           System.Directory (getTemporaryDirectory)
 import           System.Environment (lookupEnv)
+import           System.IO
+  ( BufferMode (LineBuffering)
+  , hClose
+  , hSetBuffering
+  , openTempFile
+  )
 import           System.Timeout (timeout)
 import           Test.Hspec
   ( Spec
@@ -195,7 +224,10 @@ testClientEnv = do
 
 withTestServer :: ((Int, AppCtx) -> IO ()) -> IO ()
 withTestServer action = do
-  let logCfg = GameLog stderr
+  tmpDir <- getTemporaryDirectory
+  (logFilePath, logFileHandle) <- openTempFile tmpDir "sashamud-integration.log"
+  hSetBuffering logFileHandle LineBuffering
+  let logCfg = GameLog logFileHandle (Just logFilePath)
   connStr <- fmap (fromMaybe "dbname=sashamud") (lookupEnv "SASHA_DB_CONNSTR")
   migrationsDir <- fmap (fromMaybe "migrations") (lookupEnv "SASHA_MIGRATIONS_DIR")
   pool <- newPool (defaultPoolConfig (connectPostgreSQL (Data.ByteString.Char8.pack connStr)) close 60 10)
@@ -203,17 +235,40 @@ withTestServer action = do
   migrated `shouldBe` MigrationSuccess
   manager <- newManager defaultManagerSettings
   fakeState <- newFakeState
-  let oidcConfig = OidcConfig
-        (OidcBaseUrl ("http://127.0.0.1:" <> pack (show fakePort)))
-        (ClientId "sashamud")
-        (ClientSecret "sashamud-dev")
-        (RedirectUri ("http://127.0.0.1:" <> pack (show testPort) <> "/api/auth/callback"))
-  ctx <- newAppCtx logCfg pool oidcConfig manager (resultCounters buildResult)
-  serverThread <- async $ race_
-    (race_ (gameLoop ctx gameState) (deliverOutbound ctx))
-    (race_ (run testPort (app ctx)) (run fakePort (fakeApp fakeState)))
-  threadDelay 500000
-  action (testPort, ctx) `finally` cancel serverThread
+  worldDir <- lookupEnv "SASHA_WORLD_DIR"
+  case worldDir of
+    Nothing -> expectationFailure "SASHA_WORLD_DIR unset"
+    Just dir -> do
+      let oidcConfig = OidcConfig
+            (OidcBaseUrl ("http://127.0.0.1:" <> pack (show fakePort)))
+            (ClientId "sashamud")
+            (ClientSecret "sashamud-dev")
+            (RedirectUri ("http://127.0.0.1:" <> pack (show testPort) <> "/api/auth/callback"))
+      ctx <- newAppCtx logCfg pool oidcConfig manager initialCounters
+      serverThread <- async $ race_
+        (race_ (gameLoop ctx defaultGameState) (deliverOutbound ctx))
+        (race_ (run testPort (app ctx)) (run fakePort (fakeApp fakeState)))
+      threadDelay 500000
+      (do
+          sid <- loginAs ctx Wizard "Bootstrap"
+          env <- testClientEnv
+          paths <- worldPrograms dir
+          forM_ paths $ \path -> do
+            bytes <- Data.ByteString.readFile path
+            case decodeUtf8' bytes of
+              Left err -> expectationFailure ("lobby file is not UTF-8: " <> path <> " " <> show err)
+              Right source -> do
+                delivered <- runClientM (dslClient (makeAuthRequest sid) (DSLSource source)) env
+                case delivered of
+                  Left err        -> expectationFailure ("lobby delivery failed: " <> show err)
+                  Right NoContent -> pure ()
+          threadDelay 6000000
+          loggedOut <- runClientM (logoutClient (makeAuthRequest sid)) env
+          case loggedOut of
+            Left err        -> expectationFailure ("bootstrap logout failed: " <> show err)
+            Right NoContent -> pure ()
+          action (testPort, ctx))
+        `finally` cancel serverThread
 
 loginAs :: AppCtx -> RoleName -> Text -> IO SessionId
 loginAs ctx role name = do
@@ -318,9 +373,9 @@ spec = describe "Integration" . around withTestServer $ do
     sid1 <- loginAs ctx Wizard "Twice"
     manager <- newManager defaultManagerSettings
     sid2 <- loginThroughFake manager testPort "Twice"
-    first <- runClientM (dslClient (makeAuthRequest sid1) (DSLSource worldSource)) env
+    first <- runClientM (dslClient (makeAuthRequest sid1) (DSLSource studySource)) env
     isErrorCode 401 first `shouldBe` True
-    second <- runClientM (dslClient (makeAuthRequest sid2) (DSLSource worldSource)) env
+    second <- runClientM (dslClient (makeAuthRequest sid2) (DSLSource studySource)) env
     second `shouldBe` Right NoContent
 
   it "an expired token is rejected" $ \(_port, ctx) -> do
@@ -338,14 +393,14 @@ spec = describe "Integration" . around withTestServer $ do
         case decodeUtf8' (unJwt jwt) of
           Left _ -> expectationFailure "minted token is not UTF-8"
           Right token -> do
-            result <- runClientM (dslClient (makeAuthRequest (SessionId token)) (DSLSource worldSource)) env
+            result <- runClientM (dslClient (makeAuthRequest (SessionId token)) (DSLSource studySource)) env
             isErrorCode 401 result `shouldBe` True
 
   it "logout stops the token working" $ \(_port, ctx) -> do
     env <- testClientEnv
     sid <- loginAs ctx Wizard "LoggedOut"
     _ <- runClientM (logoutClient (makeAuthRequest sid)) env
-    result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource worldSource)) env
+    result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource studySource)) env
     isErrorCode 401 result `shouldBe` True
 
   it "invalid token on WebSocket connect is rejected" $ \(_port, _ctx) -> do
@@ -513,7 +568,7 @@ spec = describe "Integration" . around withTestServer $ do
 
   it "POST /api/game/dsl with unknown token returns 401" $ \(_port, _ctx) -> do
     env <- testClientEnv
-    result <- runClientM (dslClient (makeAuthRequest (SessionId "unknown")) (DSLSource worldSource)) env
+    result <- runClientM (dslClient (makeAuthRequest (SessionId "unknown")) (DSLSource studySource)) env
     isErrorCode 401 result `shouldBe` True
 
   it "POST /api/game/dsl with bad source returns 400 with an error body" $ \(_port, ctx) -> do
@@ -528,7 +583,7 @@ spec = describe "Integration" . around withTestServer $ do
   it "POST /api/game/dsl by a player without dsl/create returns 403" $ \(_port, ctx) -> do
     env <- testClientEnv
     sid <- loginAs ctx Player "Peasant"
-    result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource worldSource)) env
+    result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource studySource)) env
     isErrorCode 403 result `shouldBe` True
 
   it "GET /api/auth/available answers 204 for a free name" $ \(_port, _ctx) -> do
@@ -586,13 +641,13 @@ spec = describe "Integration" . around withTestServer $ do
     case stripPrefix "/#token=" final of
       Nothing -> expectationFailure ("expected a token, got " <> show final)
       Just token -> do
-        result <- runClientM (dslClient (makeAuthRequest (SessionId token)) (DSLSource worldSource)) env
+        result <- runClientM (dslClient (makeAuthRequest (SessionId token)) (DSLSource studySource)) env
         result `shouldBe` Right NoContent
 
   it "POST /api/game/dsl with the world source returns NoContent" $ \(_port, ctx) -> do
     env <- testClientEnv
     sid <- loginAs ctx Wizard "Wizard"
-    result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource worldSource)) env
+    result <- runClientM (dslClient (makeAuthRequest sid) (DSLSource studySource)) env
     result `shouldBe` Right NoContent
 
   it "a delivered submission appears in look after DSLTick" $ \(_port, ctx) -> do
@@ -608,91 +663,140 @@ spec = describe "Integration" . around withTestServer $ do
         Nothing -> expectationFailure "look did not list the delivered cup"
         Just _  -> pure ()
 
-worldSource :: Text
-worldSource = unlines
-  [ "let"
-  , "  buildLobby :: ActionManagement -> ActionManagement -> SashaLambdaDSL Scene"
-  , "  buildLobby sceneLookKey sceneLookAtKey ="
-  , "    defaultScene"
-  , "      & (title \"the lobby\" `andThen`"
-  , "         sceneDescriptionRich (colored White \"A spacious lobby with high ceilings.\") `andThen`"
-  , "         flip sceneBehavior sceneLookKey `andThen`"
-  , "         flip sceneBehavior sceneLookAtKey)"
-  , ""
-  , "  buildFloor :: ActionManagement -> SashaLambdaDSL Object"
-  , "  buildFloor lookAtKey ="
-  , "    defaultObject"
-  , "      & (shortName \"floor\" `andThen`"
-  , "         description (colored White \"A plain stone floor.\") `andThen`"
-  , "         flip objectBehavior lookAtKey)"
-  , ""
-  , "  buildBall :: ActionManagement -> SashaLambdaDSL Object"
-  , "  buildBall lookAtKey ="
-  , "    defaultObject"
-  , "      & (shortName \"ball\" `andThen`"
-  , "         description (colored White \"A small red ball.\") `andThen`"
-  , "         flip objectBehavior lookAtKey)"
-  , ""
-  , "  defaultDenizen :: Text -> Agent"
-  , "  defaultDenizen playerName = Agent"
-  , "    { _agentShortName         = plain playerName"
-  , "    , _agentDescription       = colored White \"A player.\""
-  , "    , _agentTitle             = mempty"
-  , "    , _agentActionManagement  = ActionManagementFunctions mempty"
-  , "    , _agentWitnessManagement = mempty"
-  , "    , _agentKind              = Denizen"
-  , "    }"
-  , "in do"
-  , "  lobbyGID      <- declareSceneGID \"lobby\""
-  , ""
-  , "  sceneLookGID  <- declareImplicitStimulusGID lookF"
-  , "  playerLookGID <- declareImplicitStimulusGID lookF"
-  , "  sceneLookKey  <- createISAManagement isaLook sceneLookGID"
-  , "  playerLookKey <- createISAManagement isaLook playerLookGID"
-  , ""
-  , "  sceneLookAtGID  <- declareDirectionalStimulusGID lookAtF"
-  , "  playerLookAtGID <- declareDirectionalStimulusGID lookAtF"
-  , "  floorLookAtGID  <- declareDirectionalStimulusGID lookAtF"
-  , "  ballLookAtGID   <- declareDirectionalStimulusGID lookAtF"
-  , "  sceneLookAtKey  <- createDSAManagement dsaLook sceneLookAtGID"
-  , "  playerLookAtKey <- createDSAManagement dsaLook playerLookAtGID"
-  , "  floorLookAtKey  <- createDSAManagement dsaLook floorLookAtGID"
-  , "  ballLookAtKey   <- createDSAManagement dsaLook ballLookAtGID"
-  , ""
-  , "  witnessGID <- declareWitnessGID witnessF"
-  , ""
-  , "  floorGID <- declareObjectGID"
-  , "  ballGID  <- declareObjectGID"
-  , ""
-  , "  registerObject floorGID (buildFloor floorLookAtKey)"
-  , "  registerObject ballGID  (buildBall ballLookAtKey)"
-  , ""
-  , "  registerObjectToScene lobbyGID floorGID \"FLOOR\""
-  , "  registerObjectToScene lobbyGID ballGID  \"BALL\""
-  , ""
-  , "  registerSpatial (EntityObject ballGID)  (SupportedBy (EntityObject floorGID))"
-  , "  registerSpatial (EntityObject floorGID) (Supports (Data.Set.singleton (EntityObject ballGID)))"
-  , ""
-  , "  registerScene lobbyGID (buildLobby sceneLookKey sceneLookAtKey)"
-  , ""
-  , "  denizen       <- playerBehavior defaultDenizen playerLookKey"
-  , "  denizen'      <- playerBehavior denizen playerLookAtKey"
-  , "  w1            <- witnessBehavior denizen' (ImplicitStimulusKey isaLook) witnessGID"
-  , "  w2            <- witnessBehavior w1 (DirectionalStimulusKey dsaLook) witnessGID"
-  , "  newUser lobbyGID w2"
-  , ""
-  , "  linkWorldOutcomeEffect (ImplicitStimulusActionKey sceneLookGID) (NarrationEffect LookNarration)"
-  , "  linkWorldOutcomeEffect (DirectionalStimulusActionKey ballLookAtGID) (NarrationEffect (LookAtNarration ballGID))"
-  , "  linkWorldOutcomeEffect (DirectionalStimulusActionKey floorLookAtGID) (NarrationEffect (LookAtNarration floorGID))"
-  , "  finalizeGameState"
-  ]
+  it "an amended scene keeps its players and shows the new description" $ \(_port, ctx) -> do
+    env <- testClientEnv
+    standingSid <- loginAs ctx Wizard "Standing"
+    connectWS standingSid $ \conn -> do
+      joined <- receiveUntil conn 10000000 (\case
+        GameNarration _ -> True
+        _               -> False)
+      case joined of
+        Nothing -> expectationFailure "no join narration"
+        Just _  -> do
+          wizardSid <- loginAs ctx Wizard "Amender"
+          posted <- runClientM (dslClient (makeAuthRequest wizardSid) (DSLSource amendSource)) env
+          posted `shouldBe` Right NoContent
+          threadDelay 6000000
+          sendTextData conn (GameCommand "look")
+          narr <- receiveUntil conn 10000000 (seesObjects "A spacious lobby with a freshly polished floor.")
+          case narr of
+            Nothing -> expectationFailure "look did not show the amended lobby"
+            Just _  -> pure ()
+
+  it "the submitter receives the list of changes" $ \(_port, ctx) -> do
+    env <- testClientEnv
+    sid <- loginAs ctx Wizard "Reporter"
+    connectWS sid $ \conn -> do
+      joined <- receiveUntil conn 10000000 (\case
+        GameNarration _ -> True
+        _               -> False)
+      case joined of
+        Nothing -> expectationFailure "no join narration"
+        Just _  -> do
+          posted <- runClientM (dslClient (makeAuthRequest sid) (DSLSource amendSource)) env
+          posted `shouldBe` Right NoContent
+          report <- receiveUntil conn 10000000 (\case
+            GameNarration narr ->
+              view actionConsequence narr
+                == fmap (plain . worldChangeText)
+                     [SceneModified (SceneLabel "lobby"), ObjectModified (ObjectLabel "ball")]
+            _ -> False)
+          case report of
+            Nothing -> expectationFailure "no change report on the submitter's socket"
+            Just _  -> pure ()
+
+  it "the submitter receives the build error" $ \(_port, ctx) -> do
+    env <- testClientEnv
+    sid <- loginAs ctx Wizard "Reporter"
+    connectWS sid $ \conn -> do
+      joined <- receiveUntil conn 10000000 (\case
+        GameNarration _ -> True
+        _               -> False)
+      case joined of
+        Nothing -> expectationFailure "no join narration"
+        Just _  -> do
+          posted <- runClientM (dslClient (makeAuthRequest sid) (DSLSource failSource)) env
+          posted `shouldBe` Right NoContent
+          report <- receiveUntil conn 10000000
+            (seesObjects (worldBuilderErrorText (UndeclaredSceneLabel (SceneLabel "nowhere"))))
+          case report of
+            Nothing -> expectationFailure "no error report on the submitter's socket"
+            Just _  -> pure ()
+
+  it "a bystander receives no report" $ \(_port, ctx) -> do
+    env <- testClientEnv
+    bystanderSid <- loginAs ctx Wizard "Bystander"
+    connectWS bystanderSid $ \conn -> do
+      joined <- receiveUntil conn 10000000 (\case
+        GameNarration _ -> True
+        _               -> False)
+      case joined of
+        Nothing -> expectationFailure "no join narration"
+        Just _  -> do
+          reporterSid <- loginAs ctx Wizard "Reporter"
+          posted <- runClientM (dslClient (makeAuthRequest reporterSid) (DSLSource amendSource)) env
+          posted `shouldBe` Right NoContent
+          leaked <- receiveUntil conn 8000000 (\case
+            GameNarration narr ->
+              any ((\line -> line `elem` fmap toPlainText (view actionConsequence narr)) . worldChangeText)
+                [SceneModified (SceneLabel "lobby"), ObjectModified (ObjectLabel "ball")]
+            _ -> False)
+          leaked `shouldBe` Nothing
+
+  it "the game log records the successful build" $ \(_port, ctx) -> do
+    env <- testClientEnv
+    sid <- loginAs ctx Wizard "Reporter"
+    posted <- runClientM (dslClient (makeAuthRequest sid) (DSLSource amendSource)) env
+    posted `shouldBe` Right NoContent
+    threadDelay 6000000
+    case logPath (acGameLog ctx) of
+      Nothing -> expectationFailure "test server has no log file"
+      Just path -> do
+        bytes <- Data.ByteString.readFile path
+        case decodeUtf8' bytes of
+          Left err -> expectationFailure ("log is not UTF-8: " <> show err)
+          Right logText ->
+            logText `shouldSatisfy` isInfixOf (pack (show (DSLBuildSucceeded
+              [SceneModified (SceneLabel "lobby"), ObjectModified (ObjectLabel "ball")])))
+
+  it "the bootstrap mint waits for the account and writes a working five-minute token" $ \(_port, ctx) -> do
+    tmpDir <- getTemporaryDirectory
+    (tokenPath, tokenHandle) <- openTempFile tmpDir "bootstrap-token"
+    hClose tokenHandle
+    minting <- async (runHandler (runReaderT (unAppM (mintBootstrapToken (PlayerNameVAL "Minted") tokenPath)) ctx))
+    threadDelay 1500000
+    seedAccount (acDbPool ctx) Wizard (PlayerNameVAL "Minted")
+    minted <- wait minting
+    case minted of
+      Left err -> expectationFailure ("mint failed: " <> show err)
+      Right () -> do
+        bytes <- Data.ByteString.readFile tokenPath
+        case decodeUtf8' bytes of
+          Left err -> expectationFailure ("token file is not UTF-8: " <> show err)
+          Right token -> do
+            sessions <- readMVar (acSessions ctx)
+            case Data.Map.Strict.lookup (SessionId token) sessions of
+              Nothing -> expectationFailure "mint inserted no session"
+              Just (SessionPhase name _ AwaitingSocket) -> name `shouldBe` PlayerNameVAL "Minted"
+              Just (SessionPhase _ _ (AwaitingJoin _)) -> expectationFailure "session is past AwaitingSocket"
+              Just (SessionPhase _ _ (InGame _)) -> expectationFailure "session is past AwaitingSocket"
+            env <- testClientEnv
+            posted <- runClientM (dslClient (makeAuthRequest (SessionId token)) (DSLSource studySource)) env
+            posted `shouldBe` Right NoContent
+            rows <- withResource (acDbPool ctx) $ \conn ->
+              query conn [sql| SELECT expires_at - created = interval '5 minutes' FROM tokens JOIN credentials ON credentials.user_id = tokens.user_id WHERE credentials.player_name = ? |] (Only ("Minted" :: Text))
+            case rows of
+              [Only fiveMinutes] -> (fiveMinutes :: Bool) `shouldBe` True
+              _                  -> expectationFailure "expected one token row for Minted"
+            loggedOut <- runClientM (logoutClient (makeAuthRequest (SessionId token))) env
+            loggedOut `shouldBe` Right NoContent
 
 studySource :: Text
 studySource = unlines
   [ "do"
-  , "  studyGID <- declareSceneGID \"study\""
-  , "  tableGID <- declareObjectGID"
-  , "  cupGID   <- declareObjectGID"
+  , "  studyGID <- declareSceneGID (SceneLabel \"study\")"
+  , "  tableGID <- declareObjectGID (ObjectLabel \"table\")"
+  , "  cupGID   <- declareObjectGID (ObjectLabel \"cup\")"
   , "  registerObject tableGID (defaultObject & shortName \"table\")"
   , "  registerObject cupGID   (defaultObject & shortName \"cup\")"
   , "  registerObjectToScene studyGID tableGID \"TABLE\""
@@ -700,5 +804,20 @@ studySource = unlines
   , "  registerSpatial (EntityObject cupGID)   (SupportedBy (EntityObject tableGID))"
   , "  registerSpatial (EntityObject tableGID) (Supports (Data.Set.singleton (EntityObject cupGID)))"
   , "  registerScene studyGID (defaultScene & title \"the study\")"
+  , "  finalizeGameState"
+  ]
+
+amendSource :: Text
+amendSource = unlines
+  [ "do"
+  , "  modifyScene (SceneLabel \"lobby\") (sceneDescriptionRich (colored White \"A spacious lobby with a freshly polished floor.\"))"
+  , "  modifyObject (ObjectLabel \"ball\") (description (colored White \"A small blue ball.\"))"
+  , "  finalizeGameState"
+  ]
+
+failSource :: Text
+failSource = unlines
+  [ "do"
+  , "  modifyScene (SceneLabel \"nowhere\") (title \"nowhere\")"
   , "  finalizeGameState"
   ]
