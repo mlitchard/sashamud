@@ -15,7 +15,8 @@ apps:create-account:
     - nix build .#apps.x86_64-linux.create-account.program --no-link --print-build-logs 2>/dev/null || nix build --no-link --print-build-logs "$(nix eval --raw --impure --expr 'builtins.head (builtins.attrNames (builtins.getContext (builtins.getFlake (toString ./.)).apps.x86_64-linux.create-account.program))')"
   stage: build
 apps:deploy-dsl:
-  needs: []
+  needs:
+    - packages:deploy-dsl
   script:
     - nix build .#apps.x86_64-linux.deploy-dsl.program --no-link --print-build-logs 2>/dev/null || nix build --no-link --print-build-logs "$(nix eval --raw --impure --expr 'builtins.head (builtins.attrNames (builtins.getContext (builtins.getFlake (toString ./.)).apps.x86_64-linux.deploy-dsl.program))')"
   stage: build
@@ -91,7 +92,7 @@ checks:nix-formatting:
 checks:run-deploy-tests:
   needs:
     - apps:create-account
-    - apps:deploy-dsl
+    - packages:deploy-dsl
     - packages:hint-ghc
     - packages:sasha-server
   script:
@@ -166,6 +167,11 @@ nixosConfigurations:authentik-local:
   needs: []
   script:
     - nixos-rebuild build --flake .#authentik-local -L
+  stage: build
+packages:deploy-dsl:
+  needs: []
+  script:
+    - nix build .#packages.x86_64-linux.deploy-dsl --no-link --print-build-logs
   stage: build
 packages:grammar-tests:
   needs: []
