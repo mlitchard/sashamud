@@ -34,7 +34,11 @@
       "Bash(nix eval *)",
       "Bash(ssh *)",
       "Read(//home/mlitchard/gitlab/sasha/**)",
-      "WebFetch(domain:huggingface.co)"
+      "WebFetch(domain:huggingface.co)",
+      "WebFetch(domain:pub.towardsai.net)",
+      "WebFetch(domain:www.simplified.guide)",
+      "Bash(curl -s 'https://huggingface.co/api/models/unsloth/Qwen3-1.7B-GGUF?blobs=true')",
+      "WebFetch(domain:markaicode.com)"
     ]
   },
   "hooks": {
