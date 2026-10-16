@@ -17,6 +17,7 @@ Players in the lobby can "get the red ball" and "drop the red ball". World conte
 - One adjective per phrase for now. An adjective with a noun names exactly one object in the world: there is one "red ball". "big red ball" comes later (user, 2026-10-15).
 - Lookup uses _descriptives only. _shortName and _description are display text and take no part in lookup (user, 2026-10-16; old code: sasha-engine/src/GameState/Spatial.hs:80-95 reads descriptives).
 - Pattern-match cleanup included in this plan (user, 2026-10-16).
+- Ball changes go in the existing world files; no new .dsl file (user, 2026-10-16).
 
 ## What exists today
 
@@ -38,7 +39,7 @@ Players in the lobby can "get the red ball" and "drop the red ball". World conte
 ## Decisions
 
 1. How RED reaches the live server: RULED A (user, 2026-10-15). A server release carries RED. The DSL deploy carries the world content.
-2. DSL content: RULED (user, 2026-10-16). modifyObject (ObjectLabel "ball") sets shortName "red ball", description "a red ball that you can get and drop", and the descriptive "red ball". File in sashamud-world/src/2/Lobby/.
+2. DSL content: RULED (user, 2026-10-16). modifyObject (ObjectLabel "ball") sets shortName "red ball", description "a red ball that you can get and drop", and the descriptive "red ball". These go in buildBall in sashamud-world/src/2/Lobby/3-ball.dsl (user, 2026-10-16).
 3. Tests: RULED (user, 2026-10-16). LoginLogoutSpec, two players, in step 4.
 4. Adjective filter: RULED (user, 2026-10-15). Predicate `objectMatchesAdjective`, used by `findMatchingObject :: Adjective -> [GID Object] -> GameComputation Identity (Maybe (GID Object))` via `filterM`, after old sasha-engine/src/GameState/Spatial.hs findMatchingObject.
 5. Duplicate descriptives: RULED (user, 2026-10-15). The builder rejects a second object given a descriptive another object already holds.
@@ -73,18 +74,10 @@ Step rule: every step builds and is green on its own. Any fix a step needs, incl
    - With one adjective naming one object, the filter yields one object or none. "Which …?" remains for the bare-noun case.
 4. World DSL (Opus):
    - sashamud-world/src/2/Lobby/4-get-drop-ball.dsl lines 17-18: the StaticNarration texts become "You pick up the red ball." and "You drop the red ball."
-   - New file sashamud-world/src/2/Lobby/5-red-ball.dsl:
-     ```haskell
-     do
-       modifyObject (ObjectLabel "ball")
-         (shortName "red ball" `andThen`
-          description (colored White "a red ball that you can get and drop") `andThen`
-          descriptive (DescriptiveNounPhrase red ballDS))
-       finalizeGameState
-     ```
+   - sashamud-world/src/2/Lobby/3-ball.dsl buildBall: shortName "red ball", description (colored White "a red ball that you can get and drop"), and descriptive (DescriptiveNounPhrase red ballDS), before `flip objectBehavior lookAtKey`.
    - LoginLogoutSpec: the existing get/drop test's expected text becomes "You pick up the red ball." / "<first> picks up the red ball." / "You drop the red ball." / "<first> drops the red ball."
    - New test in LoginLogoutSpec, same two-player shape: the first player sends "get the red ball" and receives "You pick up the red ball."; the second receives "<first> picks up the red ball.". The first sends "drop the red ball" and receives "You drop the red ball."; the second receives "<first> drops the red ball.".
-   - Delivered with `nix run .#deploy-dsl -- live sashamud-world/src/2/Lobby/5-red-ball.dsl` after the server release carries steps 1-3.
+   - The world file changes reach the live server with the server release (Decision 10).
 
 5. Pattern-match cleanup (Opus), independent of steps 1-4:
    - sasha/src/Engine/Simulation/SignalNetwork.hs :174, :251, :383-386, :417: replace the sessionGid projection-and-test with a match on `SessionPhase _ gid (InGame _)`.
