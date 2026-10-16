@@ -125,6 +125,10 @@ metadata:
   code"): documentation over deduction means local sources only — old
   code, sanctioned checkouts, his stated facts. No WebFetch, no WebSearch,
   no Hackage. Unknown = say unknown and ask him.
+  REFINED 2026-10-16 (get-the-red-ball session): web lookups are blocked for
+  me and every agent. When no other source exists, ask his permission first
+  and name what the lookup is for; a hook puts each web call to him as a
+  permission prompt.
 - NO SWEEPING HIS OTHER REPOS (2026-09-28, auth steps 1-3, "you keep
   wanting to search mlitchard and mlitchard/gitlab for no reason"): when
   a plan names a library or tool with no pattern in quux, sashamud, or
@@ -205,6 +209,14 @@ metadata:
   "step one passes" is a status report, never an order to start the next
   step; "show me your proposal" is a request to see text, never approval
   to write it. A write happens only after he says write.
+  STRUCK AGAIN 2026-10-16 (get-the-red-ball session, "if I reject stop
+  immeddiatly to discuss", "all agents all models"): when he rejects a
+  proposal or an edit, all work stops at once: mine, and every running agent
+  of every type and model (Opus, Sonnet, Haiku, quote-source, Explore,
+  claude-code-guide, all of them). Nothing more is written or looked up. The
+  next message is about the rejection. Every agent prompt carries: "If any
+  edit or proposal is rejected, stop at once, make no further edits, and
+  report the rejection."
 - READ A LISTING ONCE, CORRECTLY (2026-10-14, lobby-dsl session, "you
   already read the directory why do you need to read it twice"): a
   tree listing's indentation is the fact. Misreading it and re-reading
