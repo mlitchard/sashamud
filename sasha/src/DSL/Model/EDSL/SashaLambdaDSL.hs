@@ -14,6 +14,7 @@ module DSL.Model.EDSL.SashaLambdaDSL
   , declareSceneGID
   , declareWitnessGID
   , description
+  , descriptive
   , finalizeGameState
   , linkEntityActionEffect
   , linkWorldOutcomeEffect
@@ -38,12 +39,14 @@ module DSL.Model.EDSL.SashaLambdaDSL
 
 import           SashaPrelude hiding (map)
 
+import           Grammar.Parser.Atomics.Nouns (DirectionalStimulus)
 import           Grammar.Parser.Atomics.Verbs
   ( AcquisitionVerb
   , DirectionalStimulusVerb
   , DivestmentVerb
   , ImplicitStimulusVerb
   )
+import           Grammar.Parser.Composites.Nouns (NounPhrase)
 import           Grammar.Parser.GCase (VerbKey)
 import           Model.Core
   ( AcquisitionF
@@ -79,6 +82,7 @@ data SashaLambdaDSL a where Pure :: a -> SashaLambdaDSL a
                             RegisterObject :: GID Object -> SashaLambdaDSL Object -> SashaLambdaDSL ()
                             ShortName :: Text -> Object -> SashaLambdaDSL Object
                             Description :: RichText -> Object -> SashaLambdaDSL Object
+                            Descriptive :: NounPhrase DirectionalStimulus -> Object -> SashaLambdaDSL Object
                             ObjectBehavior :: Object -> ActionManagement -> SashaLambdaDSL Object
                             RegisterObjectToScene :: GID Scene -> GID Object -> Text -> SashaLambdaDSL ()
                             RegisterSpatial :: EntityID -> SpatialRelationship -> SashaLambdaDSL ()
@@ -139,6 +143,9 @@ shortName = ShortName
 
 description :: RichText -> Object -> SashaLambdaDSL Object
 description = Description
+
+descriptive :: NounPhrase DirectionalStimulus -> Object -> SashaLambdaDSL Object
+descriptive = Descriptive
 
 objectBehavior :: Object -> ActionManagement -> SashaLambdaDSL Object
 objectBehavior = ObjectBehavior

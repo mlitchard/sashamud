@@ -3,7 +3,7 @@ module DSL.Builder
   , runWorldBuilder
   , initialBuilderState
   , WorldBuilder
-  , WorldBuilderError (InvalidSceneGID, DuplicateSceneGID, DuplicateObjectGID, UndeclaredSceneLabel, UndeclaredObjectLabel, InvalidObjectGID, MissingNewUserAgent)
+  , WorldBuilderError (InvalidSceneGID, DuplicateSceneGID, DuplicateObjectGID, UndeclaredSceneLabel, UndeclaredObjectLabel, InvalidObjectGID, DuplicateDescriptive, MissingNewUserAgent)
   , WorldBuilderResult (WorldBuilderResult, resultChanges, resultCounters, resultGameState)
   , WorldChange (SceneCreated, ObjectCreated, SceneModified, ObjectModified, NewUserAgentModified, NewUserRegistered)
   , worldBuilderErrorText
@@ -28,8 +28,14 @@ import           Control.Monad.State
   , runState
   )
 import           Data.Map.Strict (insert, lookup, member)
-import qualified Data.Set (insert)
+import qualified Data.Set (insert, member)
 import           DSL.Model.EDSL.SashaLambdaDSL (SashaLambdaDSL (..))
+import           Grammar.Parser.Atomics.Semantics.Prepositions.DirectionalStimulusMarker
+  ( atDS
+  )
+import           Grammar.Parser.Composites.Nouns
+  ( DirectionalStimulusNounPhrase (DirectionalStimulusNounPhrase)
+  )
 import           Lens.Micro.Platform (at, non, view, (%~), (.~))
 import           Model.Core
   ( ActionManagement (AVSupportManagementKey, AVTargetManagementKey, DSAManagementKey, DVManagementKey, DVSurfaceManagementKey, ISAManagementKey)
@@ -51,6 +57,7 @@ import           Model.Core
   , declaredObjectGIDs
   , declaredSceneGIDs
   , description
+  , descriptives
   , directionalStimulusMap
   , divestmentActionMap
   , entityActionEffects
@@ -120,6 +127,7 @@ data WorldBuilderError = InvalidSceneGID (GID Scene) String
                        | UndeclaredSceneLabel SceneLabel
                        | UndeclaredObjectLabel ObjectLabel
                        | InvalidObjectGID (GID Object) String
+                       | DuplicateDescriptive DirectionalStimulusNounPhrase
                        | MissingNewUserAgent
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
@@ -208,6 +216,17 @@ interpretDSL (RegisterObject gid objBuilder) = do
 interpretDSL (ShortName text obj) = pure (obj & shortName .~ text)
 
 interpretDSL (Description rt obj) = pure (obj & description .~ rt)
+
+interpretDSL (Descriptive descs obj) = do
+  st <- get
+  let phrase = DirectionalStimulusNounPhrase atDS descs
+      obj' = obj & descriptives %~ Data.Set.insert phrase
+  case Data.Set.member phrase (view descriptives obj) of
+    True -> pure obj'
+    False -> do
+      when (any (Data.Set.member phrase . view descriptives) (view (world . objectMap . getGIDToDataMap) (bsGameState st))) $
+        throwError (DuplicateDescriptive phrase)
+      pure obj'
 
 interpretDSL (ObjectBehavior obj actionMgmt) =
   pure (obj & objectActionManagement . actionManagementFunctions %~ Data.Set.insert actionMgmt)
@@ -396,4 +415,5 @@ worldBuilderErrorText (DuplicateObjectGID gid reason) = "Duplicate object " <> p
 worldBuilderErrorText (UndeclaredSceneLabel label)    = "Undeclared scene label: " <> unSceneLabel label
 worldBuilderErrorText (UndeclaredObjectLabel label)   = "Undeclared object label: " <> unObjectLabel label
 worldBuilderErrorText (InvalidObjectGID gid reason)   = "Invalid object " <> pack (show gid) <> ": " <> pack reason
+worldBuilderErrorText (DuplicateDescriptive phrase)   = "Duplicate descriptive: " <> pack (show phrase)
 worldBuilderErrorText MissingNewUserAgent             = "No new user agent to modify"
