@@ -86,8 +86,7 @@ import           FRP.Rhine
   , (|@|)
   )
 import           Grammar.Gbnf
-  ( Gbnf
-  , UnparsedSentence (UnparsedSentence)
+  ( UnparsedSentence (UnparsedSentence)
   , generateGbnf
   )
 import           Grammar.Lexer (lexify, tokens)
@@ -233,10 +232,9 @@ playerTickBlock = constMCl $ do
   pending <- liftIO $ readMVar (acPendingRepairs appCtx)
 
   -- GENERATE: compose one big GameComputation
-  let gbnf = generateGbnf
-        ([PlayerName (view unPlayerNameVAL name) | name <- keys known]
-         <> [PlayerName (view unPlayerNameVAL name) | NewPlayerJoined _ name _ <- joinResults])
-      (pings, replies, updates, failureRows, successRows, commandComp) = resolveCommands sessions pending gbnf msgs
+  let names = [PlayerName (view unPlayerNameVAL name) | name <- keys known]
+        <> [PlayerName (view unPlayerNameVAL name) | NewPlayerJoined _ name _ <- joinResults]
+      (pings, replies, updates, failureRows, successRows, commandComp) = resolveCommands sessions pending names msgs
       (joinResults, joinComp) = processJoinsPure known joins
       leavesComp = processLeavesPure sessions known
       tickComp = composeTick leavesComp joinComp commandComp (joinGIDs joinResults)
@@ -428,7 +426,7 @@ runPureComputation comp gs =
 
 resolveCommands :: Map SessionId SessionPhase
                 -> Map SessionId PendingRepair
-                -> Gbnf
+                -> [PlayerName]
                 -> [Routed MessageTo]
                 -> ( [SessionId]
                    , [Routed MessageFrom]
@@ -437,7 +435,7 @@ resolveCommands :: Map SessionId SessionPhase
                    , [(SessionId, UnparsedSentence, Text, SlmName)]
                    , GameComputation Identity ()
                    )
-resolveCommands sessions pending gbnf msgs =
+resolveCommands sessions pending names msgs =
   (pings, replies, updates, exhausted, successRows, mapM_ commandComputation sentences)
   where
     pings     = [sid | Routed sid Ping <- msgs]
@@ -456,10 +454,10 @@ resolveCommands sessions pending gbnf msgs =
     exhausted = [(sid, unparsed, origErr, attempts, slm) | (sid, unparsed, origErr, attempts, slm, True) <- judged]
     retries   = [(sid, unparsed, origErr, attempts) | (sid, unparsed, origErr, attempts, _, False) <- judged]
     replies =
-      [Routed sid (RepairRequest unparsed failure gbnf []) | (sid, unparsed, failure) <- unparsedCmds]
+      [Routed sid (RepairRequest unparsed failure (generateGbnf unparsed names) []) | (sid, unparsed, failure) <- unparsedCmds]
       <> [Routed sid (SystemMessage err) | (sid, err) <- unpending]
       <> [Routed sid (SystemMessage origText) | (sid, _, ParseFailure origText, _, _) <- exhausted]
-      <> [Routed sid (RepairRequest unparsed origErr gbnf attempts) | (sid, unparsed, origErr, attempts) <- retries]
+      <> [Routed sid (RepairRequest unparsed origErr (generateGbnf unparsed names) attempts) | (sid, unparsed, origErr, attempts) <- retries]
     updates =
       [(sid, Just (PendingRepair unparsed failure [])) | (sid, unparsed, failure) <- unparsedCmds]
       <> [(sid, Nothing) | (sid, _, _, _, _) <- repairedSentences]

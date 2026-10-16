@@ -147,6 +147,7 @@ The server never rewrites a sentence and never calls a model.
        adjective, and "plant the pot plant in the plant pot" uses it as a
        noun too. Verb roles stay complete, since the intended verb is often
        absent ("i want" -> GET). Narrowing by scene contents reads GameState.
+       RULED (user, 2026-10-16): the narrowing keeps the words recognized in the sentence, agents included. The verbs stay complete. A list keeps only the words the sentence names. A list the sentence names no word from keeps its full list, so no GBNF rule is ever empty. A player name counts as recognized when a PLAYERNAME token from the lexer matches a name in the known-player list, comparing in uppercase because the lexer uppercases its input.
 3. RULED (user, 2026-10-16): resolveCommands lexes and parses each command
    before building the computation. Parsed sentences go into the
    computation. Failures return as IO-phase data beside pings, and the IO
@@ -335,6 +336,12 @@ that step. No step relies on a later step to fix it.
    - `sasha-e2e-wrapped` (flake.nix:797-820) starts llama-server in the background with `--port`, llama-server's default `--cors-origins` (`*`), since the test page's origin `http://127.0.0.1:<free port>` changes every run (SeleniumHarness.hs:337), and `-m` on the model file. It polls the port until llama-server answers, runs the tests, and kills it at the end, the same way it handles Selenium. `withServer` runs inside that VM, so this one change covers both. No manual steps. The script runs the CPU `pkgs.llama-cpp` by store path, with `slmModel`.
    - Test: an e2e spec drives the real client in the browser and sends `pick up the red ball`. It waits for "You pick up the red ball." (decision 14). It is registered in `sasha-e2e-tests` other-modules. The CPU model's speed in CI is unknown until the first run. It uses `webDriverTestWithPage` (SeleniumHarness.hs:318), which loads the built client. `webDriverTestWithClient` talks over a raw socket and never loads ViewportManager.
 
-5. Narrowing (decision 2a). The generator takes the failed sentence and
-   keeps only what decision 2a names. Test: a sentence naming a word yields
-   a grammar whose lists hold that word in every list it belongs to.
+5. Narrowing (decision 2a).
+   - `generateGbnf` gains the failed sentence as an argument: `generateGbnf :: UnparsedSentence -> [PlayerName] -> Gbnf`. It lexes the sentence with `lexify tokens`. Each non-verb list keeps the words whose lexeme appears in the result, or its full list when none do. The player-name rule keeps the known names that match a PLAYERNAME token, or every known name when none match.
+   - Callers change in this step. In `playerTickBlock` (SignalNetwork.hs), `resolveCommands` takes the name list in place of one tick-wide `Gbnf`, and builds a GBNF for each failed sentence: on the first RepairRequest, and again on the second and third attempts. sasha-grammar/test/Test/Gbnf.hs passes a sentence.
+   - Tests:
+     - `pick up the red ball` keeps BALL, RED and THE.
+     - A sentence naming PLANT (once the vocabulary has it) keeps PLANT in every list it belongs to.
+     - A sentence naming no word from a list leaves that list complete.
+     - A sentence naming a known player keeps that name. One naming none keeps every known name.
+     - The verbs are always complete.
