@@ -33,7 +33,7 @@ parseFailureTest =
   };
 
   sock.receive((msg) => {
-    if (msg.tag === "SystemMessage" && msg.contents !== "*** heartbeat") {
+    if (msg.tag === "RepairRequest") {
       gotFailure = true;
       finish();
     }
@@ -60,7 +60,7 @@ parseFailureTest =
       done = true;
       sock.raw.close();
       const missing: string[] = [];
-      if (!gotFailure) { missing.push("no parse failure SystemMessage for the sender"); }
+      if (!gotFailure) { missing.push("no RepairRequest for the sender"); }
       if (!gotNarration) { missing.push("no GameNarration with _actionConsequence for the witness"); }
       resolve("timeout within 10s: " + missing.join("; "));
     }

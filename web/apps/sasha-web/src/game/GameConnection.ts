@@ -69,6 +69,11 @@ export class GameConnection {
     }
   }
 
+  sendRepairedCommand(unparsed: string, rewrite: string, slm: string): void {
+    if (!this.wsSend) return;
+    this.wsSend({ tag: 'RepairedCommand', contents: [unparsed, rewrite, slm] });
+  }
+
   onMessage(callback: (msg: MessageFrom) => void): void {
     this.messageCallbacks.push(callback);
   }

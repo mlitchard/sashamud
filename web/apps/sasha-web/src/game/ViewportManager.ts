@@ -56,6 +56,11 @@ export class ViewportManager {
         ]);
         break;
       }
+      case 'RepairRequest': {
+        const [unparsed] = msg.contents as [string, string, string, unknown[]];
+        this.conn.sendRepairedCommand(unparsed, unparsed, 'slm-absent');
+        break;
+      }
       case 'CommandResponse':
         this.appendRichText('scene', msg.contents as RichText[]);
         break;
