@@ -566,8 +566,8 @@ spec = describe "Integration" . around withTestServer $ do
         case (n1, n2) of
           (Just _, Just _) -> do
             sendTextData conn1 (GameCommand "get ball")
-            picked <- receiveUntil conn1 10000000 (seesObjects "You pick up the ball.")
-            pickedSeen <- receiveUntil conn2 10000000 (seesObjects "Player1 picks up the ball.")
+            picked <- receiveUntil conn1 10000000 (seesObjects "You pick up the red ball.")
+            pickedSeen <- receiveUntil conn2 10000000 (seesObjects "Player1 picks up the red ball.")
             case (picked, pickedSeen) of
               (Just _, Just _) -> do
                 sendTextData conn1 (GameCommand "look")
@@ -575,14 +575,37 @@ spec = describe "Integration" . around withTestServer $ do
                 case looked of
                   Nothing -> expectationFailure "no narration received for look after get"
                   Just (GameNarration narr) -> do
-                    any (isInfixOf "a ball" . toPlainText) (view actionConsequence narr) `shouldBe` False
+                    any (isInfixOf "a red ball" . toPlainText) (view actionConsequence narr) `shouldBe` False
                     sendTextData conn1 (GameCommand "drop ball")
-                    dropped <- receiveUntil conn1 10000000 (seesObjects "You drop the ball.")
-                    droppedSeen <- receiveUntil conn2 10000000 (seesObjects "Player1 drops the ball.")
+                    dropped <- receiveUntil conn1 10000000 (seesObjects "You drop the red ball.")
+                    droppedSeen <- receiveUntil conn2 10000000 (seesObjects "Player1 drops the red ball.")
                     case (dropped, droppedSeen) of
                       (Just _, Just _) -> pure ()
                       _ -> expectationFailure "actor and witness should both be told of the drop"
                   Just _ -> expectationFailure "look response was not game narration"
+              _ -> expectationFailure "actor and witness should both be told of the get"
+          _ -> expectationFailure "both players should receive auto-look narration"
+
+  it "multi-player: get and drop the red ball tell the actor and the witness" $ \(_port, ctx) -> do
+    sid1 <- loginAs ctx Wizard "Player1"
+    sid2 <- loginAs ctx Wizard "Player2"
+    connectWS sid1 $ \conn1 ->
+      connectWS sid2 $ \conn2 -> do
+        n1 <- receiveUntil conn1 10000000 isLookNarration
+        n2 <- receiveUntil conn2 10000000 isLookNarration
+        case (n1, n2) of
+          (Just _, Just _) -> do
+            sendTextData conn1 (GameCommand "get the red ball")
+            picked <- receiveUntil conn1 10000000 (seesObjects "You pick up the red ball.")
+            pickedSeen <- receiveUntil conn2 10000000 (seesObjects "Player1 picks up the red ball.")
+            case (picked, pickedSeen) of
+              (Just _, Just _) -> do
+                sendTextData conn1 (GameCommand "drop the red ball")
+                dropped <- receiveUntil conn1 10000000 (seesObjects "You drop the red ball.")
+                droppedSeen <- receiveUntil conn2 10000000 (seesObjects "Player1 drops the red ball.")
+                case (dropped, droppedSeen) of
+                  (Just _, Just _) -> pure ()
+                  _ -> expectationFailure "actor and witness should both be told of the drop"
               _ -> expectationFailure "actor and witness should both be told of the get"
           _ -> expectationFailure "both players should receive auto-look narration"
 
@@ -688,7 +711,7 @@ spec = describe "Integration" . around withTestServer $ do
     threadDelay 6000000
     viewerSid <- loginAs ctx Wizard "Viewer"
     connectWS viewerSid $ \conn -> do
-      narr <- receiveUntil conn 10000000 (seesObjects "You see: a ball, a cup")
+      narr <- receiveUntil conn 10000000 (seesObjects "You see: a red ball, a cup")
       case narr of
         Nothing -> expectationFailure "look did not list the delivered cup"
         Just _  -> pure ()
