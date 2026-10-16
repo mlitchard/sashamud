@@ -41,6 +41,47 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|Bash|Agent|Read|Grep|Glob|WebFetch|WebSearch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /home/mlitchard/gitlab/sashamud/.claude/hooks/refuse-after-rejection.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /home/mlitchard/gitlab/sashamud/.claude/hooks/require-agent-guards.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "WebFetch|WebSearch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /home/mlitchard/gitlab/sashamud/.claude/hooks/refuse-web.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PermissionDenied": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /home/mlitchard/gitlab/sashamud/.claude/hooks/mark-rejection.sh",
+            "timeout": 5
+          }
+        ]
       }
     ]
   }
