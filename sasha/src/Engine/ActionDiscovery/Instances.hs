@@ -18,7 +18,6 @@ import           Engine.ActionDiscovery.Protocol
 import           Engine.Resolution.ActionManagement
   ( findAVKey
   , findAVSupportKey
-  , findAVTargetKey
   , findDVKey
   , findDVSurfaceKey
   , lookupDirectionalStimulus
@@ -228,7 +227,7 @@ instance ActionProtocol AcquisitionF where
                               (findAVSupportKey verb (view objectActionManagement support))
         supportAction <- fetchAction @AcquisitionF actionMap supportActionGID
         objectActionGID <- throwMaybeM "Object has no acquisition action"
-                             (findAVTargetKey verb (view objectActionManagement obj))
+                             (findAVKey verb (view objectActionManagement obj))
         objectAction <- fetchAction @AcquisitionF actionMap objectActionGID
 
         let sceneKey   = mkEffectKey @AcquisitionF sceneActionGID
