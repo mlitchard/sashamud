@@ -2,8 +2,10 @@ module Engine.ActionDiscovery.Instances () where
 
 import           SashaPrelude
 
+import           Control.Monad (filterM)
 import           Control.Monad.Except (throwError)
 import           Control.Monad.State (gets)
+import           Data.Functor.Identity (Identity)
 import           Data.Map.Strict (lookup)
 import           Data.Maybe (listToMaybe)
 import qualified Data.Set (member)
@@ -26,6 +28,7 @@ import           Engine.Resolution.ActionManagement
   )
 import           Error (throwMaybeM)
 import           Grammar.Lexer (HasLexeme (toLexeme))
+import           Grammar.Parser.Atomics.Adjectives (Adjective)
 import           Grammar.Parser.Atomics.Semantics.Nouns.Objective (floorOB)
 import           Grammar.Parser.Atomics.Verbs
   ( DirectionalStimulusVerb
@@ -51,13 +54,16 @@ import           Model.Core
   , DivestmentF (DivestmentCannotF, DivestmentF)
   , DivestmentTargetType (DivestToSurface')
   , EntityID (EntityObject)
+  , GameComputation
   , ImplicitStimulusF (ImplicitNoStimulusF, ImplicitStimulusF)
+  , Object
   , SpatialRelationship (ContainedIn, Inventory, SupportedBy)
   , SpatialRelationshipComputation (Acquisition, Divestiture)
   , WitnessContext (AcquisitionWitnessContext, DirectedWitnessContext, DivestmentWitnessContext, ImplicitWitnessContext)
   , acquisitionActionMap
   , actionMaps
   , agentLocationMap
+  , descriptives
   , directionalStimulusMap
   , divestmentActionMap
   , getGIDToDataMap
@@ -71,6 +77,7 @@ import           Model.Core
   , unSpatialRelationshipMap
   , world
   )
+import           Model.GID (GID)
 
 -- | Instance for ImplicitStimulusF (actor + scene veto for bare "look")
 instance ActionProtocol ImplicitStimulusF where
@@ -187,10 +194,20 @@ instance ActionProtocol AcquisitionF where
                    (lookup sceneGid sMap)
         objGIDSet <- throwMaybeM "You don't see that here."
                        (lookup nounText (view objectSemanticMap scene))
-        objectGID <- case toList objGIDSet of
-                       [gid] -> pure gid
-                       []    -> throwError "You don't see that here."
-                       _     -> throwError ("Which " <> nounText <> "?")
+        objectGID <- case objectPhrase of
+                       ObjectPhrase np -> case np of
+                         DescriptiveNounPhrase adj _      ->
+                           findMatchingObject adj (toList objGIDSet) >>= throwMaybeM "You don't see that here."
+                         DescriptiveNounPhraseDet _ adj _ ->
+                           findMatchingObject adj (toList objGIDSet) >>= throwMaybeM "You don't see that here."
+                         SimpleNounPhrase _               -> case toList objGIDSet of
+                           [gid] -> pure gid
+                           []    -> throwError "You don't see that here."
+                           _     -> throwError ("Which " <> nounText <> "?")
+                         NounPhrase _ _                   -> case toList objGIDSet of
+                           [gid] -> pure gid
+                           []    -> throwError "You don't see that here."
+                           _     -> throwError ("Which " <> nounText <> "?")
 
         -- Support the object rests on
         spatialMap <- use (world . spatialRelationshipMap . unSpatialRelationshipMap)
@@ -262,10 +279,20 @@ instance ActionProtocol DivestmentF where
               , let rels = fromMaybe mempty (lookup (EntityObject oid) spatialMap)
               , Data.Set.member (Inventory actorGid) rels
               ]
-        objectGID <- case inventoryObjs of
-                       [oid] -> pure oid
-                       []    -> throwError "You don't have that."
-                       _     -> throwError ("Which " <> nounText <> "?")
+        objectGID <- case objectPhrase of
+                       ObjectPhrase np -> case np of
+                         DescriptiveNounPhrase adj _      ->
+                           findMatchingObject adj inventoryObjs >>= throwMaybeM "You don't have that."
+                         DescriptiveNounPhraseDet _ adj _ ->
+                           findMatchingObject adj inventoryObjs >>= throwMaybeM "You don't have that."
+                         SimpleNounPhrase _               -> case inventoryObjs of
+                           [oid] -> pure oid
+                           []    -> throwError "You don't have that."
+                           _     -> throwError ("Which " <> nounText <> "?")
+                         NounPhrase _ _                   -> case inventoryObjs of
+                           [oid] -> pure oid
+                           []    -> throwError "You don't have that."
+                           _     -> throwError ("Which " <> nounText <> "?")
 
         -- Target is the floor of the actor's scene
         locMap <- use agentLocationMap
@@ -321,3 +348,25 @@ parseObjectPhrase (ObjectPhrase np) = case np of
   NounPhrase _ obj                 -> pack (show (toLexeme obj))
   DescriptiveNounPhrase _ obj      -> pack (show (toLexeme obj))
   DescriptiveNounPhraseDet _ _ obj -> pack (show (toLexeme obj))
+
+objectMatchesAdjective :: Adjective -> GID Object -> GameComputation Identity Bool
+objectMatchesAdjective adj oid = do
+  oMap <- use (world . objectMap . getGIDToDataMap)
+  obj <- throwMaybeM ("Object not found: " <> pack (show oid))
+           (lookup oid oMap)
+  let objDescriptives = view descriptives obj
+  pure $ any matchesAdjective (toList objDescriptives)
+  where
+    matchesAdjective :: DirectionalStimulusNounPhrase -> Bool
+    matchesAdjective (DirectionalStimulusNounPhrase _ np) = case np of
+      SimpleNounPhrase _             -> False
+      NounPhrase _ _                 -> False
+      DescriptiveNounPhrase a _      -> a == adj
+      DescriptiveNounPhraseDet _ a _ -> a == adj
+
+findMatchingObject :: Adjective -> [GID Object] -> GameComputation Identity (Maybe (GID Object))
+findMatchingObject adj objectGIDs = do
+  matchingObjects <- filterM (objectMatchesAdjective adj) objectGIDs
+  case matchingObjects of
+    (firstMatch:_) -> pure (Just firstMatch)
+    []             -> pure Nothing
