@@ -609,6 +609,19 @@ spec = describe "Integration" . around withTestServer $ do
               _ -> expectationFailure "actor and witness should both be told of the get"
           _ -> expectationFailure "both players should receive auto-look narration"
 
+  it "get the white ball tells the actor they don't see that here" $ \(_port, ctx) -> do
+    sid <- loginAs ctx Wizard "Player1"
+    connectWS sid $ \conn -> do
+      narr <- receiveUntil conn 10000000 isLookNarration
+      case narr of
+        Nothing -> expectationFailure "no auto-look narration received on login"
+        Just _  -> do
+          sendTextData conn (GameCommand "get the white ball")
+          missed <- receiveUntil conn 10000000 (seesObjects "You don't see that here.")
+          case missed of
+            Nothing -> expectationFailure "actor should be told they don't see that here"
+            Just _  -> pure ()
+
   it "ping: client sends Ping, receives Pong through Rhine network" $ \(_port, ctx) -> do
     sid <- loginAs ctx Wizard "PingTest"
     connectWS sid $ \conn -> do

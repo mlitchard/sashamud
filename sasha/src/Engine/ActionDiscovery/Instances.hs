@@ -6,7 +6,7 @@ import           Control.Monad (filterM)
 import           Control.Monad.Except (throwError)
 import           Control.Monad.State (gets)
 import           Data.Functor.Identity (Identity)
-import           Data.Map.Strict (lookup)
+import           Data.Map.Strict (Map, lookup)
 import           Data.Maybe (listToMaybe)
 import qualified Data.Set (member)
 import           Engine.ActionDiscovery.Protocol
@@ -25,12 +25,14 @@ import           Engine.Resolution.ActionManagement
   , processSpatialRelationshipEffect
   , processWitnesses
   )
+import           Engine.Resolution.Perception (modifyAgentNarration)
 import           Error (throwMaybeM)
 import           Grammar.Lexer (HasLexeme (toLexeme))
 import           Grammar.Parser.Atomics.Adjectives (Adjective)
 import           Grammar.Parser.Atomics.Semantics.Nouns.Objective (floorOB)
 import           Grammar.Parser.Atomics.Verbs
-  ( DirectionalStimulusVerb
+  ( AcquisitionVerb
+  , DirectionalStimulusVerb
   , ImplicitStimulusVerb
   )
 import           Grammar.Parser.Composites.Model
@@ -45,10 +47,12 @@ import           Grammar.Parser.Composites.Nouns
 import           Grammar.Parser.GCase
   ( VerbKey (AcquisitionKey, DirectionalStimulusKey, DivestmentKey, ImplicitStimulusKey)
   )
-import           Lens.Micro.Platform (use, view)
+import           Lens.Micro.Platform (over, use, view)
 import           Model.Core
   ( AcquisitionF (AcquisitionCannotF, AcquisitionF)
   , ActionEffectKey (AcquisitionalActionKey, DirectionalStimulusActionKey, DivestmentActionKey, ImplicitStimulusActionKey)
+  , ActionEffectKeyF
+  , Agent
   , DirectionalStimulusF (DirectionalNoStimulusF, DirectionalStimulusF)
   , DivestmentF (DivestmentCannotF, DivestmentF)
   , DivestmentTargetType (DivestToSurface')
@@ -60,6 +64,7 @@ import           Model.Core
   , SpatialRelationshipComputation (Acquisition, Divestiture)
   , WitnessContext (AcquisitionWitnessContext, DirectedWitnessContext, DivestmentWitnessContext, ImplicitWitnessContext)
   , acquisitionActionMap
+  , actionConsequence
   , actionMaps
   , agentLocationMap
   , descriptives
@@ -77,6 +82,7 @@ import           Model.Core
   , world
   )
 import           Model.GID (GID)
+import           Model.RichText (TextColor (White), colored)
 
 -- | Instance for ImplicitStimulusF (actor + scene veto for bare "look")
 instance ActionProtocol ImplicitStimulusF where
@@ -191,63 +197,76 @@ instance ActionProtocol AcquisitionF where
         sMap <- use (world . sceneMap . getGIDToDataMap)
         scene <- throwMaybeM ("Scene not found: " <> pack (show sceneGid))
                    (lookup sceneGid sMap)
-        objGIDSet <- throwMaybeM "You don't see that here."
-                       (lookup nounText (view objectSemanticMap scene))
-        objectGID <- case objectPhrase of
-                       ObjectPhrase np -> case np of
-                         DescriptiveNounPhrase adj _      ->
-                           findMatchingObject adj (toList objGIDSet) >>= throwMaybeM "You don't see that here."
-                         DescriptiveNounPhraseDet _ adj _ ->
-                           findMatchingObject adj (toList objGIDSet) >>= throwMaybeM "You don't see that here."
-                         SimpleNounPhrase _               -> case toList objGIDSet of
-                           [gid] -> pure gid
-                           []    -> throwError "You don't see that here."
-                           _     -> throwError ("Which " <> nounText <> "?")
-                         NounPhrase _ _                   -> case toList objGIDSet of
-                           [gid] -> pure gid
-                           []    -> throwError "You don't see that here."
-                           _     -> throwError ("Which " <> nounText <> "?")
+        case lookup nounText (view objectSemanticMap scene) of
+          Nothing -> modifyAgentNarration actorGid (over actionConsequence (<> [colored White "You don't see that here."]))
+          Just objGIDSet -> case objectPhrase of
+            ObjectPhrase np -> case np of
+              DescriptiveNounPhrase adj _      ->
+                findMatchingObject adj (toList objGIDSet) >>= \case
+                  Nothing  -> modifyAgentNarration actorGid (over actionConsequence (<> [colored White "You don't see that here."]))
+                  Just gid -> handleAcquisition actorGid avp ps playerKey verb actionMap gid
+              DescriptiveNounPhraseDet _ adj _ ->
+                findMatchingObject adj (toList objGIDSet) >>= \case
+                  Nothing  -> modifyAgentNarration actorGid (over actionConsequence (<> [colored White "You don't see that here."]))
+                  Just gid -> handleAcquisition actorGid avp ps playerKey verb actionMap gid
+              SimpleNounPhrase _               -> case toList objGIDSet of
+                [gid] -> handleAcquisition actorGid avp ps playerKey verb actionMap gid
+                []    -> modifyAgentNarration actorGid (over actionConsequence (<> [colored White "You don't see that here."]))
+                _     -> throwError ("Which " <> nounText <> "?")
+              NounPhrase _ _                   -> case toList objGIDSet of
+                [gid] -> handleAcquisition actorGid avp ps playerKey verb actionMap gid
+                []    -> modifyAgentNarration actorGid (over actionConsequence (<> [colored White "You don't see that here."]))
+                _     -> throwError ("Which " <> nounText <> "?")
 
-        -- Support the object rests on
-        spatialMap <- use (world . spatialRelationshipMap . unSpatialRelationshipMap)
-        rels <- throwMaybeM ("Object not found in spatial relationships: " <> pack (show objectGID))
-                  (lookup (EntityObject objectGID) spatialMap)
-        supportGID <- throwMaybeM ("Object has no support: " <> pack (show objectGID))
-                        (listToMaybe ([oid | ContainedIn (EntityObject oid) <- toList rels]
-                                      <> [oid | SupportedBy (EntityObject oid) <- toList rels]))
+handleAcquisition :: GID Agent
+                  -> AcquisitionVerbPhrase
+                  -> ActionEffectKeyF
+                  -> ActionEffectKey
+                  -> AcquisitionVerb
+                  -> Map (GID AcquisitionF) AcquisitionF
+                  -> GID Object
+                  -> GameComputation Identity ()
+handleAcquisition actorGid avp ps playerKey verb actionMap objectGID = do
+  -- Support the object rests on
+  spatialMap <- use (world . spatialRelationshipMap . unSpatialRelationshipMap)
+  rels <- throwMaybeM ("Object not found in spatial relationships: " <> pack (show objectGID))
+            (lookup (EntityObject objectGID) spatialMap)
+  supportGID <- throwMaybeM ("Object has no support: " <> pack (show objectGID))
+                  (listToMaybe ([oid | ContainedIn (EntityObject oid) <- toList rels]
+                                <> [oid | SupportedBy (EntityObject oid) <- toList rels]))
 
-        -- Fetch actions from scene, support, object
-        oMap <- use (world . objectMap . getGIDToDataMap)
-        obj <- throwMaybeM ("Object not found: " <> pack (show objectGID))
-                 (lookup objectGID oMap)
-        support <- throwMaybeM ("Support not found: " <> pack (show supportGID))
-                     (lookup supportGID oMap)
-        (sceneActionGID, sceneAction) <- fetchSceneAction @AcquisitionF avp actionMap actorGid
-        supportActionGID <- throwMaybeM "Support has no acquisition action"
-                              (findAVSupportKey verb (view objectActionManagement support))
-        supportAction <- fetchAction @AcquisitionF actionMap supportActionGID
-        objectActionGID <- throwMaybeM "Object has no acquisition action"
-                             (findAVKey verb (view objectActionManagement obj))
-        objectAction <- fetchAction @AcquisitionF actionMap objectActionGID
+  -- Fetch actions from scene, support, object
+  oMap <- use (world . objectMap . getGIDToDataMap)
+  obj <- throwMaybeM ("Object not found: " <> pack (show objectGID))
+           (lookup objectGID oMap)
+  support <- throwMaybeM ("Support not found: " <> pack (show supportGID))
+               (lookup supportGID oMap)
+  (sceneActionGID, sceneAction) <- fetchSceneAction @AcquisitionF avp actionMap actorGid
+  supportActionGID <- throwMaybeM "Support has no acquisition action"
+                        (findAVSupportKey verb (view objectActionManagement support))
+  supportAction <- fetchAction @AcquisitionF actionMap supportActionGID
+  objectActionGID <- throwMaybeM "Object has no acquisition action"
+                       (findAVKey verb (view objectActionManagement obj))
+  objectAction <- fetchAction @AcquisitionF actionMap objectActionGID
 
-        let sceneKey   = mkEffectKey @AcquisitionF sceneActionGID
-            supportKey = mkEffectKey @AcquisitionF supportActionGID
-            objectKey  = mkEffectKey @AcquisitionF objectActionGID
+  let sceneKey   = mkEffectKey @AcquisitionF sceneActionGID
+      supportKey = mkEffectKey @AcquisitionF supportActionGID
+      objectKey  = mkEffectKey @AcquisitionF objectActionGID
 
-        case (sceneAction, supportAction, objectAction) of
-          (AcquisitionCannotF lf, _, _) ->
-            lf actorGid sceneKey
-          (_, AcquisitionCannotF cf, _) ->
-            cf actorGid supportKey
-          (_, _, AcquisitionCannotF of') ->
-            of' actorGid objectKey
-          (AcquisitionF ls, AcquisitionF cs, AcquisitionF os) -> do
-            ps actorGid playerKey
-            ls actorGid sceneKey
-            cs actorGid supportKey
-            os actorGid objectKey
-            processSpatialRelationshipEffect actorGid (Acquisition (EntityObject objectGID) (EntityObject supportGID))
-            processWitnesses actorGid (AcquisitionKey verb) (AcquisitionWitnessContext objectGID)
+  case (sceneAction, supportAction, objectAction) of
+    (AcquisitionCannotF lf, _, _) ->
+      lf actorGid sceneKey
+    (_, AcquisitionCannotF cf, _) ->
+      cf actorGid supportKey
+    (_, _, AcquisitionCannotF of') ->
+      of' actorGid objectKey
+    (AcquisitionF ls, AcquisitionF cs, AcquisitionF os) -> do
+      ps actorGid playerKey
+      ls actorGid sceneKey
+      cs actorGid supportKey
+      os actorGid objectKey
+      processSpatialRelationshipEffect actorGid (Acquisition (EntityObject objectGID) (EntityObject supportGID))
+      processWitnesses actorGid (AcquisitionKey verb) (AcquisitionWitnessContext objectGID)
 
 -- | Instance for DivestmentF (player + object + scene + target veto chain for "drop X")
 instance ActionProtocol DivestmentF where
@@ -278,67 +297,70 @@ instance ActionProtocol DivestmentF where
               , let rels = fromMaybe mempty (lookup (EntityObject oid) spatialMap)
               , Data.Set.member (Inventory actorGid) rels
               ]
-        objectGID <- case objectPhrase of
-                       ObjectPhrase np -> case np of
-                         DescriptiveNounPhrase adj _      ->
-                           findMatchingObject adj inventoryObjs >>= throwMaybeM "You don't have that."
-                         DescriptiveNounPhraseDet _ adj _ ->
-                           findMatchingObject adj inventoryObjs >>= throwMaybeM "You don't have that."
-                         SimpleNounPhrase _               -> case inventoryObjs of
-                           [oid] -> pure oid
-                           []    -> throwError "You don't have that."
-                           _     -> throwError ("Which " <> nounText <> "?")
-                         NounPhrase _ _                   -> case inventoryObjs of
-                           [oid] -> pure oid
-                           []    -> throwError "You don't have that."
-                           _     -> throwError ("Which " <> nounText <> "?")
+        objectGIDMaybe <- case objectPhrase of
+                            ObjectPhrase np -> case np of
+                              DescriptiveNounPhrase adj _      ->
+                                findMatchingObject adj inventoryObjs
+                              DescriptiveNounPhraseDet _ adj _ ->
+                                findMatchingObject adj inventoryObjs
+                              SimpleNounPhrase _               -> case inventoryObjs of
+                                [oid] -> pure (Just oid)
+                                []    -> pure Nothing
+                                _     -> throwError ("Which " <> nounText <> "?")
+                              NounPhrase _ _                   -> case inventoryObjs of
+                                [oid] -> pure (Just oid)
+                                []    -> pure Nothing
+                                _     -> throwError ("Which " <> nounText <> "?")
 
-        -- Target is the floor of the actor's scene
-        locMap <- use agentLocationMap
-        sceneGid <- throwMaybeM ("Agent location not found: " <> pack (show actorGid))
-                      (lookup actorGid locMap)
-        sMap <- use (world . sceneMap . getGIDToDataMap)
-        scene <- throwMaybeM ("Scene not found: " <> pack (show sceneGid))
-                   (lookup sceneGid sMap)
-        floorSet <- throwMaybeM "There's nowhere to drop that here."
-                      (lookup (pack (show (toLexeme floorOB))) (view objectSemanticMap scene))
-        floorGID <- throwMaybeM "There's nowhere to drop that here."
-                      (listToMaybe (toList floorSet))
+        case objectGIDMaybe of
+          Nothing -> modifyAgentNarration actorGid (over actionConsequence (<> [colored White "You don't have that."]))
+          Just objectGID -> do
+            -- Target is the floor of the actor's scene
+            locMap <- use agentLocationMap
+            sceneGid <- throwMaybeM ("Agent location not found: " <> pack (show actorGid))
+                          (lookup actorGid locMap)
+            sMap <- use (world . sceneMap . getGIDToDataMap)
+            scene <- throwMaybeM ("Scene not found: " <> pack (show sceneGid))
+                       (lookup sceneGid sMap)
+            floorSet <- throwMaybeM "There's nowhere to drop that here."
+                          (lookup (pack (show (toLexeme floorOB))) (view objectSemanticMap scene))
+            floorGID <- throwMaybeM "There's nowhere to drop that here."
+                          (listToMaybe (toList floorSet))
 
-        -- Fetch actions from object, scene, target
-        oMap <- use (world . objectMap . getGIDToDataMap)
-        obj <- throwMaybeM ("Object not found: " <> pack (show objectGID))
-                 (lookup objectGID oMap)
-        target <- throwMaybeM ("Target not found: " <> pack (show floorGID))
-                    (lookup floorGID oMap)
-        let objectActions = view objectActionManagement obj
-            targetActions = view objectActionManagement target
-        objectActionGID <- throwMaybeM "Object has no divestment action"
-                             (findDVSurfaceKey verb objectActions <|> findDVKey verb objectActions)
-        objectAction <- fetchAction @DivestmentF actionMap objectActionGID
-        (sceneActionGID, sceneAction) <- fetchSceneAction @DivestmentF dvp actionMap actorGid
-        targetActionGID <- throwMaybeM "Target has no divestment action"
-                             (findDVSurfaceKey verb targetActions <|> findDVKey verb targetActions)
-        targetAction <- fetchAction @DivestmentF actionMap targetActionGID
+            -- Fetch actions from object, scene, target
+            oMap <- use (world . objectMap . getGIDToDataMap)
+            obj <- throwMaybeM ("Object not found: " <> pack (show objectGID))
+                     (lookup objectGID oMap)
+            target <- throwMaybeM ("Target not found: " <> pack (show floorGID))
+                        (lookup floorGID oMap)
+            let objectActions = view objectActionManagement obj
+                targetActions = view objectActionManagement target
+            objectActionGID <- throwMaybeM "Object has no divestment action"
+                                 (findDVSurfaceKey verb objectActions <|> findDVKey verb objectActions)
+            objectAction <- fetchAction @DivestmentF actionMap objectActionGID
+            (sceneActionGID, sceneAction) <- fetchSceneAction @DivestmentF dvp actionMap actorGid
+            targetActionGID <- throwMaybeM "Target has no divestment action"
+                                 (findDVSurfaceKey verb targetActions <|> findDVKey verb targetActions)
+            targetAction <- fetchAction @DivestmentF actionMap targetActionGID
 
-        let objectKey = mkEffectKey @DivestmentF objectActionGID
-            sceneKey  = mkEffectKey @DivestmentF sceneActionGID
-            targetKey = mkEffectKey @DivestmentF targetActionGID
+            let objectKey = mkEffectKey @DivestmentF objectActionGID
+                sceneKey  = mkEffectKey @DivestmentF sceneActionGID
+                targetKey = mkEffectKey @DivestmentF targetActionGID
 
-        case (objectAction, sceneAction, targetAction) of
-          (DivestmentCannotF of', _, _) ->
-            of' actorGid objectKey
-          (_, DivestmentCannotF lf, _) ->
-            lf actorGid sceneKey
-          (_, _, DivestmentCannotF tf) ->
-            tf actorGid targetKey
-          (DivestmentF os, DivestmentF ls, DivestmentF ts) -> do
-            ps actorGid playerKey
-            os actorGid objectKey
-            ls actorGid sceneKey
-            ts actorGid targetKey
-            processSpatialRelationshipEffect actorGid (Divestiture objectGID floorGID DivestToSurface')
-            processWitnesses actorGid (DivestmentKey verb) (DivestmentWitnessContext objectGID)
+            case (objectAction, sceneAction, targetAction) of
+              (DivestmentCannotF of', _, _) ->
+                of' actorGid objectKey
+              (_, DivestmentCannotF lf, _) ->
+                lf actorGid sceneKey
+              (_, _, DivestmentCannotF tf) ->
+                tf actorGid targetKey
+              (DivestmentF os, DivestmentF ls, DivestmentF ts) -> do
+                ps actorGid playerKey
+                os actorGid objectKey
+                ls actorGid sceneKey
+                ts actorGid targetKey
+                processSpatialRelationshipEffect actorGid (Divestiture objectGID floorGID DivestToSurface')
+                processWitnesses actorGid (DivestmentKey verb) (DivestmentWitnessContext objectGID)
 
 -- | Extract noun text from ObjectPhrase for semantic map lookup
 parseObjectPhrase :: ObjectPhrase -> Text

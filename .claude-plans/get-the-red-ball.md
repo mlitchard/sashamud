@@ -19,6 +19,7 @@ Players in the lobby can "get the red ball" and "drop the red ball". World conte
 - Pattern-match cleanup included in this plan (user, 2026-10-16).
 - Ball changes go in the existing world files; no new .dsl file (user, 2026-10-16).
 - sessionGid and sessionSend are the pattern match on SessionPhase; call sites use them. The SignalNetwork.hs and Server.hs items are withdrawn from step 5 (user, 2026-10-16).
+- A missing adjective match is a narration to the player, not an error: get narrates "You don't see that here.", drop narrates "You don't have that." (user, 2026-10-16).
 
 ## What exists today
 
@@ -83,3 +84,8 @@ Step rule: every step builds and is green on its own. Any fix a step needs, incl
 5. Pattern-match cleanup (Opus), independent of steps 1-4:
    - sasha/src/Engine/Resolution/ActionManagement.hs:212-216: replace the foldl' with `mconcat [s | Supports s <- toList relationships]`.
    - Remove findAVTargetKey (sasha/src/Engine/Resolution/ActionManagement.hs:408-412), identical to findAVKey (user, 2026-10-16). The call at sasha/src/Engine/ActionDiscovery/Instances.hs:214 uses findAVKey. Drop findAVTargetKey from the ActionManagement export list and from the Instances.hs import.
+
+6. Adjective miss narrates (Opus):
+   - sasha/src/Engine/ActionDiscovery/Instances.hs get: when findMatchingObject returns Nothing, narrate "You don't see that here." to the actor with modifyAgentNarration actorGid (over actionConsequence (<> [colored White ...])) (the shape of processNarrationEffect, sasha/src/Engine/Resolution/ActionManagement.hs:310-311) and stop; the rest of the get runs only when an object was found. No throw.
+   - Drop: the same with "You don't have that."
+   - Test: LoginLogoutSpec, the player sends "get the white ball" and receives "You don't see that here."
