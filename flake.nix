@@ -434,6 +434,7 @@
                         done
                         ${pkgs.curl}/bin/curl --fail-with-body -sS -X DELETE ${dslServerUrl}/api/game/logout -H "BEARER: $SASHA_TOKEN"
                         rm -f ${bootstrapTokenFile}
+                        echo "sashamud is ready at https://localhost:8080"
                       '';
                       down = ''
                         stop-sashamud
