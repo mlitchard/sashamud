@@ -51,6 +51,7 @@ const timer = setInterval(() => {
     done("#{successToken}");
   } else if (Date.now() - started > 300000) {
     clearInterval(timer);
-    done("timeout: no pickup narration in the scene viewport");
+    const sys = document.getElementById('vp-system-content');
+    done("timeout: no pickup narration. scene: " + (el ? el.textContent : "") + " | system: " + (sys ? sys.textContent : ""));
   }
 }, 200);|]

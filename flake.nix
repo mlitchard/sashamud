@@ -848,15 +848,38 @@
                   done
 
                   echo "Selenium server is ready."
+                  echo "Starting llama-server..."
+                  ${pkgs.llama-cpp}/bin/llama-server -m ${slmModel} --port ${slmPort} --reasoning off > llama-server.log 2>&1 &
+                  SLM_PID=$!
+
+                  RETRY_COUNT=0
+                  until curl -s -o /dev/null http://127.0.0.1:${slmPort}
+                  do
+                    if [ "$RETRY_COUNT" -ge "$MAX_RETRIES" ]; then
+                      echo "llama-server failed to become ready after $MAX_RETRIES attempts."
+                      kill $SLM_PID
+                      kill $PID
+                      exit 1
+                    fi
+                    echo "Waiting for llama-server... Attempt $((RETRY_COUNT+1))/$MAX_RETRIES"
+                    sleep 1
+                    RETRY_COUNT=$((RETRY_COUNT+1))
+                  done
+
+                  echo "llama-server is ready."
                   echo "Running sasha end-to-end tests..."
 
                   ${lib.getExe inputs.self.packages.${system}.sasha-e2e-tests} || {
                     echo "Tests failed with exit code $?"
+                    echo "llama-server log:"
+                    cat llama-server.log
+                    kill $SLM_PID
                     kill $PID
                     exit 1
                   }
 
                   echo "Tests completed. Shutting down Selenium server..."
+                  kill $SLM_PID
                   kill $PID
                   exit 0
                 '';
