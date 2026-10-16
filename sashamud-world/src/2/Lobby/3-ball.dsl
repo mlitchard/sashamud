@@ -2,8 +2,9 @@ let
   buildBall :: ActionManagement -> SashaLambdaDSL Object
   buildBall lookAtKey =
     defaultObject
-      & (shortName "ball" `andThen`
-         description (colored White "A small red ball.") `andThen`
+      & (shortName "red ball" `andThen`
+         description (colored White "a red ball that you can get and drop") `andThen`
+         descriptive (DescriptiveNounPhrase red ballDS) `andThen`
          flip objectBehavior lookAtKey)
   placeBall :: GID Scene -> GID Object -> ActionManagement -> SashaLambdaDSL (GID Object)
   placeBall lobbyGID floorGID lookAtKey = do

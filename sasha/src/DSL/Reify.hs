@@ -67,6 +67,7 @@ reifyDSL source = do
             , "declareSceneGID"
             , "declareWitnessGID"
             , "description"
+            , "descriptive"
             , "finalizeGameState"
             , "linkEntityActionEffect"
             , "linkWorldOutcomeEffect"
@@ -90,6 +91,10 @@ reifyDSL source = do
             ])
       , ModuleImport "DSL.Vocabulary" NotQualified
           (ImportList ["andThen"])
+      , ModuleImport "Grammar.Parser.Atomics.Semantics.Adjectives" NotQualified
+          (ImportList ["red"])
+      , ModuleImport "Grammar.Parser.Atomics.Semantics.Nouns.DirectionalStimulus" NotQualified
+          (ImportList ["ballDS"])
       , ModuleImport "Grammar.Parser.Atomics.Semantics.Verbs.Acquisition" NotQualified
           (ImportList ["getAV"])
       , ModuleImport "Grammar.Parser.Atomics.Semantics.Verbs.DirectionalStimulus" NotQualified
@@ -98,6 +103,8 @@ reifyDSL source = do
           (ImportList ["dropDV"])
       , ModuleImport "Grammar.Parser.Atomics.Semantics.Verbs.ImplicitStimulus" NotQualified
           (ImportList ["isaLook"])
+      , ModuleImport "Grammar.Parser.Composites.Nouns" NotQualified
+          (ImportList ["NounPhrase (DescriptiveNounPhrase)"])
       , ModuleImport "Grammar.Parser.GCase" NotQualified
           (ImportList ["VerbKey (AcquisitionKey, DirectionalStimulusKey, DivestmentKey, ImplicitStimulusKey)"])
       , ModuleImport "Model.Core" NotQualified

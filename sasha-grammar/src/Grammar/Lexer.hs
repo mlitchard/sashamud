@@ -52,6 +52,7 @@ data Lexeme = A
             | FLOOR
             | GET
             | LOOK
+            | RED
             | SMALL
             | THE
             | WHITE
@@ -64,17 +65,18 @@ instance Bounded Lexeme where
   maxBound = WHITE
 
 instance Enum Lexeme where
-  toEnum 0 = A
-  toEnum 1 = AT
-  toEnum 2 = BALL
-  toEnum 3 = DROP
-  toEnum 4 = FLOOR
-  toEnum 5 = GET
-  toEnum 6 = LOOK
-  toEnum 7 = SMALL
-  toEnum 8 = THE
-  toEnum 9 = WHITE
-  toEnum _ = error "toEnum: no Lexeme at this index"
+  toEnum 0  = A
+  toEnum 1  = AT
+  toEnum 2  = BALL
+  toEnum 3  = DROP
+  toEnum 4  = FLOOR
+  toEnum 5  = GET
+  toEnum 6  = LOOK
+  toEnum 7  = RED
+  toEnum 8  = SMALL
+  toEnum 9  = THE
+  toEnum 10 = WHITE
+  toEnum _  = error "toEnum: no Lexeme at this index"
 
   fromEnum A              = 0
   fromEnum AT             = 1
@@ -83,10 +85,11 @@ instance Enum Lexeme where
   fromEnum FLOOR          = 4
   fromEnum GET            = 5
   fromEnum LOOK           = 6
-  fromEnum SMALL          = 7
-  fromEnum THE            = 8
-  fromEnum WHITE          = 9
-  fromEnum (PLAYERNAME _) = 10
+  fromEnum RED            = 7
+  fromEnum SMALL          = 8
+  fromEnum THE            = 9
+  fromEnum WHITE          = 10
+  fromEnum (PLAYERNAME _) = 11
 
 type HasLexeme :: Type -> Constraint
 class HasLexeme a where
@@ -117,6 +120,7 @@ term = classify <$> word
     classify "FLOOR" = FLOOR
     classify "GET"   = GET
     classify "LOOK"  = LOOK
+    classify "RED"   = RED
     classify "SMALL" = SMALL
     classify "THE"   = THE
     classify "WHITE" = WHITE

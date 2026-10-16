@@ -7,7 +7,6 @@ module Engine.Resolution.ActionManagement
   , lookupDirectionalStimulus
   , lookupWorldOutcomes
   , findAVKey
-  , findAVTargetKey
   , findAVSupportKey
   , findDVKey
   , findDVSurfaceKey
@@ -209,9 +208,7 @@ processSpatialRelationshipEffect actorGid (Divestiture divestedGID targetGID tar
     DivestToSurface' -> do
       modifySpatialRelationshipsForObjectM divestedGID (Data.Set.insert (SupportedBy (EntityObject targetGID)))
       modifySpatialRelationshipsForObjectM targetGID $ \relationships ->
-        let existingSupports = foldl' (\acc r -> case r of Supports s -> s; _ -> acc)
-                                      mempty
-                                      (toList relationships)
+        let existingSupports = mconcat [s | Supports s <- toList relationships]
             withoutOldSupports = Data.Set.filter (\case Supports _ -> False; _ -> True) relationships
         in Data.Set.insert (Supports (Data.Set.insert (EntityObject divestedGID) existingSupports)) withoutOldSupports
   locMap <- use agentLocationMap
@@ -403,12 +400,6 @@ findAVKey :: AcquisitionVerb
           -> ActionManagementFunctions
           -> Maybe (GID AcquisitionF)
 findAVKey verb (ActionManagementFunctions actionSet) =
-  listToMaybe [gid | AVTargetManagementKey v gid <- toList actionSet, v == verb]
-
-findAVTargetKey :: AcquisitionVerb
-                -> ActionManagementFunctions
-                -> Maybe (GID AcquisitionF)
-findAVTargetKey verb (ActionManagementFunctions actionSet) =
   listToMaybe [gid | AVTargetManagementKey v gid <- toList actionSet, v == verb]
 
 findAVSupportKey :: AcquisitionVerb

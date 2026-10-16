@@ -82,6 +82,7 @@ module Model.Core
   , agentKind
   , shortName
   , description
+  , descriptives
   , objectActionManagement
   , title
   , sceneDescription
@@ -136,6 +137,7 @@ import           Grammar.Parser.Atomics.Verbs
   , ImplicitStimulusVerb
   )
 import           Grammar.Parser.Composites.Model (Sentence)
+import           Grammar.Parser.Composites.Nouns (DirectionalStimulusNounPhrase)
 import           Grammar.Parser.GCase (VerbKey)
 import           Lens.Micro.Platform (makeLenses)
 import           Model.GID (GID)
@@ -205,6 +207,7 @@ type Object :: Type
 data Object = Object
   { _shortName              :: Text
   , _description            :: RichText
+  , _descriptives           :: Set DirectionalStimulusNounPhrase
   , _objectActionManagement :: ActionManagementFunctions
   }
   deriving stock (Eq, Generic, Ord, Show)
@@ -501,6 +504,7 @@ defaultObject :: Object
 defaultObject = Object
   { _shortName              = mempty
   , _description            = mempty
+  , _descriptives           = mempty
   , _objectActionManagement = ActionManagementFunctions mempty
   }
 

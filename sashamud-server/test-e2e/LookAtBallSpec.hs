@@ -33,7 +33,7 @@ lookAtBallTest =
       const conseq = narr._actionConsequence || [];
       for (const richText of conseq) {
         const text = richText.map(s => s._ssText).join("");
-        if (text.includes("A small red ball.")) {
+        if (text.includes("a red ball that you can get and drop")) {
           sock.raw.close();
           resolve("#{successToken}");
           return;
@@ -61,7 +61,7 @@ lookAtBallWitnessTest =
       const conseq = narr._actionConsequence || [];
       for (const richText of conseq) {
         const text = richText.map(s => s._ssText).join("");
-        if (text.includes("looks at the ball")) {
+        if (text.includes("looks at the red ball")) {
           gotWitness = true;
           sock.raw.close();
           resolve("#{successToken}");
