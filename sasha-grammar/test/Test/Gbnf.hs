@@ -70,6 +70,10 @@ spec = describe "generateGbnf" (do
     (gbnf `shouldSatisfy` isInfixOf "stimulus ::= implicit-stimulus-verb | ")
   it "writes look at a noun"
     (gbnf `shouldSatisfy` isInfixOf "| directional-stimulus-verb \" \" directional-stimulus-marker \" \" directional-stimulus |")
+  it "writes look at an adjective noun"
+    (gbnf `shouldSatisfy` isInfixOf "| directional-stimulus-verb \" \" directional-stimulus-marker \" \" adjective \" \" directional-stimulus |")
+  it "writes look at a determiner adjective noun"
+    (gbnf `shouldSatisfy` isInfixOf "| directional-stimulus-verb \" \" directional-stimulus-marker \" \" determiner \" \" adjective \" \" directional-stimulus |")
   it "writes look at a player"
     (gbnf `shouldSatisfy` isInfixOf "| directional-stimulus-verb \" \" directional-stimulus-marker \" \" player-name\n")
   it "writes get with an object phrase"

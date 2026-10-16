@@ -122,46 +122,62 @@ instance ActionProtocol DirectionalStimulusF where
 
   lookupActionGID (verb, _) = lookupDirectionalStimulus verb
 
-  runActionProtocol actorGid (verb, nounPhrase) = do
-    -- Resolve object from noun phrase via globalSemanticMap
+  runActionProtocol actorGid (verb, nounPhrase@(DirectionalStimulusNounPhrase _ np)) = do
     let nounText = extractDirectionalNoun nounPhrase
-    semMap <- use (world . globalSemanticMap)
-    objGIDSet <- throwMaybeM ("Nothing called \"" <> nounText <> "\" here.")
-                   (lookup nounText semMap)
-    objGID <- case toList objGIDSet of
-                [gid] -> pure gid
-                []    -> throwError ("Nothing called \"" <> nounText <> "\" here.")
-                _     -> throwError ("Which " <> nounText <> "?")
+    locMap <- use agentLocationMap
+    sceneGid <- throwMaybeM ("Agent location not found: " <> pack (show actorGid))
+                  (lookup actorGid locMap)
+    sMap <- use (world . sceneMap . getGIDToDataMap)
+    scene <- throwMaybeM ("Scene not found: " <> pack (show sceneGid))
+               (lookup sceneGid sMap)
+    objGIDMaybe <- case lookup nounText (view objectSemanticMap scene) of
+                     Nothing -> pure Nothing
+                     Just objGIDSet -> case np of
+                       DescriptiveNounPhrase adj _      ->
+                         findMatchingObject adj (toList objGIDSet)
+                       DescriptiveNounPhraseDet _ adj _ ->
+                         findMatchingObject adj (toList objGIDSet)
+                       SimpleNounPhrase _               -> case toList objGIDSet of
+                         [gid] -> pure (Just gid)
+                         []    -> pure Nothing
+                         _     -> throwError ("Which " <> nounText <> "?")
+                       NounPhrase _ _                   -> case toList objGIDSet of
+                         [gid] -> pure (Just gid)
+                         []    -> pure Nothing
+                         _     -> throwError ("Which " <> nounText <> "?")
 
-    -- Fetch actions from player, object, scene
-    actionMap <- gets (getActionMap @DirectionalStimulusF . view actionMaps)
-    (playerGID, playerAction) <- fetchAgentAction @DirectionalStimulusF (verb, nounPhrase) actionMap actorGid
+    case objGIDMaybe of
+      Nothing -> modifyAgentNarration actorGid (over actionConsequence (<> [colored White "You don't see that here."]))
+      Just objGID -> do
+        -- Fetch actions from player, object, scene
+        actionMap <- gets (getActionMap @DirectionalStimulusF . view actionMaps)
+        (playerGID, playerAction) <- fetchAgentAction @DirectionalStimulusF (verb, nounPhrase) actionMap actorGid
 
-    oMap <- use (world . objectMap . getGIDToDataMap)
-    obj <- throwMaybeM ("Object not found: " <> pack (show objGID))
-             (lookup objGID oMap)
-    objectActionGID <- throwMaybeM "Object has no look-at action"
-                         (lookupDirectionalStimulus verb (view objectActionManagement obj))
-    objectAction <- fetchAction @DirectionalStimulusF actionMap objectActionGID
+        oMap <- use (world . objectMap . getGIDToDataMap)
+        obj <- throwMaybeM ("Object not found: " <> pack (show objGID))
+                 (lookup objGID oMap)
+        objectActionGID <- throwMaybeM "Object has no look-at action"
+                             (lookupDirectionalStimulus verb (view objectActionManagement obj))
+        objectAction <- fetchAction @DirectionalStimulusF actionMap objectActionGID
 
-    (sceneGID, sceneAction) <- fetchSceneAction @DirectionalStimulusF (verb, nounPhrase) actionMap actorGid
+        (sceneGID, sceneAction) <- fetchSceneAction @DirectionalStimulusF (verb, nounPhrase) actionMap actorGid
 
-    let playerKey = mkEffectKey @DirectionalStimulusF playerGID
-        objectKey = mkEffectKey @DirectionalStimulusF objectActionGID
-        sceneKey  = mkEffectKey @DirectionalStimulusF sceneGID
+        let playerKey = mkEffectKey @DirectionalStimulusF playerGID
+            objectKey = mkEffectKey @DirectionalStimulusF objectActionGID
+            sceneKey  = mkEffectKey @DirectionalStimulusF sceneGID
 
-    case (playerAction, objectAction, sceneAction) of
-      (DirectionalNoStimulusF pf, _, _) ->
-        pf actorGid playerKey
-      (_, DirectionalNoStimulusF of', _) ->
-        of' actorGid objectKey
-      (_, _, DirectionalNoStimulusF lf) ->
-        lf actorGid sceneKey
-      (DirectionalStimulusF ps, DirectionalStimulusF os, DirectionalStimulusF ls) ->
-        ps actorGid playerKey
-          >> os actorGid objectKey
-          >> ls actorGid sceneKey
-          >> processWitnesses actorGid (DirectionalStimulusKey verb) (DirectedWitnessContext objGID)
+        case (playerAction, objectAction, sceneAction) of
+          (DirectionalNoStimulusF pf, _, _) ->
+            pf actorGid playerKey
+          (_, DirectionalNoStimulusF of', _) ->
+            of' actorGid objectKey
+          (_, _, DirectionalNoStimulusF lf) ->
+            lf actorGid sceneKey
+          (DirectionalStimulusF ps, DirectionalStimulusF os, DirectionalStimulusF ls) ->
+            ps actorGid playerKey
+              >> os actorGid objectKey
+              >> ls actorGid sceneKey
+              >> processWitnesses actorGid (DirectionalStimulusKey verb) (DirectedWitnessContext objGID)
 
 -- | Extract noun text from DirectionalStimulusNounPhrase for globalSemanticMap lookup
 extractDirectionalNoun :: DirectionalStimulusNounPhrase -> Text

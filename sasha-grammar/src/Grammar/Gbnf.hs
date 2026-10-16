@@ -62,7 +62,7 @@ newtype UnparsedSentence = UnparsedSentence Text
 generateGbnf :: UnparsedSentence -> [PlayerName] -> Gbnf
 generateGbnf (UnparsedSentence sentence) playerNames = Gbnf (unlines
   [ "root ::= stimulus | acquisition | divestment"
-  , "stimulus ::= implicit-stimulus-verb | directional-stimulus-verb \" \" directional-stimulus-marker \" \" directional-stimulus | directional-stimulus-verb \" \" directional-stimulus-marker \" \" player-name"
+  , "stimulus ::= implicit-stimulus-verb | directional-stimulus-verb \" \" directional-stimulus-marker \" \" directional-stimulus | directional-stimulus-verb \" \" directional-stimulus-marker \" \" determiner \" \" directional-stimulus | directional-stimulus-verb \" \" directional-stimulus-marker \" \" adjective \" \" directional-stimulus | directional-stimulus-verb \" \" directional-stimulus-marker \" \" determiner \" \" adjective \" \" directional-stimulus | directional-stimulus-verb \" \" directional-stimulus-marker \" \" player-name"
   , "acquisition ::= acquisition-verb \" \" object-phrase"
   , "divestment ::= divestment-verb \" \" object-phrase"
   , "object-phrase ::= objective | determiner \" \" objective | adjective \" \" objective | determiner \" \" adjective \" \" objective"
