@@ -233,7 +233,9 @@ playerTickBlock = constMCl $ do
   pending <- liftIO $ readMVar (acPendingRepairs appCtx)
 
   -- GENERATE: compose one big GameComputation
-  let gbnf = generateGbnf [PlayerName (view unPlayerNameVAL name) | name <- keys known]
+  let gbnf = generateGbnf
+        ([PlayerName (view unPlayerNameVAL name) | name <- keys known]
+         <> [PlayerName (view unPlayerNameVAL name) | NewPlayerJoined _ name _ <- joinResults])
       (pings, replies, updates, failureRows, successRows, commandComp) = resolveCommands sessions pending gbnf msgs
       (joinResults, joinComp) = processJoinsPure known joins
       leavesComp = processLeavesPure sessions known

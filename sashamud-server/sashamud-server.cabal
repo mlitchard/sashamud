@@ -69,7 +69,7 @@ executable sasha-e2e-tests
     ParseFailureSpec
     RoseSpec
     SeleniumHarness
-    SlmAbsentSpec
+    SlmRepairSpec
 
   build-tool-depends: hspec-discover:hspec-discover
   build-depends:

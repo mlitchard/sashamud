@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes       #-}
 
-module SlmAbsentSpec (spec) where
+module SlmRepairSpec (spec) where
 
 import           Data.String.Interpolate (i)
 import           SashaPrelude
@@ -14,14 +14,14 @@ import           Test.Hspec (Spec, around, describe, it, sequential)
 import           Test.WebDriver (Selector (ByCSS), asyncJS, findElem, sendKeys)
 
 spec :: Spec
-spec = describe "Slm absent" . around withServer . sequential $ do
-    it "an unrepaired sentence shows its parse failure in the system viewport" $ \ctx ->
+spec = describe "Slm repair" . around withServer . sequential $ do
+    it "an unparseable sentence is repaired by the model and runs" $ \ctx ->
         webDriverTestWithPage ctx $ \_ -> do
           connected <- asyncJS [] waitConnected
           case connected of
             Just "connected" -> do
               findElem (ByCSS "#cmd-input") >>= sendKeys "pick up the red ball\n"
-              asyncJS [] pollSystemViewport
+              asyncJS [] pollSceneViewport
             Just _ -> pure connected
             Nothing -> pure connected
 
@@ -40,17 +40,17 @@ const timer = setInterval(() => {
   }
 }, 200);|]
 
-pollSystemViewport :: Text
-pollSystemViewport =
+pollSceneViewport :: Text
+pollSceneViewport =
     [i|const done = arguments[0];
 const started = Date.now();
 const timer = setInterval(() => {
-  const el = document.getElementById('vp-system-content');
-  if (el && el.textContent && el.textContent.includes("Nonsense in parsed tokens")) {
+  const el = document.getElementById('vp-scene-content');
+  if (el && el.textContent && el.textContent.includes("You pick up the red ball.")) {
     clearInterval(timer);
     done("#{successToken}");
-  } else if (Date.now() - started > 15000) {
+  } else if (Date.now() - started > 300000) {
     clearInterval(timer);
-    done("timeout: no failure text in the system viewport");
+    done("timeout: no pickup narration in the scene viewport");
   }
 }, 200);|]
