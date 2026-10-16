@@ -169,6 +169,13 @@
 
           dslServerUrl = "http://127.0.0.1:8081";
           liveDslServerUrl = "https://sashamud.net";
+          slmPort = "8082";
+          slmName = "qwen-Qwen3-1.7B-Q8_0";
+          slmModel = pkgs.fetchurl {
+            url = "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/90862c4b9d2787eaed51d12237eafdfe7c5f6077/Qwen3-1.7B-Q8_0.gguf";
+            sha256 = "061b54daade076b5d3362dac252678d17da8c68f07560be70818cace6590cb1a";
+          };
+          llamaCppCuda = (import nixpkgs { inherit system; config.allowUnfree = true; }).pkgsCuda.llama-cpp;
           sashaEnvironment = "production";
           deployDsl = (pkgs.writeShellScriptBin "deploy-dsl" ''
             set -euo pipefail
@@ -406,6 +413,7 @@
                     script = teardown (processWrap: {
                       up = ''
                         lpg on ${pgDir} up
+                        start-slm-model --builders '''
                         export SASHA_DB_CONNSTR=$(lpg on ${pgDir} get-connstr)
                         rm -f ${bootstrapTokenFile}
                         nix run .#sasha-client-generator --builders ''' -- web/packages/type-gen-output/src/client.ts
@@ -442,7 +450,7 @@
                     });
                   };
                   stop-sashamud = {
-                    description = "stop the server, caddy, and the database";
+                    description = "stop the server, caddy, the model, and the database";
                     script = ''
                       if [[ -e .devpids ]]; then
                         kill -9 $(cat .devpids) 2>/dev/null || true
@@ -453,7 +461,24 @@
                       pkill -f 'tail -F caddy.log' || true
                       pkill -f 'tail -F server.log' || true
                       rm -f ${bootstrapTokenFile}
+                      stop-slm-model
                       db-server-stop
+                    '';
+                  };
+                  start-slm-model = {
+                    description = "start llama-server with the Qwen3-1.7B model on the GPU";
+                    script = ''
+                      LLAMA_CPP=$(nix build --no-link --print-out-paths "$@" .#llama-cpp-cuda)
+                      SLM_MODEL=$(nix build --no-link --print-out-paths "$@" .#slm-model)
+                      "$LLAMA_CPP/bin/llama-server" -m "$SLM_MODEL" --port ${slmPort} -ngl 99 --reasoning off &> slm-model.log &
+                      until ${pkgs.curl}/bin/curl -sS -o /dev/null http://127.0.0.1:${slmPort}; do sleep 1; done
+                      echo "slm-model is ready at http://127.0.0.1:${slmPort}"
+                    '';
+                  };
+                  stop-slm-model = {
+                    description = "stop llama-server";
+                    script = ''
+                      pkill llama-server || true
                     '';
                   };
                 };
@@ -491,6 +516,8 @@
                 shellHook = ''
                   export SASHA_MIGRATIONS_DIR=${migrationsDir}
                   export SASHA_WORLD_DIR=$PWD/sashamud-world/src
+                  export VITE_SLM_PORT=${slmPort}
+                  export VITE_SLM_NAME=${slmName}
                   ${shelpersConfig.functions}
                   shelp
                 '';
@@ -551,6 +578,8 @@
             sashamud-integration-tests = (hlib.justStaticExecutables
               (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sashamud-server "exe:sashamud-integration-tests"))).overrideAttrs { meta.mainProgram = "sashamud-integration-tests"; };
             deploy-dsl = deployDsl;
+            llama-cpp-cuda = llamaCppCuda;
+            slm-model = slmModel;
             web =
               let
                 generated-ts-path = "packages/type-gen-output/src/client.ts";
@@ -569,7 +598,7 @@
                   dontNpmBuild = true;
                   buildPhase = ''
                     cd apps/sasha-web
-                    node node_modules/vite/bin/vite.js build
+                    VITE_SLM_PORT=${slmPort} VITE_SLM_NAME=${slmName} node node_modules/vite/bin/vite.js build
                     cd ../..
                   '';
                   installPhase = ''
