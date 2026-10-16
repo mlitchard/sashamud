@@ -7,7 +7,7 @@ module API.TSClient (client) where
 import           SashaPrelude
 
 import           API.Routes (SashaAPI)
-import           API.Types (DSLSource, MessageTo, SessionId)
+import           API.Types (DSLSource, MessageTo, ParseFailure, SessionId)
 import           GHC.TypeLits (KnownSymbol)
 import           Model.Core (Narration)
 import           Model.RichText (RichText, StyledSpan, TextColor, TextStyle)
@@ -39,6 +39,7 @@ client = tsClient
     , TSDef PlayerNameUNV
     , TSDef PlayerNameVAL
     , TSDef DSLSource
+    , TSDef ParseFailure
     , TSDef TextColor
     , TSDef TextStyle
     , TSDef StyledSpan

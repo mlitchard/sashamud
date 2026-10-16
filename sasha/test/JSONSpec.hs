@@ -4,7 +4,7 @@ import           Data.Aeson (FromJSON, ToJSON, decode, encode)
 import           Data.Kind (Type)
 import           SashaPrelude (Eq, Maybe (Just), Show, ($), (==))
 
-import           API.Types (MessageTo)
+import           API.Types (MessageTo, ParseFailure)
 import           Model.Account (AccountStatus, AuthentikUserId, UserPermissions)
 import           Model.Authorization (AllowedAction)
 import           Model.Core (Narration, SessionId)
@@ -38,6 +38,7 @@ spec = describe "JSON round trip" $ do
     prop "RichText" $ checkJSON @RichText
     prop "MessageFrom" $ checkJSON @MessageFrom
     prop "MessageTo" $ checkJSON @MessageTo
+    prop "ParseFailure" $ checkJSON @ParseFailure
     prop "PlayerNameUNV" $ checkJSON @PlayerNameUNV
     prop "PlayerNameVAL" $ checkJSON @PlayerNameVAL
     prop "Narration" $ checkJSON @Narration

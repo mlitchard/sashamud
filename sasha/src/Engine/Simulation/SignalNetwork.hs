@@ -9,6 +9,7 @@ import           SashaPrelude
 
 import           API.Types
   ( MessageTo (GameCommand, Ping)
+  , ParseFailure (ParseFailure)
   , PlayerJoined (PlayerJoined)
   , Routed (Routed)
   , SessionId
@@ -72,6 +73,7 @@ import           FRP.Rhine
   , (|@|)
   )
 import           Grammar.Lexer (lexify, tokens)
+import           Grammar.Parser.Composites.Model (Sentence)
 import           Grammar.Sentence (parseTokens)
 import           Lens.Micro.Platform (at, over, set, use, view, (.=), (?~))
 import           Model.Core
@@ -207,7 +209,7 @@ playerTickBlock = constMCl $ do
   msgs <- liftIO $ drainChan (acInbound appCtx)
 
   -- GENERATE: compose one big GameComputation
-  let (pings, commandComp) = resolveCommands sessions msgs
+  let (pings, failures, commandComp) = resolveCommands sessions msgs
       (joinResults, joinComp) = processJoinsPure known joins
       leavesComp = processLeavesPure sessions known
       tickComp = composeTick leavesComp joinComp commandComp (joinGIDs joinResults)
@@ -218,6 +220,8 @@ playerTickBlock = constMCl $ do
   -- IO: protocol replies (delivered regardless of tick result)
   liftIO . forM_ pings $ \sid ->
     atomically $ writeTChan (acOutbound appCtx) (Routed sid Pong)
+  liftIO . forM_ failures $ \(sid, ParseFailure err) ->
+    atomically $ writeTChan (acOutbound appCtx) (Routed sid (SystemMessage err))
 
   -- ERROR EVALUATION: after execution
   case result of
@@ -240,7 +244,10 @@ composeTick leavesComp joinComp commandComp joinedGids = do
   leavesComp
   joinComp
   commandComp
-  forM_ joinedGids $ \gid -> runEvalFor gid "look"
+  forM_ joinedGids $ \gid ->
+    case lexify tokens "look" >>= parseTokens of
+      Left err       -> throwError err
+      Right sentence -> runEvalFor gid sentence
   extractNarration
 
 processLeavesPure :: Map SessionId SessionPhase
@@ -349,16 +356,10 @@ joinGIDs = fmap $ \case
   NewPlayerJoined _ _ gid       -> gid
   ReturningPlayerJoined _ gid -> gid
 
-runEvalFor :: GID Agent -> Text -> GameComputation Identity ()
-runEvalFor gid cmdText =
-  case lexify tokens cmdText of
-    Left err -> throwError err
-    Right lexemes ->
-      case parseTokens lexemes of
-        Left err -> throwError err
-        Right sentence -> do
-          evaluator <- lookupEvaluatorOrThrow gid
-          view runEvaluator evaluator gid sentence
+runEvalFor :: GID Agent -> Sentence -> GameComputation Identity ()
+runEvalFor gid sentence = do
+  evaluator <- lookupEvaluatorOrThrow gid
+  view runEvaluator evaluator gid sentence
 
 lookupEvaluatorOrThrow :: GID Agent -> GameComputation Identity Evaluator
 lookupEvaluatorOrThrow gid = do
@@ -375,15 +376,17 @@ runPureComputation comp gs =
 
 resolveCommands :: Map SessionId SessionPhase
                 -> [Routed MessageTo]
-                -> ([SessionId], GameComputation Identity ())
-resolveCommands sessions msgs = (pings, mapM_ commandComputation cmds)
+                -> ([SessionId], [(SessionId, ParseFailure)], GameComputation Identity ())
+resolveCommands sessions msgs = (pings, failures, mapM_ commandComputation sentences)
   where
-    pings = [sid | Routed sid Ping <- msgs]
-    cmds  = [(sid, cmdText) | Routed sid (GameCommand cmdText) <- msgs]
-    commandComputation (sid, cmdText) =
+    pings     = [sid | Routed sid Ping <- msgs]
+    cmds      = [(sid, lexify tokens cmdText >>= parseTokens) | Routed sid (GameCommand cmdText) <- msgs]
+    failures  = [(sid, ParseFailure err) | (sid, Left err) <- cmds]
+    sentences = [(sid, sentence) | (sid, Right sentence) <- cmds]
+    commandComputation (sid, sentence) =
       case lookup sid sessions >>= sessionGid of
         Nothing  -> throwError ("Programmer Error: no InGame session for " <> pack (show sid))
-        Just gid -> runEvalFor gid cmdText
+        Just gid -> runEvalFor gid sentence
 
 executeJoinIO :: AppCtx -> JoinResult -> IO ()
 executeJoinIO ctx (NewPlayerJoined sid name gid) = do

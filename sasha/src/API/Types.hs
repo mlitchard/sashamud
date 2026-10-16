@@ -7,6 +7,7 @@ module API.Types
   , Routed (..)
   , AuthenticatedUser (..)
   , DSLSource (..)
+  , ParseFailure (..)
   , PlayerJoined (..)
   ) where
 
@@ -49,6 +50,13 @@ newtype DSLSource = DSLSource { unDSLSource :: Text }
 
 derivingTypeScriptDefinition ''DSLSource
 
+newtype ParseFailure = ParseFailure Text
+  deriving stock (Generic, Show)
+  deriving newtype (Eq, FromJSON, Ord, ToJSON)
+  deriving anyclass (NFData)
+
+derivingTypeScriptDefinition ''ParseFailure
+
 data AuthenticatedUser = AuthenticatedUser
   { auSessionId   :: SessionId
   , auUserId      :: Mid AuthenticatedUser
@@ -67,4 +75,5 @@ data PlayerJoined = PlayerJoined
 
 #ifdef TESTING
 deriving via (GenericArbitrary MessageTo) instance Arbitrary MessageTo
+deriving via (GenericArbitrary ParseFailure) instance Arbitrary ParseFailure
 #endif
