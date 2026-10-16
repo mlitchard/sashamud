@@ -18,6 +18,7 @@ Players in the lobby can "get the red ball" and "drop the red ball". World conte
 - Lookup uses _descriptives only. _shortName and _description are display text and take no part in lookup (user, 2026-10-16; old code: sasha-engine/src/GameState/Spatial.hs:80-95 reads descriptives).
 - Pattern-match cleanup included in this plan (user, 2026-10-16).
 - Ball changes go in the existing world files; no new .dsl file (user, 2026-10-16).
+- sessionGid and sessionSend are the pattern match on SessionPhase; call sites use them. The SignalNetwork.hs and Server.hs items are withdrawn from step 5 (user, 2026-10-16).
 
 ## What exists today
 
@@ -80,7 +81,5 @@ Step rule: every step builds and is green on its own. Any fix a step needs, incl
    - The world file changes reach the live server with the server release (Decision 10).
 
 5. Pattern-match cleanup (Opus), independent of steps 1-4:
-   - sasha/src/Engine/Simulation/SignalNetwork.hs :174, :251, :383-386, :417: replace the sessionGid projection-and-test with a match on `SessionPhase _ gid (InGame _)`.
-   - sasha/src/Server/Server.hs:137: replace `lookup sid sessions >>= sessionSend` with a case on `Just (SessionPhase _ _ (AwaitingJoin send))` / `Just (SessionPhase _ _ (InGame send))` / the remaining cases → `writeLog (acGameLog ctx) (SendDropped sid)`.
    - sasha/src/Engine/Resolution/ActionManagement.hs:212-216: replace the foldl' with `mconcat [s | Supports s <- toList relationships]`.
    - Remove findAVTargetKey (sasha/src/Engine/Resolution/ActionManagement.hs:408-412), identical to findAVKey (user, 2026-10-16). The call at sasha/src/Engine/ActionDiscovery/Instances.hs:214 uses findAVKey. Drop findAVTargetKey from the ActionManagement export list and from the Instances.hs import.
