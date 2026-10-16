@@ -23,7 +23,7 @@ reload-rules.sh (UserPromptSubmit), refuse-lookups.sh (Bash), refuse-outside-rea
    - refuse-after-rejection.sh on PreToolUse Edit|Write|Bash|Agent|Read|Grep|Glob|WebFetch|WebSearch denies every call, main session and subagents, while .claude/rejected exists. Reason: "A proposal or edit was rejected. Stop and discuss with the user." Bash calls are checked only when the input carries agent_type (subagents); main-session Bash passes.
    - reload-rules.sh deletes .claude/rejected, so his next message clears it.
    - The first real rejection shows whether PermissionDenied fires for it.
-2. Agent prompt guards. require-agent-guards.sh on PreToolUse Agent denies unless the prompt contains "If any edit or proposal is rejected, stop at once"; for general-purpose agents the prompt must also contain "Old-code reference:".
+2. Agent prompt guards. require-agent-guards.sh on PreToolUse Agent denies unless the prompt contains "If any edit or proposal is rejected, stop at once"; for general-purpose agents the prompt must also contain "Old-code reference:". For quote-source, Explore and claude-code-guide agents the prompt must also contain "Decision this changes:" naming the open decision the lookup would change (user, 2026-10-16).
 3. Lookup and read limits.
    - refuse-lookups.sh adds wc and du to its pattern.
    - refuse-outside-reads.sh denies /nix/store/* for subagents too.
