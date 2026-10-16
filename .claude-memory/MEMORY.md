@@ -24,6 +24,7 @@
 - Scope is what was asked. World content, tests the user did not order, and docs reads the user did not order are out. "Mechanism" work means grammar, core types, DSL constructors, builder, engine; wiring a world object through the DSL is the author's job.
 - The old-code lookup rule covers Haskell shapes in grammar, core, DSL, builder and engine. It does not cover JavaScript in the e2e harness, cabal lines, nix, or a fix whose shape is already in context. Before any lookup, name the decision it would change. No decision, no lookup (user-corrected 2026-10-13).
 - Changes land on the current branch only, ever. Never switch branches, never touch main (user-ruled 2026-10-13).
+- Infrastructure ships as code; the DSL applies it (user-ruled 2026-10-15). Infrastructure is grammar, vocabulary, lexer, core types, DSL constructors, builder and engine. It is delivered as normal code in the codebase and reaches the live server through a server release. Applying infrastructure to the world happens in .dsl files delivered with deploy-dsl. Example: the RED adjective ships in sasha-grammar; a .dsl file puts it to use.
 
 ## Rhine Architecture (verified from source + koans)
 - Rhine source: /home/mlitchard/github/rhine

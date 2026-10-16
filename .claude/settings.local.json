@@ -33,7 +33,8 @@
       "Read(//home/mlitchard/github/crypton/**)",
       "Bash(nix eval *)",
       "Bash(ssh *)",
-      "Read(//home/mlitchard/gitlab/sasha/**)"
+      "Read(//home/mlitchard/gitlab/sasha/**)",
+      "WebFetch(domain:huggingface.co)"
     ]
   },
   "hooks": {

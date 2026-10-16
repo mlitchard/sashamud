@@ -151,6 +151,13 @@ metadata:
   cleanup kills caddy with `pkill caddy`. I ported its ps|grep|awk|xargs
   sweep for the server instead of `pkill sasha-server`. When the model
   has a one-command form for the job, use that form.
+  STRUCK AGAIN 2026-10-16 (get-the-red-ball session, "why do i have to
+  tell you this ... the old sasha code is our model"): planned the lexer
+  change, the adjective export, the semantic-map key and the adjective
+  lookup from sashamud alone and put each to him as a question. Old code
+  settles grammar, core, DSL and engine shapes. Before drafting any such
+  step, quote the old code for it first; a step with no old-code quote is
+  not ready.
 - EVERY STEP LANDS GREEN (2026-09-29, auth-token step 1, "the step is not
   done until the tests are green"): a step is finished when every check
   is green. A schema change lands in the same step as the code that reads
