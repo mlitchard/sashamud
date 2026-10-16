@@ -1,5 +1,7 @@
 # LLM sentence repair
 
+Status (2026-10-16): steps 1-5 are done, green and committed. The flake check is green.
+
 ## Goal
 
 When a player's sentence fails to parse, a language model rewrites it into a
@@ -325,16 +327,16 @@ that step. No step relies on a later step to fix it.
    - Tests: the JSON props; an e2e spec where the client's step 3 handler answers a RepairRequest with slm-absent, and the sender sees the failure text. The e2e spec is registered in `sasha-e2e-tests` other-modules.
 
 4. Client calls llama-server, with dev and CI wiring (decisions 5, 6, 10, 12-17, 22, 23).
-   - Already on the branch (setup session, 2026-10-16): let bindings `slmPort = "8082"`, `slmModel` (fetchurl of the decision 12 URL and SHA256) and `llamaCppCuda` (`pkgsCuda.llama-cpp` from nixpkgs imported with `allowUnfree`); packages `llama-cpp-cuda` and `slm-model`; shelpers `start-slm-model` (runs `llama-server -m $SLM_MODEL --port ${slmPort} -ngl 99 --reasoning off`) and `stop-slm-model`, called from start-sashamud and stop-sashamud. The pinned nixpkgs carries llama-cpp 9925, and the CPU `pkgs.llama-cpp` for CI is the same version. Whether 9925 includes PR #24154 is unchecked; the executor checks it.
-   - This step adds `--cors-origins` to `start-slm-model`.
+   - Already on the branch (setup session, 2026-10-16): let bindings `slmPort = "8082"`, `slmModel` (fetchurl of the decision 12 URL and SHA256) and `llamaCppCuda` (`pkgsCuda.llama-cpp` from nixpkgs imported with `allowUnfree`); packages `llama-cpp-cuda` and `slm-model`; shelpers `start-slm-model` (runs `llama-server -m $SLM_MODEL --port ${slmPort} -ngl 99 --reasoning off`) and `stop-slm-model`, called from start-sashamud and stop-sashamud. The pinned nixpkgs carries llama-cpp 9925, and the CPU `pkgs.llama-cpp` for CI is the same version. 9925 includes the PR #24154 fix: it rejects an invalid GBNF with HTTP 400 (step 4 e2e run).
+   - llama-cpp 9925 has no `--cors-origins` flag. Its built-in CORS handling echoes the Origin header and allows GET and POST, which serves the client, so `start-slm-model` stays unchanged.
    - The client reads `import.meta.env.VITE_SLM_PORT` (decision 17). sashamud-85 wires it into the `web` derivation (flake.nix:580), start-sashamud (flake.nix:410) and the dev shell before this step.
    - On RepairRequest the client POSTs to `http://localhost:<port>/v1/chat/completions` with the decision 13 instruction as the system message, the unparsed sentence as the user message, the GBNF in `grammar`, `temperature: 0` and `chat_template_kwargs: {enable_thinking: false}`. It reads `choices[0].message.content` and sends RepairedCommand through GameConnection (web/apps/sasha-web/src/game/GameConnection.ts:63). A failed fetch sends RepairedCommand with the original sentence and slm-absent (decision 16).
    - The client sends RepairedCommand with `import.meta.env.VITE_SLM_NAME`, set from the `slmName` let binding (decision 23). sashamud-85 wires `slmName` and `VITE_SLM_NAME` the way it wired `VITE_SLM_PORT`, before this step. It sends that name, or
      'slm-absent' and the original sentence when the fetch fails. On a
      RepairRequest carrying earlier attempts, it adds them to the user
      message.
-   - `sasha-e2e-wrapped` (flake.nix:797-820) starts llama-server in the background with `--port`, llama-server's default `--cors-origins` (`*`), since the test page's origin `http://127.0.0.1:<free port>` changes every run (SeleniumHarness.hs:337), and `-m` on the model file. It polls the port until llama-server answers, runs the tests, and kills it at the end, the same way it handles Selenium. `withServer` runs inside that VM, so this one change covers both. No manual steps. The script runs the CPU `pkgs.llama-cpp` by store path, with `slmModel`.
-   - Test: an e2e spec drives the real client in the browser and sends `pick up the red ball`. It waits for "You pick up the red ball." (decision 14). It is registered in `sasha-e2e-tests` other-modules. The CPU model's speed in CI is unknown until the first run. It uses `webDriverTestWithPage` (SeleniumHarness.hs:318), which loads the built client. `webDriverTestWithClient` talks over a raw socket and never loads ViewportManager.
+   - `sasha-e2e-wrapped` (flake.nix:797-820) starts llama-server in the background with `--port`, llama-server's built-in CORS handling, since the test page's origin `http://127.0.0.1:<free port>` changes every run (SeleniumHarness.hs:337), and `-m` on the model file. It polls the port until llama-server answers, runs the tests, and kills it at the end, the same way it handles Selenium. `withServer` runs inside that VM, so this one change covers both. No manual steps. The script runs the CPU `pkgs.llama-cpp` by store path, with `slmModel`.
+   - Test: an e2e spec drives the real client in the browser and sends `pick up the red ball`. It waits for "You pick up the red ball." (decision 14). It is registered in `sasha-e2e-tests` other-modules. The CPU model's speed in CI is unknown until the first run. It uses `webDriverTestWithPage` (SeleniumHarness.hs:318), which loads the built client. `webDriverTestWithClient` talks over a raw socket and never loads ViewportManager. The spec is SlmRepairSpec, which replaces step 3's SlmAbsentSpec.
 
 5. Narrowing (decision 2a).
    - `generateGbnf` gains the failed sentence as an argument: `generateGbnf :: UnparsedSentence -> [PlayerName] -> Gbnf`. It lexes the sentence with `lexify tokens`. Each non-verb list keeps the words whose lexeme appears in the result, or its full list when none do. The player-name rule keeps the known names that match a PLAYERNAME token, or every known name when none match.
