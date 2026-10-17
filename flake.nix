@@ -292,11 +292,11 @@
               (set -e
               > .devpids
               here=$(pwd)
+              ${upDown.up}
               trap ${lib.escapeShellArg ''
                   set +e
                   ${upDown.down}
               ''} SIGINT
-              ${upDown.up}
               wait)
             '';
 
