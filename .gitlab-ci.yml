@@ -104,6 +104,7 @@ checks:run-end-to-end:
     - packages:hint-ghc
     - packages:sasha-e2e-tests
     - packages:sasha-server
+    - packages:slm-model
     - packages:web
   script:
     - nix build .#checks.x86_64-linux.run-end-to-end --no-link --print-build-logs
@@ -183,6 +184,11 @@ packages:hint-ghc:
   script:
     - nix build .#packages.x86_64-linux.hint-ghc --no-link --print-build-logs
   stage: build
+packages:llama-cpp-cuda:
+  needs: []
+  script:
+    - nix build .#packages.x86_64-linux.llama-cpp-cuda --no-link --print-build-logs
+  stage: build
 packages:sasha-client-generator:
   needs: []
   script:
@@ -213,6 +219,11 @@ packages:sashamud-integration-tests:
   needs: []
   script:
     - nix build .#packages.x86_64-linux.sashamud-integration-tests --no-link --print-build-logs
+  stage: build
+packages:slm-model:
+  needs: []
+  script:
+    - nix build .#packages.x86_64-linux.slm-model --no-link --print-build-logs
   stage: build
 packages:web:
   needs: []
