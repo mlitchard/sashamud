@@ -177,6 +177,7 @@ executable sasha-tests
     Server.Server
     Server.Validator
     Server.World
+    SignalNetworkSpec
 
   build-depends:
     , aeson
