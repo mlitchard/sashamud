@@ -22,7 +22,10 @@ import           API.Types
   )
 import           Data.Map.Strict (fromList, lookup)
 import           Data.Text (lines)
-import           Engine.Simulation.SignalNetwork (prettyShowSentence, resolveCommands)
+import           Engine.Simulation.SignalNetwork
+  ( prettyShowSentence
+  , resolveCommands
+  )
 import           Grammar.Gbnf (UnparsedSentence (UnparsedSentence))
 import           Grammar.Lexer (lexify, tokens)
 import           Grammar.Sentence (parseTokens)
@@ -39,7 +42,13 @@ import           Server.App
   , SessionState (InGame)
   )
 import           Server.Validator (PlayerNameVAL (PlayerNameVAL))
-import           Test.Hspec (Spec, describe, expectationFailure, it, shouldContain)
+import           Test.Hspec
+  ( Spec
+  , describe
+  , expectationFailure
+  , it
+  , shouldContain
+  )
 
 spec :: Spec
 spec = describe "resolveCommands" $ do
