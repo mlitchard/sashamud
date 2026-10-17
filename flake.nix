@@ -414,6 +414,10 @@
                       up = ''
                         lpg on ${pgDir} up
                         start-slm-model --builders '''
+                        ${processWrap "authentik-vm" "authentik-vm.log" ''
+                          nix run .#authentik-vm --builders ''' &> authentik-vm.log
+                        ''}
+                        until ${pkgs.curl}/bin/curl -s -o /dev/null http://127.0.0.1:9000/; do sleep 1; done
                         export SASHA_DB_CONNSTR=$(lpg on ${pgDir} get-connstr)
                         rm -f ${bootstrapTokenFile}
                         nix run .#sasha-client-generator --builders ''' -- web/packages/type-gen-output/src/client.ts
@@ -460,6 +464,7 @@
                       pkill caddy || true
                       pkill -f 'tail -F caddy.log' || true
                       pkill -f 'tail -F server.log' || true
+                      pkill -f authentik-local.qcow2 || true
                       rm -f ${bootstrapTokenFile}
                       stop-slm-model
                       db-server-stop

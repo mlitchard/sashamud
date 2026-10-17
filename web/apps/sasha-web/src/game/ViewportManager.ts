@@ -66,7 +66,7 @@ export class ViewportManager {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             messages: [
-              { role: 'system', content: 'Rewrite the player\'s sentence as a command for a text adventure game. Keep what the player meant. Reply with the command only.' },
+              { role: 'system', content: 'Rewrite the player\'s sentence as a command for a text adventure game. Keep what the player meant. Reply with the command only.\n\nExamples:\nwhere am i → LOOK\nwhat\'s around me → LOOK\nwhat does the ball look like → LOOK AT THE BALL\ni want the red ball → GET THE RED BALL\nlet go of the ball → DROP THE BALL' },
               { role: 'user', content: userMessage },
             ],
             grammar: gbnf,
