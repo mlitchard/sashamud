@@ -50,6 +50,7 @@ File: sasha/src/Engine/Simulation/SignalNetwork.hs.
 - sasha/src/Model/Core.hs: ToJSON for ActionManagement (:153), ActionManagementFunctions (:163), AgentKind (:199), Object (:206) and Agent (:216). GID (Model/GID.hs:15) and RichText (Model/RichText.hs:86) already have ToJSON.
 - Before writing, the writer reads sasha-grammar.cabal and sasha.cabal for aeson in build-depends, and the SashaPrelude export list.
 - No caller changes.
+- RULED (user, 2026-10-17): every ToJSON added in this step has a matching FromJSON (VerbKey gets ToJSONKey and FromJSONKey). Every type that gains these instances is added to the JSON roundtrip properties in the existing sasha/test/JSONSpec.hs, with the Arbitrary instances that needs, following the repo's existing Arbitrary pattern (`#ifdef TESTING` in the source module, GenericArbitrary for sum and product types, `deriving newtype` for newtypes, arbitraryBoundedEnum for large enums, the constraint-solver-iterations pragma where GenericArbitrary needs it).
 
 ### Step 3. State view
 - sasha.cabal: aeson-pretty in build-depends of the library and of the test suite. Precedent: quux/server/quux.cabal:259; encodePretty at quux/server/src/Embedded/Mock/JSONMachine.hs:38.
