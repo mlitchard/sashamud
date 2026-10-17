@@ -26,6 +26,7 @@ export class ViewportManager {
   private focusedViewport: ViewportId = 'scene';
   private systemMessageCount = 0;
   private panels: Map<ViewportId, HTMLElement> = new Map();
+  private lastAnalysis: Map<ViewportId, RichText[]> = new Map();
   private sideStackWidth = 360;
   private keydownHandler: ((e: KeyboardEvent) => void) | null = null;
   private mobileQuery: MediaQueryList;
@@ -101,7 +102,10 @@ export class ViewportManager {
       case 'AnalysisData':
         for (const [key, lines] of msg.contents as [AnalysisViewport, RichText[]][]) {
           const vpId = ANALYSIS_KEY_TO_VIEWPORT[key];
-          if (vpId) this.replaceRichText(vpId, lines);
+          if (vpId) {
+            this.lastAnalysis.set(vpId, lines);
+            this.replaceRichText(vpId, lines);
+          }
         }
         break;
     }
@@ -168,6 +172,8 @@ export class ViewportManager {
       }
     }
     this.rebuildLayout();
+    const stored = this.lastAnalysis.get(vpId);
+    if (stored && this.activeViewports.has(vpId)) this.replaceRichText(vpId, stored);
     this.updateToolbar();
   }
 

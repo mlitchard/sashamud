@@ -36,6 +36,18 @@ spec = describe "Parser view" . around withServer . sequential $ do
                 Nothing -> pure opened
             Just _ -> pure connected
             Nothing -> pure connected
+    it "the State tab shows the agents once the panel opens" $ \ctx ->
+        webDriverTestWithPage ctx $ \_ -> do
+          connected <- asyncJS [] waitConnected
+          case connected of
+            Just "connected" -> do
+              opened <- asyncJS [] openStateTab
+              case opened of
+                Just "opened" -> asyncJS [] pollStateViewport
+                Just _        -> pure opened
+                Nothing       -> pure opened
+            Just _ -> pure connected
+            Nothing -> pure connected
 
 waitConnected :: Text
 waitConnected =
@@ -71,5 +83,27 @@ const timer = setInterval(() => {
     clearInterval(timer);
     const sys = document.getElementById('vp-system-content');
     done("timeout: no sentence parse. parser: " + (el ? el.textContent : "") + " | system: " + (sys ? sys.textContent : ""));
+  }
+}, 200);|]
+
+openStateTab :: Text
+openStateTab =
+    [i|const done = arguments[0];
+document.dispatchEvent(new KeyboardEvent('keydown', { code: 'Digit5', shiftKey: true }));
+done("opened");|]
+
+pollStateViewport :: Text
+pollStateViewport =
+    [i|const done = arguments[0];
+const started = Date.now();
+const timer = setInterval(() => {
+  const el = document.getElementById('vp-state-content');
+  if (el && el.textContent && el.textContent.includes("=== Agents ===")) {
+    clearInterval(timer);
+    done("#{successToken}");
+  } else if (Date.now() - started > 15000) {
+    clearInterval(timer);
+    const sys = document.getElementById('vp-system-content');
+    done("timeout: no state view. state: " + (el ? el.textContent : "") + " | system: " + (sys ? sys.textContent : ""));
   }
 }, 200);|]
