@@ -22,7 +22,8 @@ import           API.Types
   , Routed (Routed)
   , SlmName (SlmName)
   )
-import           Data.Map.Strict (fromList, lookup)
+import           Data.List (lookup)
+import           Data.Map.Strict (fromList)
 import           Data.Set (insert, singleton)
 import           Data.Text (lines)
 import           Engine.Simulation.SignalNetwork

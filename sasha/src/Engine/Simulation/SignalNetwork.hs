@@ -303,7 +303,7 @@ playerTickBlock = constMCl $ do
     modifyMVar_ (acLastStateViews appCtx) $ \lastViews -> do
       forM_ (assocs views) $ \(sid, stateView) ->
         when (lookup sid lastViews /= Just stateView) . atomically $
-          writeTChan (acOutbound appCtx) (Routed sid (AnalysisData (fromList [(State, stateView)])))
+          writeTChan (acOutbound appCtx) (Routed sid (AnalysisData [(State, stateView)]))
       pure views
 
   addGameState gs'
@@ -488,10 +488,10 @@ resolveCommands sessions pending names msgs =
     exhausted = [(sid, unparsed, origErr, attempts, slm) | (sid, unparsed, origErr, attempts, slm, _, True) <- judged]
     retries   = [(sid, unparsed, origErr, attempts) | (sid, unparsed, origErr, attempts, _, _, False) <- judged]
     replies =
-      [Routed sid (AnalysisData (fromList [(Parser, commandView)])) | (sid, _, commandView, _) <- cmds]
-      <> [Routed sid (AnalysisData (fromList [(Parser, attemptView <> [plain "=== Outcome ===", plain "  parsed, the sentence runs"] <> parseLines (Right sentence))])) | (sid, _, _, _, attemptView, sentence) <- repairedSentences]
-      <> [Routed sid (AnalysisData (fromList [(Parser, attemptView <> [plain "=== Outcome ===", plain "  no repair pending"])])) | (sid, attemptView, _) <- unpending]
-      <> [Routed sid (AnalysisData (fromList [(Parser, judgedView)])) | (sid, _, _, _, _, judgedView, _) <- judged]
+      [Routed sid (AnalysisData [(Parser, commandView)]) | (sid, _, commandView, _) <- cmds]
+      <> [Routed sid (AnalysisData [(Parser, attemptView <> [plain "=== Outcome ===", plain "  parsed, the sentence runs"] <> parseLines (Right sentence))]) | (sid, _, _, _, attemptView, sentence) <- repairedSentences]
+      <> [Routed sid (AnalysisData [(Parser, attemptView <> [plain "=== Outcome ===", plain "  no repair pending"])]) | (sid, attemptView, _) <- unpending]
+      <> [Routed sid (AnalysisData [(Parser, judgedView)]) | (sid, _, _, _, _, judgedView, _) <- judged]
       <> [Routed sid (RepairRequest unparsed failure (generateGbnf unparsed names) []) | (sid, unparsed, failure) <- unparsedCmds]
       <> [Routed sid (SystemMessage err) | (sid, _, err) <- unpending]
       <> [Routed sid (SystemMessage origText) | (sid, _, ParseFailure origText, _, _) <- exhausted]

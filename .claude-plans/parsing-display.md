@@ -60,3 +60,16 @@ File: sasha/src/Engine/Simulation/SignalNetwork.hs.
 - playerTickBlock, after the result case: read acSessions again (as deliverNarrationIO does); build `views` as a Map from each InGame SessionId to `formatState gid gs'`; read acLastStateViews; send `Routed sid (AnalysisData (fromList [(State, view)]))` to acOutbound for each session whose view differs from its last-sent view; then write `views` into acLastStateViews whole. Writing the whole map each tick keeps one entry per live session, and ended sessions drop out.
 - Tests (in sasha/test/SignalNetworkSpec.hs): formatState for a player in a scene with one other agent and one object yields lines with "=== Agents ===", a "  GID <n>" line for each agent, "=== Objects ===", and a "  GID <n>" line for the object. formatState for a scene with no objects yields "  (none)" under "=== Objects ===". The GameState is built from the existing defaults with lenses.
 - SignalNetwork.hs exports formatState.
+
+### Step 4. Wire shape matches the generated client
+- RULED (user, 2026-10-17): the wire matches the generated client type. aeson encodes `Map AnalysisViewport [RichText]` as a JSON object, while the generated client.ts (aeson-typescript's Map instance, no sashamud override, API/TSClient.hs:43) types it as `[AnalysisViewport, Array<RichText>][]`, and the client loop at web/apps/sasha-web/src/game/ViewportManager.ts:101 iterates pairs. The Parser and State tabs stayed empty.
+- sasha/src/Model/WireProtocol.hs: `AnalysisData (Map AnalysisViewport [RichText])` becomes `AnalysisData [(AnalysisViewport, [RichText])]`.
+- sasha/src/Engine/Simulation/SignalNetwork.hs: every `AnalysisData (fromList [(Parser, ...)])` and `AnalysisData (fromList [(State, ...)])` becomes `AnalysisData [(Parser, ...)]` and `AnalysisData [(State, ...)]`.
+- sasha/test/SignalNetworkSpec.hs: reply checks find the Parser entry in the list.
+- No client edits. start-sashamud regenerates client.ts (flake.nix:423); the type stays `[AnalysisViewport, Array<RichText>][]`.
+- Regression test sashamud-server/test-e2e/ParserViewSpec.hs, listed in the sasha-e2e-tests other-modules (sashamud-server/sashamud-server.cabal:57), following SlmRepairSpec's shape: open the Parser tab with Shift+4, type `look`, poll vp-parser-content for "=== Sentence ===". It runs under run-end-to-end.
+- RULED (user, 2026-10-17): no e2e spec sends a modifier key, so ParserViewSpec opens the Parser tab by dispatching, through asyncJS, the keydown event that setupKeyboard (web/apps/sasha-web/src/game/ViewportManager.ts:198) listens for.
+
+## Open issues
+- Under start-sashamud, locally, the SLM repair fails on main and on this branch, and on this branch the Parser and State tabs stay empty. In `nix flake check`, run-end-to-end passes SlmRepairSpec and ParserViewSpec. llama-server answers a curl POST to http://localhost:8082/v1/chat/completions. The cause is under trace: start-sashamud compared with run-end-to-end.
+- RULED (user, 2026-10-17): the fix for this lands with a test that runs in `nix flake check` and fails if it breaks again.
