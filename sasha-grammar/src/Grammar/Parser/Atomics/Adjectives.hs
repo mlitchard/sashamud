@@ -6,6 +6,7 @@ module Grammar.Parser.Atomics.Adjectives
   ) where
 
 import           Control.DeepSeq (NFData)
+import           Data.Aeson (FromJSON, ToJSON)
 import           Data.Eq (Eq)
 import           Data.Hashable (Hashable)
 import           Data.Kind (Type)
@@ -16,7 +17,7 @@ import           Grammar.Lexer (HasLexeme (toLexeme), Lexeme)
 type Adjective :: Type
 newtype Adjective = Adjective { _fromAdjective :: Lexeme }
   deriving stock (Eq, Ord, Show)
-  deriving newtype (Hashable, NFData)
+  deriving newtype (FromJSON, Hashable, NFData, ToJSON)
 
 instance HasLexeme Adjective where
   toLexeme = _fromAdjective

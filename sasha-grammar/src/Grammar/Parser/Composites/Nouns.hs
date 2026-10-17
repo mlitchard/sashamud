@@ -7,6 +7,7 @@ module Grammar.Parser.Composites.Nouns
   ) where
 
 import           Control.DeepSeq (NFData)
+import           Data.Aeson (FromJSON, ToJSON)
 import           Data.Eq (Eq)
 import           Data.Kind (Type)
 import           Data.Ord (Ord)
@@ -24,7 +25,7 @@ data NounPhrase a = SimpleNounPhrase a
                   | DescriptiveNounPhrase Adjective a
                   | DescriptiveNounPhraseDet Determiner Adjective a
   deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
+  deriving anyclass (FromJSON, NFData, ToJSON)
 
 type ObjectPhrase :: Type
 newtype ObjectPhrase = ObjectPhrase (NounPhrase Objective)
@@ -34,7 +35,7 @@ newtype ObjectPhrase = ObjectPhrase (NounPhrase Objective)
 type DirectionalStimulusNounPhrase :: Type
 data DirectionalStimulusNounPhrase = DirectionalStimulusNounPhrase DirectionalStimulusMarker (NounPhrase DirectionalStimulus)
   deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
+  deriving anyclass (FromJSON, NFData, ToJSON)
 
 type PlayerName :: Type
 newtype PlayerName = PlayerName Text

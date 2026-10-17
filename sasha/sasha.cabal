@@ -81,6 +81,7 @@ library
 
   build-depends:
     , aeson
+    , aeson-pretty
     , aeson-typescript
     , async
     , base                      >=4.7 && <5
@@ -177,9 +178,11 @@ executable sasha-tests
     Server.Server
     Server.Validator
     Server.World
+    SignalNetworkSpec
 
   build-depends:
     , aeson
+    , aeson-pretty
     , aeson-typescript
     , async
     , base                      >=4.7 && <5

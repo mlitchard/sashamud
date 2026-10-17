@@ -11,7 +11,6 @@ import           API.Types (ParseFailure, RepairAttempt)
 import           Control.DeepSeq (NFData)
 import           Data.Aeson (FromJSON, FromJSONKey, ToJSON, ToJSONKey)
 import           Data.Aeson.TypeScript (derivingTypeScriptDefinition)
-import           Data.Map.Strict (Map)
 import           Grammar.Gbnf (Gbnf, UnparsedSentence)
 import           Model.Core (Narration, SessionId)
 import           Model.RichText (RichText)
@@ -41,7 +40,7 @@ data MessageFrom = SessionAck SessionId
                  | ChatMessage Text
                  | SystemMessage Text
                  | Pong
-                 | AnalysisData (Map AnalysisViewport [RichText])
+                 | AnalysisData [(AnalysisViewport, [RichText])]
                  | RepairRequest UnparsedSentence ParseFailure Gbnf [RepairAttempt]
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (FromJSON, NFData, ToJSON)

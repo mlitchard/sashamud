@@ -17,6 +17,7 @@ import           Control.Applicative
   )
 import           Control.DeepSeq (NFData)
 import           Control.Monad (Monad, MonadPlus, void)
+import           Data.Aeson (FromJSON, ToJSON)
 import           Data.Either (Either (Left, Right))
 import           Data.Eq (Eq)
 import           Data.Functor (Functor, (<$>))
@@ -58,7 +59,7 @@ data Lexeme = A
             | WHITE
             | PLAYERNAME Text
   deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (Hashable, NFData)
+  deriving anyclass (FromJSON, Hashable, NFData, ToJSON)
 
 instance Bounded Lexeme where
   minBound = A

@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# OPTIONS_GHC -fconstraint-solver-iterations=10 #-}
 {-# HLINT ignore "Use newtype instead of data" #-}
 
 module Model.Core
@@ -143,6 +144,7 @@ import           Lens.Micro.Platform (makeLenses)
 import           Model.GID (GID)
 import           Model.RichText (RichText)
 #ifdef TESTING
+import           ArbitraryOrphans ()
 import           Test.QuickCheck (Arbitrary)
 import           Test.QuickCheck.Arbitrary.Generic (GenericArbitrary (..))
 import           Test.QuickCheck.Instances.Text ()
@@ -158,12 +160,12 @@ data ActionManagement = DSAManagementKey DirectionalStimulusVerb (GID Directiona
                       | DVManagementKey DivestmentVerb (GID DivestmentF)
                       | DVSurfaceManagementKey DivestmentVerb (GID DivestmentF)
   deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
+  deriving anyclass (FromJSON, NFData, ToJSON)
 
 type ActionManagementFunctions :: Type
 newtype ActionManagementFunctions = ActionManagementFunctions { _actionManagementFunctions :: Set ActionManagement }
   deriving stock (Eq, Ord, Show)
-  deriving newtype (NFData)
+  deriving newtype (FromJSON, NFData, ToJSON)
 
 type GIDToDataMap :: Type -> Type -> Type
 newtype GIDToDataMap k v = GIDToDataMap { _getGIDToDataMap :: Map (GID k) v }
@@ -201,7 +203,7 @@ data AgentKind
   = Denizen
   | Fixture
   deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
+  deriving anyclass (FromJSON, NFData, ToJSON)
 
 type Object :: Type
 data Object = Object
@@ -211,7 +213,7 @@ data Object = Object
   , _objectActionManagement :: ActionManagementFunctions
   }
   deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
+  deriving anyclass (FromJSON, NFData, ToJSON)
 
 type Agent :: Type
 data Agent = Agent
@@ -223,7 +225,7 @@ data Agent = Agent
   , _agentKind              :: AgentKind
   }
   deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
+  deriving anyclass (FromJSON, NFData, ToJSON)
 
 type AgentMap :: Type
 newtype AgentMap = AgentMap { _getAgentMap :: Map (GID Agent) Agent }
@@ -559,4 +561,9 @@ makeLenses ''PossibilityGraph
 #ifdef TESTING
 deriving newtype instance Arbitrary SessionId
 deriving via (GenericArbitrary Narration) instance Arbitrary Narration
+deriving via (GenericArbitrary ActionManagement) instance Arbitrary ActionManagement
+deriving newtype instance Arbitrary ActionManagementFunctions
+deriving via (GenericArbitrary AgentKind) instance Arbitrary AgentKind
+deriving via (GenericArbitrary Object) instance Arbitrary Object
+deriving via (GenericArbitrary Agent) instance Arbitrary Agent
 #endif

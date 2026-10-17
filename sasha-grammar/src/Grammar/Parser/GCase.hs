@@ -6,6 +6,7 @@ module Grammar.Parser.GCase
   ) where
 
 import           Control.DeepSeq (NFData)
+import           Data.Aeson (FromJSON, FromJSONKey, ToJSON, ToJSONKey)
 import           Data.Eq (Eq)
 import           Data.Kind (Type)
 import           Data.Ord (Ord)
@@ -24,4 +25,4 @@ data VerbKey = DirectionalStimulusKey DirectionalStimulusVerb
              | AcquisitionKey AcquisitionVerb
              | DivestmentKey DivestmentVerb
   deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
+  deriving anyclass (FromJSON, FromJSONKey, NFData, ToJSON, ToJSONKey)

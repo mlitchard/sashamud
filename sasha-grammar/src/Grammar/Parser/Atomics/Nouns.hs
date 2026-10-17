@@ -10,6 +10,7 @@ module Grammar.Parser.Atomics.Nouns
   ) where
 
 import           Control.DeepSeq (NFData)
+import           Data.Aeson (FromJSON, ToJSON)
 import           Data.Eq (Eq)
 import           Data.Hashable (Hashable)
 import           Data.Kind (Type)
@@ -20,7 +21,7 @@ import           Grammar.Lexer (HasLexeme (toLexeme), Lexeme)
 type DirectionalStimulus :: Type
 newtype DirectionalStimulus = DirectionalStimulus { _fromDirectionalStimulus :: Lexeme }
   deriving stock (Eq, Ord, Show)
-  deriving newtype (Hashable, NFData)
+  deriving newtype (FromJSON, Hashable, NFData, ToJSON)
 
 instance HasLexeme DirectionalStimulus where
   toLexeme = _fromDirectionalStimulus

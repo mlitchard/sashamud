@@ -3,9 +3,12 @@
 
 module Engine.Simulation.SignalNetwork
   ( RhineM
+  , formatState
   , gameLoop
   , insertRepairFailure
   , insertRepairSuccess
+  , prettyShowSentence
+  , resolveCommands
   ) where
 
 import           SashaPrelude
@@ -36,8 +39,12 @@ import           Control.Monad.State (get, put, runStateT)
 import           Control.Monad.Trans.Accum (AccumT, add, look, runAccumT)
 import           Control.Monad.Trans.Class (lift)
 import           Control.Monad.Trans.Reader (ReaderT (runReaderT), ask)
+import           Data.Aeson (ToJSON)
+import           Data.Aeson.Encode.Pretty (encodePretty)
+import           Data.ByteString.Lazy (toStrict)
 import           Data.Functor.Identity (Identity, runIdentity)
 import           Data.IORef (readIORef, writeIORef)
+import           Data.List (replicate)
 import           Data.Map.Strict
   ( Map
   , alter
@@ -50,7 +57,9 @@ import           Data.Map.Strict
   , unionWith
   )
 import           Data.Monoid (Last (Last))
+import           Data.Ord (max)
 import           Data.Pool (withResource)
+import qualified Data.Set (toList)
 import qualified Data.Set as Set
   ( delete
   , filter
@@ -60,6 +69,8 @@ import qualified Data.Set as Set
   , null
   , toList
   )
+import           Data.Text (lines)
+import           Data.Text.Encoding (decodeUtf8')
 import           Database.PostgreSQL.Simple (Connection, SqlError, execute)
 import           Database.PostgreSQL.Simple.SqlQQ (sql)
 import           Database.PostgreSQL.Simple.Types (PGArray (PGArray))
@@ -115,10 +126,12 @@ import           Model.Core
   , narrationMap
   , newUserMkAgent
   , newUserStartScene
+  , objectMap
   , possibilityGraph
   , runEvaluator
   , sceneAgents
   , sceneMap
+  , sceneObjects
   , unNarrationMap
   , world
   )
@@ -132,10 +145,11 @@ import           Model.RichText
   , toPlainText
   )
 import           Model.WireProtocol
-  ( MessageFrom (ChatMessage, GameNarration, Pong, RepairRequest, SystemMessage)
+  ( AnalysisViewport (Parser, State)
+  , MessageFrom (AnalysisData, ChatMessage, GameNarration, Pong, RepairRequest, SystemMessage)
   )
 import           Server.App
-  ( AppCtx (acBuilderCounters, acDSLChan, acDbPool, acGameLog, acInbound, acJoinChan, acKnownPlayers, acOutbound, acPendingRepairs, acSessions)
+  ( AppCtx (acBuilderCounters, acDSLChan, acDbPool, acGameLog, acInbound, acJoinChan, acKnownPlayers, acLastStateViews, acOutbound, acPendingRepairs, acSessions)
   , PendingRepair (PendingRepair)
   , SessionPhase (SessionPhase)
   , SessionState (AwaitingJoin, AwaitingSocket, InGame)
@@ -282,6 +296,15 @@ playerTickBlock = constMCl $ do
       liftIO $ forM_ joinResults (executeJoinIO appCtx)
       -- IO: deliver narrations to clients
       liftIO $ deliverNarrationIO appCtx narrations
+
+  liftIO $ do
+    liveSessions <- readMVar (acSessions appCtx)
+    let views = fromList [(sid, formatState gid gs') | (sid, phase) <- assocs liveSessions, Just gid <- [sessionGid phase]]
+    modifyMVar_ (acLastStateViews appCtx) $ \lastViews -> do
+      forM_ (assocs views) $ \(sid, stateView) ->
+        when (lookup sid lastViews /= Just stateView) . atomically $
+          writeTChan (acOutbound appCtx) (Routed sid (AnalysisData [(State, stateView)]))
+      pure views
 
   addGameState gs'
 
@@ -439,39 +462,128 @@ resolveCommands sessions pending names msgs =
   (pings, replies, updates, exhausted, successRows, mapM_ commandComputation sentences)
   where
     pings     = [sid | Routed sid Ping <- msgs]
-    cmds      = [(sid, UnparsedSentence cmdText, lexify tokens cmdText >>= parseTokens) | Routed sid (GameCommand cmdText) <- msgs]
-    repaired  = [(sid, unparsed, rewrite, slm, lexify tokens rewrite >>= parseTokens) | Routed sid (RepairedCommand unparsed rewrite slm) <- msgs]
-    unparsedCmds = [(sid, unparsed, ParseFailure err) | (sid, unparsed, Left err) <- cmds]
-    repairedSentences = [(sid, unparsed, rewrite, slm, sentence) | (sid, unparsed, rewrite, slm, Right sentence) <- repaired]
-    repairErrors = [(sid, unparsed, rewrite, slm, err) | (sid, unparsed, rewrite, slm, Left err) <- repaired]
-    unpending = [(sid, err) | (sid, _, _, _, err) <- repairErrors, Nothing <- [lookup sid pending]]
+    cmds =
+      [ (sid, UnparsedSentence cmdText, commandLines cmdText lexed parsed, parsed)
+      | Routed sid (GameCommand cmdText) <- msgs
+      , let lexed = lexify tokens cmdText
+      , let parsed = lexed >>= parseTokens
+      ]
+    repaired =
+      [ (sid, unparsed, rewrite, slm, attemptLines unparsed (lookup sid pending) rewrite slm lexed parsed, parsed)
+      | Routed sid (RepairedCommand unparsed rewrite slm) <- msgs
+      , let lexed = lexify tokens rewrite
+      , let parsed = lexed >>= parseTokens
+      ]
+    unparsedCmds = [(sid, unparsed, ParseFailure err) | (sid, unparsed, _, Left err) <- cmds]
+    repairedSentences = [(sid, unparsed, rewrite, slm, attemptView, sentence) | (sid, unparsed, rewrite, slm, attemptView, Right sentence) <- repaired]
+    repairErrors = [(sid, unparsed, rewrite, slm, attemptView, err) | (sid, unparsed, rewrite, slm, attemptView, Left err) <- repaired]
+    unpending = [(sid, attemptView, err) | (sid, _, _, _, attemptView, err) <- repairErrors, Nothing <- [lookup sid pending]]
     judged =
-      [ (sid, unparsed, origErr, attempts, slm, slm == SlmName "slm-absent" || length attempts >= 3)
-      | (sid, unparsed, rewrite, slm, err) <- repairErrors
+      [ (sid, unparsed, origErr, attempts, slm, attemptView <> [plain "=== Outcome ==="] <> outcomeLines, done)
+      | (sid, unparsed, rewrite, slm, attemptView, err) <- repairErrors
       , Just (PendingRepair _ origErr prior) <- [lookup sid pending]
       , let attempts = prior <> [RepairAttempt rewrite (ParseFailure err)]
+      , let (outcomeLines, done) = repairOutcome slm attempts
       ]
-    exhausted = [(sid, unparsed, origErr, attempts, slm) | (sid, unparsed, origErr, attempts, slm, True) <- judged]
-    retries   = [(sid, unparsed, origErr, attempts) | (sid, unparsed, origErr, attempts, _, False) <- judged]
+    exhausted = [(sid, unparsed, origErr, attempts, slm) | (sid, unparsed, origErr, attempts, slm, _, True) <- judged]
+    retries   = [(sid, unparsed, origErr, attempts) | (sid, unparsed, origErr, attempts, _, _, False) <- judged]
     replies =
-      [Routed sid (RepairRequest unparsed failure (generateGbnf unparsed names) []) | (sid, unparsed, failure) <- unparsedCmds]
-      <> [Routed sid (SystemMessage err) | (sid, err) <- unpending]
+      [Routed sid (AnalysisData [(Parser, commandView)]) | (sid, _, commandView, _) <- cmds]
+      <> [Routed sid (AnalysisData [(Parser, attemptView <> [plain "=== Outcome ===", plain "  parsed, the sentence runs"] <> parseLines (Right sentence))]) | (sid, _, _, _, attemptView, sentence) <- repairedSentences]
+      <> [Routed sid (AnalysisData [(Parser, attemptView <> [plain "=== Outcome ===", plain "  no repair pending"])]) | (sid, attemptView, _) <- unpending]
+      <> [Routed sid (AnalysisData [(Parser, judgedView)]) | (sid, _, _, _, _, judgedView, _) <- judged]
+      <> [Routed sid (RepairRequest unparsed failure (generateGbnf unparsed names) []) | (sid, unparsed, failure) <- unparsedCmds]
+      <> [Routed sid (SystemMessage err) | (sid, _, err) <- unpending]
       <> [Routed sid (SystemMessage origText) | (sid, _, ParseFailure origText, _, _) <- exhausted]
       <> [Routed sid (RepairRequest unparsed origErr (generateGbnf unparsed names) attempts) | (sid, unparsed, origErr, attempts) <- retries]
     updates =
       [(sid, Just (PendingRepair unparsed failure [])) | (sid, unparsed, failure) <- unparsedCmds]
-      <> [(sid, Nothing) | (sid, _, _, _, _) <- repairedSentences]
-      <> [(sid, Nothing) | (sid, _) <- unpending]
+      <> [(sid, Nothing) | (sid, _, _, _, _, _) <- repairedSentences]
+      <> [(sid, Nothing) | (sid, _, _) <- unpending]
       <> [(sid, Nothing) | (sid, _, _, _, _) <- exhausted]
       <> [(sid, Just (PendingRepair unparsed origErr attempts)) | (sid, unparsed, origErr, attempts) <- retries]
-    successRows = [(sid, unparsed, rewrite, slm) | (sid, unparsed, rewrite, slm, _) <- repairedSentences]
+    successRows = [(sid, unparsed, rewrite, slm) | (sid, unparsed, rewrite, slm, _, _) <- repairedSentences]
     sentences =
-      [(sid, sentence) | (sid, _, Right sentence) <- cmds]
-      <> [(sid, sentence) | (sid, _, _, _, sentence) <- repairedSentences]
+      [(sid, sentence) | (sid, _, _, Right sentence) <- cmds]
+      <> [(sid, sentence) | (sid, _, _, _, _, sentence) <- repairedSentences]
     commandComputation (sid, sentence) =
       case lookup sid sessions >>= sessionGid of
         Nothing  -> throwError ("Programmer Error: no InGame session for " <> pack (show sid))
         Just gid -> runEvalFor gid sentence
+    lexemeLines = \case
+      Left err      -> fmap plain (lines err)
+      Right lexemes -> [plain ("  " <> pack (show lexemes))]
+    parseLines = \case
+      Left err       -> fmap plain (lines err)
+      Right sentence -> fmap plain (lines (prettyShowSentence sentence))
+    commandLines cmdText lexed parsed =
+      [plain "=== Input ===", plain ("  " <> cmdText), plain "=== Lexemes ==="]
+      <> lexemeLines lexed
+      <> [plain "=== Sentence ==="]
+      <> parseLines parsed
+      <> case parsed of
+           Left _  -> [plain "=== Repair ===", plain "  repair requested"]
+           Right _ -> []
+    attemptLines (UnparsedSentence original) pendingRepair rewrite (SlmName slmName) lexed parsed =
+      [plain "=== Input ===", plain ("  " <> original)]
+      <> inputFailure
+      <> [plain "=== Repair attempts ==="]
+      <> concatMap priorAttemptLines prior
+      <> [plain ("  Rewrite: " <> rewrite <> " (SLM " <> slmName <> ")")]
+      <> lexemeLines lexed
+      <> case parsed of
+           Left err -> parseLines (Left err)
+           Right _  -> []
+      where
+        (inputFailure, prior) = case pendingRepair of
+          Nothing                                                 -> ([], [])
+          Just (PendingRepair _ (ParseFailure origText) attempts) -> (parseLines (Left origText), attempts)
+    priorAttemptLines (RepairAttempt rewrite (ParseFailure err)) =
+      [plain ("  Rewrite: " <> rewrite)]
+      <> lexemeLines (lexify tokens rewrite)
+      <> parseLines (Left err)
+    repairOutcome slm attempts
+      | slm == SlmName "slm-absent" = ([plain "  slm-absent"], True)
+      | length attempts >= 3        = ([plain ("  repair ended after " <> pack (show (length attempts)) <> " attempts")], True)
+      | otherwise                   = ([plain ("  failed, asking the SLM again (attempt " <> pack (show (length attempts)) <> " of 3)")], False)
+
+prettyShowSentence :: Sentence -> Text
+prettyShowSentence sentence = pack $ go 0 (show sentence)
+  where
+    go :: Int -> String -> String
+    go _ [] = []
+    go indent ('(':rest) =
+      '\n' : (replicate (indent * 2) ' ' <> ('(' : go (indent + 1) rest))
+    go indent (')':rest) =
+      ')' : go (max 0 (indent - 1)) rest
+    go indent (c:rest) =
+      c : go indent rest
+
+formatState :: GID Agent -> GameState -> [RichText]
+formatState gid gs =
+  case lookup gid (view agentLocationMap gs) of
+    Nothing -> [plain ("Location missing for GID " <> pack (show gid))]
+    Just sceneGid ->
+      case lookup sceneGid (view (world . sceneMap . getGIDToDataMap) gs) of
+        Nothing -> [plain ("Scene missing for GID " <> pack (show sceneGid))]
+        Just scene ->
+          [plain "=== Agents ==="]
+          <> formatSection (Data.Set.toList (view sceneAgents scene)) (view (world . agentMap . getAgentMap) gs)
+          <> [plain "=== Objects ==="]
+          <> formatSection (Data.Set.toList (view sceneObjects scene)) (view (world . objectMap . getGIDToDataMap) gs)
+  where
+    formatSection :: ToJSON a => [GID a] -> Map (GID a) a -> [RichText]
+    formatSection [] _          = [plain "  (none)"]
+    formatSection gids entities = concatMap (formatEntity entities) gids
+    formatEntity :: ToJSON a => Map (GID a) a -> GID a -> [RichText]
+    formatEntity entities entityGid =
+      case lookup entityGid entities of
+        Nothing -> [plain ("  GID " <> pack (show entityGid) <> " missing")]
+        Just entity ->
+          [plain ("  GID " <> pack (show entityGid))]
+          <> case decodeUtf8' (toStrict (encodePretty entity)) of
+               Left err   -> [plain ("  " <> pack (show err))]
+               Right json -> fmap (plain . ("  " <>)) (lines json)
 
 insertRepairFailure :: Connection
                     -> SceneLabel
