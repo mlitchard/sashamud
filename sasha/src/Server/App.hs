@@ -63,6 +63,7 @@ import           Model.Account
   )
 import           Model.Core (Agent, GameState)
 import           Model.GID (GID)
+import           Model.RichText (RichText)
 import           Model.WireProtocol (MessageFrom)
 import           Network.HTTP.Client (Manager)
 import           Servant (Handler)
@@ -162,6 +163,7 @@ data AppCtx = AppCtx
   , acHttpManager :: Manager
   , acOidcStates :: MVar (Map OidcState (UTCTime, CodeVerifier, PlayerNameVAL, StartMode))
   , acPendingRepairs :: MVar (Map SessionId PendingRepair)
+  , acLastStateViews :: MVar (Map SessionId [RichText])
   , acGameLog :: GameLog
   }
 
@@ -176,6 +178,7 @@ newAppCtx logCfg pool oidcConfig manager counters = do
   builderCounters <- newIORef counters
   oidcStates <- newMVar mempty
   pendingRepairs <- newMVar mempty
+  lastStateViews <- newMVar mempty
   pure AppCtx
     { acInbound      = inChan
     , acOutbound     = outChan
@@ -189,6 +192,7 @@ newAppCtx logCfg pool oidcConfig manager counters = do
     , acHttpManager  = manager
     , acOidcStates   = oidcStates
     , acPendingRepairs = pendingRepairs
+    , acLastStateViews = lastStateViews
     , acGameLog      = logCfg
     }
 

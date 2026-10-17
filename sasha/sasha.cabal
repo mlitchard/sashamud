@@ -81,6 +81,7 @@ library
 
   build-depends:
     , aeson
+    , aeson-pretty
     , aeson-typescript
     , async
     , base                      >=4.7 && <5
@@ -181,6 +182,7 @@ executable sasha-tests
 
   build-depends:
     , aeson
+    , aeson-pretty
     , aeson-typescript
     , async
     , base                      >=4.7 && <5

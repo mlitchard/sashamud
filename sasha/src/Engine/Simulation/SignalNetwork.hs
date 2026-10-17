@@ -3,6 +3,7 @@
 
 module Engine.Simulation.SignalNetwork
   ( RhineM
+  , formatState
   , gameLoop
   , insertRepairFailure
   , insertRepairSuccess
@@ -38,6 +39,9 @@ import           Control.Monad.State (get, put, runStateT)
 import           Control.Monad.Trans.Accum (AccumT, add, look, runAccumT)
 import           Control.Monad.Trans.Class (lift)
 import           Control.Monad.Trans.Reader (ReaderT (runReaderT), ask)
+import           Data.Aeson (ToJSON)
+import           Data.Aeson.Encode.Pretty (encodePretty)
+import           Data.ByteString.Lazy (toStrict)
 import           Data.Functor.Identity (Identity, runIdentity)
 import           Data.IORef (readIORef, writeIORef)
 import           Data.List (replicate)
@@ -55,6 +59,7 @@ import           Data.Map.Strict
 import           Data.Monoid (Last (Last))
 import           Data.Ord (max)
 import           Data.Pool (withResource)
+import qualified Data.Set (toList)
 import qualified Data.Set as Set
   ( delete
   , filter
@@ -65,6 +70,7 @@ import qualified Data.Set as Set
   , toList
   )
 import           Data.Text (lines)
+import           Data.Text.Encoding (decodeUtf8')
 import           Database.PostgreSQL.Simple (Connection, SqlError, execute)
 import           Database.PostgreSQL.Simple.SqlQQ (sql)
 import           Database.PostgreSQL.Simple.Types (PGArray (PGArray))
@@ -120,10 +126,12 @@ import           Model.Core
   , narrationMap
   , newUserMkAgent
   , newUserStartScene
+  , objectMap
   , possibilityGraph
   , runEvaluator
   , sceneAgents
   , sceneMap
+  , sceneObjects
   , unNarrationMap
   , world
   )
@@ -137,11 +145,11 @@ import           Model.RichText
   , toPlainText
   )
 import           Model.WireProtocol
-  ( AnalysisViewport (Parser)
+  ( AnalysisViewport (Parser, State)
   , MessageFrom (AnalysisData, ChatMessage, GameNarration, Pong, RepairRequest, SystemMessage)
   )
 import           Server.App
-  ( AppCtx (acBuilderCounters, acDSLChan, acDbPool, acGameLog, acInbound, acJoinChan, acKnownPlayers, acOutbound, acPendingRepairs, acSessions)
+  ( AppCtx (acBuilderCounters, acDSLChan, acDbPool, acGameLog, acInbound, acJoinChan, acKnownPlayers, acLastStateViews, acOutbound, acPendingRepairs, acSessions)
   , PendingRepair (PendingRepair)
   , SessionPhase (SessionPhase)
   , SessionState (AwaitingJoin, AwaitingSocket, InGame)
@@ -288,6 +296,15 @@ playerTickBlock = constMCl $ do
       liftIO $ forM_ joinResults (executeJoinIO appCtx)
       -- IO: deliver narrations to clients
       liftIO $ deliverNarrationIO appCtx narrations
+
+  liftIO $ do
+    liveSessions <- readMVar (acSessions appCtx)
+    let views = fromList [(sid, formatState gid gs') | (sid, phase) <- assocs liveSessions, Just gid <- [sessionGid phase]]
+    modifyMVar_ (acLastStateViews appCtx) $ \lastViews -> do
+      forM_ (assocs views) $ \(sid, stateView) ->
+        when (lookup sid lastViews /= Just stateView) . atomically $
+          writeTChan (acOutbound appCtx) (Routed sid (AnalysisData (fromList [(State, stateView)])))
+      pure views
 
   addGameState gs'
 
@@ -541,6 +558,32 @@ prettyShowSentence sentence = pack $ go 0 (show sentence)
       ')' : go (max 0 (indent - 1)) rest
     go indent (c:rest) =
       c : go indent rest
+
+formatState :: GID Agent -> GameState -> [RichText]
+formatState gid gs =
+  case lookup gid (view agentLocationMap gs) of
+    Nothing -> [plain ("Location missing for GID " <> pack (show gid))]
+    Just sceneGid ->
+      case lookup sceneGid (view (world . sceneMap . getGIDToDataMap) gs) of
+        Nothing -> [plain ("Scene missing for GID " <> pack (show sceneGid))]
+        Just scene ->
+          [plain "=== Agents ==="]
+          <> formatSection (Data.Set.toList (view sceneAgents scene)) (view (world . agentMap . getAgentMap) gs)
+          <> [plain "=== Objects ==="]
+          <> formatSection (Data.Set.toList (view sceneObjects scene)) (view (world . objectMap . getGIDToDataMap) gs)
+  where
+    formatSection :: ToJSON a => [GID a] -> Map (GID a) a -> [RichText]
+    formatSection [] _          = [plain "  (none)"]
+    formatSection gids entities = concatMap (formatEntity entities) gids
+    formatEntity :: ToJSON a => Map (GID a) a -> GID a -> [RichText]
+    formatEntity entities entityGid =
+      case lookup entityGid entities of
+        Nothing -> [plain ("  GID " <> pack (show entityGid) <> " missing")]
+        Just entity ->
+          [plain ("  GID " <> pack (show entityGid))]
+          <> case decodeUtf8' (toStrict (encodePretty entity)) of
+               Left err   -> [plain ("  " <> pack (show err))]
+               Right json -> fmap (plain . ("  " <>)) (lines json)
 
 insertRepairFailure :: Connection
                     -> SceneLabel
