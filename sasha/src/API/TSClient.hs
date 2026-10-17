@@ -7,8 +7,16 @@ module API.TSClient (client) where
 import           SashaPrelude
 
 import           API.Routes (SashaAPI)
-import           API.Types (DSLSource, MessageTo, SessionId)
+import           API.Types
+  ( DSLSource
+  , MessageTo
+  , ParseFailure
+  , RepairAttempt
+  , SessionId
+  , SlmName
+  )
 import           GHC.TypeLits (KnownSymbol)
+import           Grammar.Gbnf (Gbnf, UnparsedSentence)
 import           Model.Core (Narration)
 import           Model.RichText (RichText, StyledSpan, TextColor, TextStyle)
 import           Model.WireProtocol (AnalysisViewport, MessageFrom)
@@ -35,10 +43,15 @@ instance (Fletch (ReqBody list unv :> xs)) => Fletch (ValidatedBody list unv val
 client :: Text
 client = tsClient
   @'[ TSDef SessionId
+    , TSDef UnparsedSentence
+    , TSDef SlmName
     , TSDef MessageTo
     , TSDef PlayerNameUNV
     , TSDef PlayerNameVAL
     , TSDef DSLSource
+    , TSDef ParseFailure
+    , TSDef Gbnf
+    , TSDef RepairAttempt
     , TSDef TextColor
     , TSDef TextStyle
     , TSDef StyledSpan

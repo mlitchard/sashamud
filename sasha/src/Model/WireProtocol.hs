@@ -7,15 +7,18 @@ module Model.WireProtocol
 
 import           SashaPrelude
 
+import           API.Types (ParseFailure, RepairAttempt)
 import           Control.DeepSeq (NFData)
 import           Data.Aeson (FromJSON, FromJSONKey, ToJSON, ToJSONKey)
 import           Data.Aeson.TypeScript (derivingTypeScriptDefinition)
 import           Data.Map.Strict (Map)
+import           Grammar.Gbnf (Gbnf, UnparsedSentence)
 import           Model.Core (Narration, SessionId)
 import           Model.RichText (RichText)
 import           Network.WebSockets (WebSocketsData)
 import           Servant.API.WebSocket (Aeson (Aeson))
 #ifdef TESTING
+import           ArbitraryOrphans ()
 import           Test.QuickCheck (Arbitrary)
 import           Test.QuickCheck.Arbitrary.Generic (GenericArbitrary (..))
 import           Test.QuickCheck.Instances.Text ()
@@ -39,6 +42,7 @@ data MessageFrom = SessionAck SessionId
                  | SystemMessage Text
                  | Pong
                  | AnalysisData (Map AnalysisViewport [RichText])
+                 | RepairRequest UnparsedSentence ParseFailure Gbnf [RepairAttempt]
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (FromJSON, NFData, ToJSON)
   deriving (WebSocketsData)

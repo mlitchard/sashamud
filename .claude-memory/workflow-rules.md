@@ -258,3 +258,6 @@ metadata:
      in the same step, tests present. Fixes go into the step that needs
      them.
   6. He says write; Opus executes the plan step by step.
+- BUG TRACING GOES TO SONNET (2026-10-16, llm-sentence-repair session, "that is a job for sonnet not haiku"): tracing a bug across several files goes to a Sonnet agent. Haiku quotes text verbatim and nothing more.
+- PASTED TEXT (2026-10-16, same session): a message that is only pasted text gets one question before I act on it. The user marks consent explicitly when a paste is an order.
+- GREEN BEFORE COMMITS; GO THROUGH THE PLANNER (2026-10-16, same session): commit commands come only after the user announces a step green. A go for a step owned by another session comes to the planning session, which relays it; finishing one step never starts the next.

@@ -4,7 +4,9 @@ import           Data.Aeson (FromJSON, ToJSON, decode, encode)
 import           Data.Kind (Type)
 import           SashaPrelude (Eq, Maybe (Just), Show, ($), (==))
 
-import           API.Types (MessageTo)
+import           API.Types (MessageTo, ParseFailure, RepairAttempt, SlmName)
+import           ArbitraryOrphans ()
+import           Grammar.Gbnf (Gbnf, UnparsedSentence)
 import           Model.Account (AccountStatus, AuthentikUserId, UserPermissions)
 import           Model.Authorization (AllowedAction)
 import           Model.Core (Narration, SessionId)
@@ -38,6 +40,11 @@ spec = describe "JSON round trip" $ do
     prop "RichText" $ checkJSON @RichText
     prop "MessageFrom" $ checkJSON @MessageFrom
     prop "MessageTo" $ checkJSON @MessageTo
+    prop "ParseFailure" $ checkJSON @ParseFailure
+    prop "SlmName" $ checkJSON @SlmName
+    prop "RepairAttempt" $ checkJSON @RepairAttempt
+    prop "UnparsedSentence" $ checkJSON @UnparsedSentence
+    prop "Gbnf" $ checkJSON @Gbnf
     prop "PlayerNameUNV" $ checkJSON @PlayerNameUNV
     prop "PlayerNameVAL" $ checkJSON @PlayerNameVAL
     prop "Narration" $ checkJSON @Narration

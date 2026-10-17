@@ -276,3 +276,13 @@
 - WorldChange is SceneCreated (GID Scene) | ObjectCreated (GID Object) | SceneModified SceneLabel | ObjectModified ObjectLabel | NewUserAgentModified | NewUserRegistered (GID Scene). bsChanges and resultChanges are appended in order. GID's Show instance renders the bare number, so a line reads "Scene created: 0".
 - Deploys: a brief was sent to the deploys session (/home/mlitchard/gitlab/deploys, services/sashamud.nix, DynamicUser, StateDirectory sashamud). The unit needs SASHA_BOOTSTRAP_TOKEN_FILE under the state directory, the wizard account created after the schema exists, and a deliver-then-logout step.
 - deploy-dsl takes `local` or `live` first, then the file. `local` uses dslServerUrl, `live` uses liveDslServerUrl (https://sashamud.net). SASHA_URL overrides either. Every caller in flake.nix passes `local`.
+
+## LLM sentence repair (branch 18-llm-experiments, done 2026-10-16)
+- Plan: .claude-plans/llm-sentence-repair.md, steps 1-5 done, flake check green.
+- Flow: a parse failure sends that session `RepairRequest UnparsedSentence ParseFailure Gbnf [RepairAttempt]`. The client asks llama-server at localhost:VITE_SLM_PORT and answers `RepairedCommand UnparsedSentence Text SlmName`. The server allows three attempts per failure, tracked in acPendingRepairs (Server.App). A slm-absent answer ends the repair at once. The failure message goes out as SystemMessage.
+- Generator: Grammar.Gbnf (sasha-grammar) holds `generateGbnf :: UnparsedSentence -> [PlayerName] -> Gbnf`. It narrows each non-verb list to the words the sentence names; verbs stay complete; a list the sentence names no word from stays full. It writes out the shapes of imperativeRules itself, so a shape added to Grammar/Parser/Composites/Rules.hs needs the same addition in generateGbnf.
+- The GBNF's player names are acKnownPlayers plus this tick's NewPlayerJoined names (playerTickBlock). llama-server rejects a grammar with an empty rule (HTTP 400).
+- Tables: slm (seeded rows 'qwen-Qwen3-1.7B-Q8_0' and 'slm-absent'), repair_failures, repair_successes. Both repair tables are records for study; the parse flow never reads them. Migration migrations/build/04-repair.sql, rollback migrations/rollback/95-repair.sql.
+- Model: Qwen3-1.7B Q8_0 from the official Qwen/Qwen3-1.7B-GGUF repo. Flake let bindings slmPort = "8082", slmModel, slmName, llamaCppCuda. Shelpers start-slm-model and stop-slm-model, called from start-sashamud and stop-sashamud. VITE_SLM_PORT and VITE_SLM_NAME are set in the dev shell and the web derivation. llama-cpp 9925 has no --cors-origins flag.
+- CI: sasha-e2e-wrapped runs the CPU llama-server with slmModel; SlmRepairSpec is the end-to-end test.
+- hlint runs inside the build and fails it on hints.

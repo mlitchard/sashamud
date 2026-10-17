@@ -56,6 +56,36 @@ export class ViewportManager {
         ]);
         break;
       }
+      case 'RepairRequest': {
+        const [unparsed, _failure, gbnf, attempts] = msg.contents as [string, string, string, [string, string][]];
+        const userMessage = attempts.length === 0
+          ? unparsed
+          : [unparsed, 'Earlier attempts that failed to parse:', ...attempts.map(([rewrite, failure]) => `${rewrite} (${failure})`)].join('\n');
+        fetch(`http://localhost:${import.meta.env.VITE_SLM_PORT}/v1/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: [
+              { role: 'system', content: 'Rewrite the player\'s sentence as a command for a text adventure game. Keep what the player meant. Reply with the command only.\n\nExamples:\nwhere am i → LOOK\nwhat\'s around me → LOOK\nwhat does the ball look like → LOOK AT THE BALL\ni want the red ball → GET THE RED BALL\nlet go of the ball → DROP THE BALL' },
+              { role: 'user', content: userMessage },
+            ],
+            grammar: gbnf,
+            temperature: 0,
+            chat_template_kwargs: { enable_thinking: false },
+          }),
+        })
+          .then(async (resp: Response) => {
+            if (!resp.ok) throw new Error(`llama-server answered ${resp.status}`);
+            const body = await resp.json() as { choices: { message: { content: string } }[] };
+            const rewrite = body.choices[0]?.message.content;
+            if (rewrite === undefined) throw new Error('llama-server sent no choice');
+            this.conn.sendRepairedCommand(unparsed, rewrite, import.meta.env.VITE_SLM_NAME);
+          })
+          .catch((_err: unknown) => {
+            this.conn.sendRepairedCommand(unparsed, unparsed, 'slm-absent');
+          });
+        break;
+      }
       case 'CommandResponse':
         this.appendRichText('scene', msg.contents as RichText[]);
         break;

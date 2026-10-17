@@ -9,6 +9,7 @@ module Server.App
   , GameLog (..)
   , OidcConfig (..)
   , PInt
+  , PendingRepair (PendingRepair)
   , SessionPhase (SessionPhase)
   , SessionState (AwaitingSocket, AwaitingJoin, InGame)
   , firstGID
@@ -30,7 +31,14 @@ module Server.App
 
 import           SashaPrelude
 
-import           API.Types (MessageTo, PlayerJoined, Routed, SessionId)
+import           API.Types
+  ( MessageTo
+  , ParseFailure
+  , PlayerJoined
+  , RepairAttempt
+  , Routed
+  , SessionId
+  )
 import           Control.Concurrent (MVar, newMVar)
 import           Control.Concurrent.STM (TChan, newTChanIO)
 import           Control.Monad.Except (MonadError)
@@ -42,6 +50,7 @@ import           Data.Time.Clock (UTCTime)
 import           Database.PostgreSQL.Simple (Connection)
 import           DSL.Model.EDSL.SashaLambdaDSL (SashaLambdaDSL)
 import           GHC.IO (FilePath)
+import           Grammar.Gbnf (UnparsedSentence)
 import           Lens.Micro.Platform (makeLenses)
 import           Model.Account
   ( ClientId
@@ -104,6 +113,8 @@ data SessionState = AwaitingSocket
                   | AwaitingJoin ([MessageFrom] -> IO ())
                   | InGame ([MessageFrom] -> IO ())
 
+data PendingRepair = PendingRepair UnparsedSentence ParseFailure [RepairAttempt]
+
 sessionPlayerName :: SessionPhase -> PlayerNameVAL
 sessionPlayerName (SessionPhase name _ _) = name
 
@@ -150,6 +161,7 @@ data AppCtx = AppCtx
   , acOidcConfig :: OidcConfig
   , acHttpManager :: Manager
   , acOidcStates :: MVar (Map OidcState (UTCTime, CodeVerifier, PlayerNameVAL, StartMode))
+  , acPendingRepairs :: MVar (Map SessionId PendingRepair)
   , acGameLog :: GameLog
   }
 
@@ -163,6 +175,7 @@ newAppCtx logCfg pool oidcConfig manager counters = do
   known    <- newMVar mempty
   builderCounters <- newIORef counters
   oidcStates <- newMVar mempty
+  pendingRepairs <- newMVar mempty
   pure AppCtx
     { acInbound      = inChan
     , acOutbound     = outChan
@@ -175,6 +188,7 @@ newAppCtx logCfg pool oidcConfig manager counters = do
     , acOidcConfig   = oidcConfig
     , acHttpManager  = manager
     , acOidcStates   = oidcStates
+    , acPendingRepairs = pendingRepairs
     , acGameLog      = logCfg
     }
 

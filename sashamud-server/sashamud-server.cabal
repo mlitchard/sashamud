@@ -66,8 +66,10 @@ executable sasha-e2e-tests
     LookAtBallSpec
     LookAtPlayerSpec
     LookWitnessSpec
+    ParseFailureSpec
     RoseSpec
     SeleniumHarness
+    SlmRepairSpec
 
   build-tool-depends: hspec-discover:hspec-discover
   build-depends:

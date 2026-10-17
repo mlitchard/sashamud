@@ -1,17 +1,24 @@
+{-# LANGUAGE QuasiQuotes #-}
 {-# OPTIONS_GHC -fsimpl-tick-factor=200 #-}
 
 module Engine.Simulation.SignalNetwork
   ( RhineM
   , gameLoop
+  , insertRepairFailure
+  , insertRepairSuccess
   ) where
 
 import           SashaPrelude
 
 import           API.Types
-  ( MessageTo (GameCommand, Ping)
+  ( AuthenticatedUser
+  , MessageTo (GameCommand, Ping, RepairedCommand)
+  , ParseFailure (ParseFailure)
   , PlayerJoined (PlayerJoined)
+  , RepairAttempt (RepairAttempt)
   , Routed (Routed)
   , SessionId
+  , SlmName (SlmName)
   )
 import           Control.Category ((>>>))
 import           Control.Concurrent (modifyMVar_, readMVar)
@@ -21,6 +28,7 @@ import           Control.Concurrent.STM
   , tryReadTChan
   , writeTChan
   )
+import           Control.Exception (try)
 import           Control.Monad (foldM)
 import           Control.Monad.Except (runExceptT, throwError)
 import           Control.Monad.Schedule.Class (MonadSchedule (schedule))
@@ -32,14 +40,17 @@ import           Data.Functor.Identity (Identity, runIdentity)
 import           Data.IORef (readIORef, writeIORef)
 import           Data.Map.Strict
   ( Map
+  , alter
   , assocs
   , elems
   , fromList
   , insert
+  , keys
   , lookup
   , unionWith
   )
 import           Data.Monoid (Last (Last))
+import           Data.Pool (withResource)
 import qualified Data.Set as Set
   ( delete
   , filter
@@ -49,6 +60,9 @@ import qualified Data.Set as Set
   , null
   , toList
   )
+import           Database.PostgreSQL.Simple (Connection, SqlError, execute)
+import           Database.PostgreSQL.Simple.SqlQQ (sql)
+import           Database.PostgreSQL.Simple.Types (PGArray (PGArray))
 import           DSL.Builder
   ( WorldBuilderResult (WorldBuilderResult, resultChanges, resultCounters, resultGameState)
   , initialBuilderState
@@ -71,7 +85,13 @@ import           FRP.Rhine
   , (@@)
   , (|@|)
   )
+import           Grammar.Gbnf
+  ( UnparsedSentence (UnparsedSentence)
+  , generateGbnf
+  )
 import           Grammar.Lexer (lexify, tokens)
+import           Grammar.Parser.Composites.Model (Sentence)
+import           Grammar.Parser.Composites.Nouns (PlayerName (PlayerName))
 import           Grammar.Sentence (parseTokens)
 import           Lens.Micro.Platform (at, over, set, use, view, (.=), (?~))
 import           Model.Core
@@ -83,10 +103,12 @@ import           Model.Core
   , GameStateT (runGameStateT)
   , Narration (Narration, _actionConsequence, _actionEpilogue, _playerAction, _presenceListing)
   , NarrationMap (NarrationMap)
+  , SceneLabel (SceneLabel)
   , agentKind
   , agentLocationMap
   , agentMap
   , agentShortName
+  , declaredSceneGIDs
   , evaluation
   , getAgentMap
   , getGIDToDataMap
@@ -100,7 +122,8 @@ import           Model.Core
   , unNarrationMap
   , world
   )
-import           Model.GID (GID)
+import           Model.GID (GID (unGID))
+import           Model.Mid (Mid (Mid))
 import           Model.RichText
   ( RichText
   , TextColor (White)
@@ -109,10 +132,11 @@ import           Model.RichText
   , toPlainText
   )
 import           Model.WireProtocol
-  ( MessageFrom (ChatMessage, GameNarration, Pong, SystemMessage)
+  ( MessageFrom (ChatMessage, GameNarration, Pong, RepairRequest, SystemMessage)
   )
 import           Server.App
-  ( AppCtx (acBuilderCounters, acDSLChan, acGameLog, acInbound, acJoinChan, acKnownPlayers, acOutbound, acSessions)
+  ( AppCtx (acBuilderCounters, acDSLChan, acDbPool, acGameLog, acInbound, acJoinChan, acKnownPlayers, acOutbound, acPendingRepairs, acSessions)
+  , PendingRepair (PendingRepair)
   , SessionPhase (SessionPhase)
   , SessionState (AwaitingJoin, AwaitingSocket, InGame)
   , sessionGid
@@ -205,19 +229,49 @@ playerTickBlock = constMCl $ do
   known <- liftIO $ readMVar (acKnownPlayers appCtx)
   joins <- liftIO $ drainChan (acJoinChan appCtx)
   msgs <- liftIO $ drainChan (acInbound appCtx)
+  pending <- liftIO $ readMVar (acPendingRepairs appCtx)
 
   -- GENERATE: compose one big GameComputation
-  let (pings, commandComp) = resolveCommands sessions msgs
+  let names = [PlayerName (view unPlayerNameVAL name) | name <- keys known]
+        <> [PlayerName (view unPlayerNameVAL name) | NewPlayerJoined _ name _ <- joinResults]
+      (pings, replies, updates, failureRows, successRows, commandComp) = resolveCommands sessions pending names msgs
       (joinResults, joinComp) = processJoinsPure known joins
       leavesComp = processLeavesPure sessions known
       tickComp = composeTick leavesComp joinComp commandComp (joinGIDs joinResults)
 
       -- EXECUTE: run once
       (result, gs') = runPureComputation tickComp gs
+      rowContext sid = do
+        gid <- lookup sid sessions >>= sessionGid
+        sceneGid <- lookup gid (view agentLocationMap gs)
+        case [label | (label, declared) <- assocs (view (world . declaredSceneGIDs) gs), declared == sceneGid] of
+          [label] -> Just (label, Mid (unGID gid))
+          _       -> Nothing
 
   -- IO: protocol replies (delivered regardless of tick result)
   liftIO . forM_ pings $ \sid ->
     atomically $ writeTChan (acOutbound appCtx) (Routed sid Pong)
+  liftIO . forM_ replies $ atomically . writeTChan (acOutbound appCtx)
+  liftIO . modifyMVar_ (acPendingRepairs appCtx) $ \pendingMap ->
+    pure (foldl' (\acc (sid, update) -> alter (const update) sid acc) pendingMap updates)
+  liftIO . forM_ failureRows $ \(sid, unparsed, failure, attempts, slm) ->
+    case rowContext sid of
+      Nothing -> hPutStrLn stderr ("Repair failure row skipped, no actor scene for " <> show sid)
+      Just (label, actor) -> do
+        written :: Either SqlError () <- try . withResource (acDbPool appCtx) $ \conn ->
+          insertRepairFailure conn label actor unparsed failure attempts slm
+        case written of
+          Left err -> hPutStrLn stderr ("Repair failure row not written: " <> show err)
+          Right () -> pure ()
+  liftIO . forM_ successRows $ \(sid, unparsed, rewrite, slm) ->
+    case rowContext sid of
+      Nothing -> hPutStrLn stderr ("Repair success row skipped, no actor scene for " <> show sid)
+      Just (label, actor) -> do
+        written :: Either SqlError () <- try . withResource (acDbPool appCtx) $ \conn ->
+          insertRepairSuccess conn label actor unparsed rewrite slm
+        case written of
+          Left err -> hPutStrLn stderr ("Repair success row not written: " <> show err)
+          Right () -> pure ()
 
   -- ERROR EVALUATION: after execution
   case result of
@@ -240,7 +294,10 @@ composeTick leavesComp joinComp commandComp joinedGids = do
   leavesComp
   joinComp
   commandComp
-  forM_ joinedGids $ \gid -> runEvalFor gid "look"
+  forM_ joinedGids $ \gid ->
+    case lexify tokens "look" >>= parseTokens of
+      Left err       -> throwError err
+      Right sentence -> runEvalFor gid sentence
   extractNarration
 
 processLeavesPure :: Map SessionId SessionPhase
@@ -349,16 +406,10 @@ joinGIDs = fmap $ \case
   NewPlayerJoined _ _ gid       -> gid
   ReturningPlayerJoined _ gid -> gid
 
-runEvalFor :: GID Agent -> Text -> GameComputation Identity ()
-runEvalFor gid cmdText =
-  case lexify tokens cmdText of
-    Left err -> throwError err
-    Right lexemes ->
-      case parseTokens lexemes of
-        Left err -> throwError err
-        Right sentence -> do
-          evaluator <- lookupEvaluatorOrThrow gid
-          view runEvaluator evaluator gid sentence
+runEvalFor :: GID Agent -> Sentence -> GameComputation Identity ()
+runEvalFor gid sentence = do
+  evaluator <- lookupEvaluatorOrThrow gid
+  view runEvaluator evaluator gid sentence
 
 lookupEvaluatorOrThrow :: GID Agent -> GameComputation Identity Evaluator
 lookupEvaluatorOrThrow gid = do
@@ -374,16 +425,91 @@ runPureComputation comp gs =
   runIdentity (runStateT (runGameStateT (runExceptT (runGameComputation comp))) gs)
 
 resolveCommands :: Map SessionId SessionPhase
+                -> Map SessionId PendingRepair
+                -> [PlayerName]
                 -> [Routed MessageTo]
-                -> ([SessionId], GameComputation Identity ())
-resolveCommands sessions msgs = (pings, mapM_ commandComputation cmds)
+                -> ( [SessionId]
+                   , [Routed MessageFrom]
+                   , [(SessionId, Maybe PendingRepair)]
+                   , [(SessionId, UnparsedSentence, ParseFailure, [RepairAttempt], SlmName)]
+                   , [(SessionId, UnparsedSentence, Text, SlmName)]
+                   , GameComputation Identity ()
+                   )
+resolveCommands sessions pending names msgs =
+  (pings, replies, updates, exhausted, successRows, mapM_ commandComputation sentences)
   where
-    pings = [sid | Routed sid Ping <- msgs]
-    cmds  = [(sid, cmdText) | Routed sid (GameCommand cmdText) <- msgs]
-    commandComputation (sid, cmdText) =
+    pings     = [sid | Routed sid Ping <- msgs]
+    cmds      = [(sid, UnparsedSentence cmdText, lexify tokens cmdText >>= parseTokens) | Routed sid (GameCommand cmdText) <- msgs]
+    repaired  = [(sid, unparsed, rewrite, slm, lexify tokens rewrite >>= parseTokens) | Routed sid (RepairedCommand unparsed rewrite slm) <- msgs]
+    unparsedCmds = [(sid, unparsed, ParseFailure err) | (sid, unparsed, Left err) <- cmds]
+    repairedSentences = [(sid, unparsed, rewrite, slm, sentence) | (sid, unparsed, rewrite, slm, Right sentence) <- repaired]
+    repairErrors = [(sid, unparsed, rewrite, slm, err) | (sid, unparsed, rewrite, slm, Left err) <- repaired]
+    unpending = [(sid, err) | (sid, _, _, _, err) <- repairErrors, Nothing <- [lookup sid pending]]
+    judged =
+      [ (sid, unparsed, origErr, attempts, slm, slm == SlmName "slm-absent" || length attempts >= 3)
+      | (sid, unparsed, rewrite, slm, err) <- repairErrors
+      , Just (PendingRepair _ origErr prior) <- [lookup sid pending]
+      , let attempts = prior <> [RepairAttempt rewrite (ParseFailure err)]
+      ]
+    exhausted = [(sid, unparsed, origErr, attempts, slm) | (sid, unparsed, origErr, attempts, slm, True) <- judged]
+    retries   = [(sid, unparsed, origErr, attempts) | (sid, unparsed, origErr, attempts, _, False) <- judged]
+    replies =
+      [Routed sid (RepairRequest unparsed failure (generateGbnf unparsed names) []) | (sid, unparsed, failure) <- unparsedCmds]
+      <> [Routed sid (SystemMessage err) | (sid, err) <- unpending]
+      <> [Routed sid (SystemMessage origText) | (sid, _, ParseFailure origText, _, _) <- exhausted]
+      <> [Routed sid (RepairRequest unparsed origErr (generateGbnf unparsed names) attempts) | (sid, unparsed, origErr, attempts) <- retries]
+    updates =
+      [(sid, Just (PendingRepair unparsed failure [])) | (sid, unparsed, failure) <- unparsedCmds]
+      <> [(sid, Nothing) | (sid, _, _, _, _) <- repairedSentences]
+      <> [(sid, Nothing) | (sid, _) <- unpending]
+      <> [(sid, Nothing) | (sid, _, _, _, _) <- exhausted]
+      <> [(sid, Just (PendingRepair unparsed origErr attempts)) | (sid, unparsed, origErr, attempts) <- retries]
+    successRows = [(sid, unparsed, rewrite, slm) | (sid, unparsed, rewrite, slm, _) <- repairedSentences]
+    sentences =
+      [(sid, sentence) | (sid, _, Right sentence) <- cmds]
+      <> [(sid, sentence) | (sid, _, _, _, sentence) <- repairedSentences]
+    commandComputation (sid, sentence) =
       case lookup sid sessions >>= sessionGid of
         Nothing  -> throwError ("Programmer Error: no InGame session for " <> pack (show sid))
-        Just gid -> runEvalFor gid cmdText
+        Just gid -> runEvalFor gid sentence
+
+insertRepairFailure :: Connection
+                    -> SceneLabel
+                    -> Mid AuthenticatedUser
+                    -> UnparsedSentence
+                    -> ParseFailure
+                    -> [RepairAttempt]
+                    -> SlmName
+                    -> IO ()
+insertRepairFailure conn (SceneLabel scene) actor (UnparsedSentence unparsed) (ParseFailure parseError) attempts slm =
+  void $ execute conn
+    [sql|
+      INSERT INTO repair_failures (scene, actor, unparsed_sentence, parse_error, attempts, attempt_errors, slm_id)
+        VALUES (?, ?, ?, ?, ?, ?, (SELECT slm_id FROM slm WHERE name = ?))
+    |]
+    ( scene
+    , actor
+    , unparsed
+    , parseError
+    , PGArray [rewrite | RepairAttempt rewrite _ <- attempts]
+    , PGArray [attemptError | RepairAttempt _ (ParseFailure attemptError) <- attempts]
+    , slm
+    )
+
+insertRepairSuccess :: Connection
+                    -> SceneLabel
+                    -> Mid AuthenticatedUser
+                    -> UnparsedSentence
+                    -> Text
+                    -> SlmName
+                    -> IO ()
+insertRepairSuccess conn (SceneLabel scene) actor (UnparsedSentence unparsed) rewrite slm =
+  void $ execute conn
+    [sql|
+      INSERT INTO repair_successes (scene, actor, unparsed_sentence, rewrite, slm_id)
+        VALUES (?, ?, ?, ?, (SELECT slm_id FROM slm WHERE name = ?))
+    |]
+    (scene, actor, unparsed, rewrite, slm)
 
 executeJoinIO :: AppCtx -> JoinResult -> IO ()
 executeJoinIO ctx (NewPlayerJoined sid name gid) = do

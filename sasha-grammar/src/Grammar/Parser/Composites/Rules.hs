@@ -128,17 +128,24 @@ divestmentVerbPhraseRules = do
 
 stimulusVerbPhraseRules :: Grammar r (Prod r Text Lexeme StimulusVerbPhrase)
 stimulusVerbPhraseRules = do
+  determiner <- determinerRule determiners
+  adj <- adjectiveRule adjectives
   implicitStimulusVerb <- implicitStimulusVerbRule implicitStimulusVerbs
   directionalStimulusVerb <- directionalStimulusVerbRule directionalStimulusVerbs
   directionalStimulusMarker <- directionalStimulusMarkerRule directionalStimulusMarkers
   directionalStimulus <- directionalStimulusRule directionalStimuli
+  nounPhrase <- nounPhraseRule NounPhraseRules
+                  { _determinerRule = determiner
+                  , _adjRule = adj
+                  , _nounRule = directionalStimulus
+                  }
   playerName <- playerNameRule
   rule $ ImplicitStimulusVerb <$> implicitStimulusVerb
      <|> DirectStimulusVerbPhrase
            <$> directionalStimulusVerb
            <*> (DirectionalStimulusNounPhrase
                   <$> directionalStimulusMarker
-                  <*> (SimpleNounPhrase <$> directionalStimulus))
+                  <*> nounPhrase)
      <|> AgentStimulusVerbPhrase
            <$> directionalStimulusVerb
            <* directionalStimulusMarker
