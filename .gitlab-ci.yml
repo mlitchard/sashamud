@@ -10,7 +10,8 @@ apps:authentik-vm:
     - nix build .#apps.x86_64-linux.authentik-vm.program --no-link --print-build-logs 2>/dev/null || nix build --no-link --print-build-logs "$(nix eval --raw --impure --expr 'builtins.head (builtins.attrNames (builtins.getContext (builtins.getFlake (toString ./.)).apps.x86_64-linux.authentik-vm.program))')"
   stage: build
 apps:create-account:
-  needs: []
+  needs:
+    - packages:create-account-sql
   script:
     - nix build .#apps.x86_64-linux.create-account.program --no-link --print-build-logs 2>/dev/null || nix build --no-link --print-build-logs "$(nix eval --raw --impure --expr 'builtins.head (builtins.attrNames (builtins.getContext (builtins.getFlake (toString ./.)).apps.x86_64-linux.create-account.program))')"
   stage: build
@@ -92,6 +93,7 @@ checks:nix-formatting:
 checks:run-deploy-tests:
   needs:
     - apps:create-account
+    - packages:create-account-sql
     - packages:deploy-dsl
     - packages:hint-ghc
     - packages:sasha-server
@@ -101,6 +103,7 @@ checks:run-deploy-tests:
 checks:run-end-to-end:
   needs:
     - apps:create-account
+    - packages:create-account-sql
     - packages:hint-ghc
     - packages:sasha-e2e-tests
     - packages:sasha-server
@@ -168,6 +171,11 @@ nixosConfigurations:authentik-local:
   needs: []
   script:
     - nixos-rebuild build --flake .#authentik-local -L
+  stage: build
+packages:create-account-sql:
+  needs: []
+  script:
+    - nix build .#packages.x86_64-linux.create-account-sql --no-link --print-build-logs
   stage: build
 packages:deploy-dsl:
   needs: []

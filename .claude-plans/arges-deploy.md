@@ -108,6 +108,10 @@ Green: the script runs to "logout" on arges after step 4.
 
 From deploys, after step 4. The world is live when it finishes.
 
+### Outcome (2026-10-18)
+
+Steps 1 through 6 done; the deploy succeeded. The sasha input in deploys returns to `sasha.url = "gitlab:liftlatch/sashamud"` (main), followed by `nix flake update sasha`, once `deploy-slm-changes` is merged to main.
+
 ### Step 7 — you inspect
 
 Open `https://sashamud.net`, log in, look around. On a parse failure the browser calls `localhost:8082`; with no local llama-server the failure message arrives as `slm-absent`.
