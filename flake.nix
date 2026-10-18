@@ -179,16 +179,16 @@
           sashaEnvironment = "production";
           deployDsl = (pkgs.writeShellScriptBin "deploy-dsl" ''
             set -euo pipefail
-            USAGE="usage: nix run .#deploy-dsl -- <local|live> <file.dsl>"
+            USAGE="usage: nix run .#deploy-dsl -- <local|live> <file.dsl> <token>"
             case "''${1:-}" in
               local) DEFAULT_URL="${dslServerUrl}" ;;
               live) DEFAULT_URL="${liveDslServerUrl}" ;;
               *) echo "$USAGE" >&2; exit 1 ;;
             esac
-            if [[ -z "''${2:-}" ]]; then echo "$USAGE" >&2; exit 1; fi
+            if [[ -z "''${2:-}" || -z "''${3:-}" ]]; then echo "$USAGE" >&2; exit 1; fi
             SRC="$2"
+            TOKEN="$3"
             URL="''${SASHA_URL:-$DEFAULT_URL}"
-            TOKEN="''${SASHA_TOKEN:?SASHA_TOKEN must hold a login token}"
             CURL="${pkgs.curl}/bin/curl"
             JQ="${pkgs.jq}/bin/jq"
             if ! BODY=$($JQ -Rs . < "$SRC" | $CURL --fail-with-body -sS -X POST "$URL/api/game/dsl" \
@@ -438,7 +438,7 @@
                         until ${pkgs.curl}/bin/curl -sS -o /dev/null ${dslServerUrl}; do sleep 1; done
                         export SASHA_TOKEN=$(cat ${bootstrapTokenFile})
                         for f in $(find "$SASHA_WORLD_DIR" -name '*.dsl' | sort); do
-                          if ! DEPLOY_ERR=$(${lib.getExe deployDsl} local "$f" 2>&1 >/dev/null); then
+                          if ! DEPLOY_ERR=$(${lib.getExe deployDsl} local "$f" "$SASHA_TOKEN" 2>&1 >/dev/null); then
                             stop-sashamud
                             printf '%s\n' "$DEPLOY_ERR" >&2
                             exit 1
@@ -583,6 +583,7 @@
             sashamud-integration-tests = (hlib.justStaticExecutables
               (hlib.dontCheck (hlib.setBuildTarget legacyPackages.sashamud-server "exe:sashamud-integration-tests"))).overrideAttrs { meta.mainProgram = "sashamud-integration-tests"; };
             deploy-dsl = deployDsl;
+            create-account-sql = createAccountSql;
             llama-cpp-cuda = llamaCppCuda;
             slm-model = slmModel;
             web =
@@ -819,9 +820,9 @@
                 machine.wait_for_file("/root/bootstrap-token")
                 machine.wait_for_open_port(8081)
                 token = machine.succeed("cat /root/bootstrap-token").strip()
-                print(machine.succeed(f"for f in $(find ${worldDir} -name '*.dsl' | sort); do SASHA_TOKEN={token} ${lib.getExe deployDsl} local $f; done"))
-                print(machine.succeed(f"SASHA_TOKEN={token} ${lib.getExe deployDsl} local ${./sashamud-server/test-e2e/study.dsl}"))
-                print(machine.succeed(f"SASHA_TOKEN={token} ${lib.getExe deployDsl} local ${./sashamud-server/test-e2e/amend-lobby.dsl}"))
+                print(machine.succeed(f"for f in $(find ${worldDir} -name '*.dsl' | sort); do ${lib.getExe deployDsl} local $f {token}; done"))
+                print(machine.succeed(f"${lib.getExe deployDsl} local ${./sashamud-server/test-e2e/study.dsl} {token}"))
+                print(machine.succeed(f"${lib.getExe deployDsl} local ${./sashamud-server/test-e2e/amend-lobby.dsl} {token}"))
                 machine.succeed(f"${pkgs.curl}/bin/curl --fail-with-body -sS -X DELETE ${dslServerUrl}/api/game/logout -H 'BEARER: {token}'")
                 machine.succeed("rm -f /root/bootstrap-token")
               '';
