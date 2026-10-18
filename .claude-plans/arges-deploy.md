@@ -41,7 +41,7 @@ deploys:
 1. Wizard account on arges. RULED (user, 2026-10-18): one allowed signer, the admin sk key; no allowed-signers file and no throwaway key on arges. Initial startup is the deploys repo's job: a script in deploys runs over the same YubiKey-gated ssh path as `nix run .#arges`. On arges it creates the wizard row with `psql` and `createAccountSql` over the postgres socket (the `start-sashamud` shape, sashamud `flake.nix:431-436`), waits for the token file, delivers each world `.dsl` from `appPackages.sasha` with `deploy-dsl local` and that token, logs out, removes the token file. Live delivery by players is sashamud's `deploy-dsl` with a login token as a parameter.
 2. The `authentik_user_id` for the wizard row on arges. RULED (user, 2026-10-18): the value from `wizardAccount`, `1d2c91c8-fd3d-5ba7-9e29-c2ed7ce38d1d`.
 3. DSL delivery at initial startup. RULED (user, 2026-10-18): the deploys initial-startup script delivers on arges with `deploy-dsl local` and the bootstrap token (step 5). Live delivery afterwards is a player's own `deploy-dsl live <file> <token>`.
-4. The `sasha` input. RULED (user, 2026-10-18): the input names the branch for now, `sasha.url = "gitlab:liftlatch/sashamud/deploy-slm-changes"`, then `nix flake update sasha`. The merge to main happens after the deploy succeeds.
+4. The `sasha` input. RULED (user, 2026-10-18): the input names the commit, `sasha.url = "gitlab:liftlatch/sashamud/fb0a97a3283e6ce7962661a1d8f9b4e34b3b4ba5"`, then `nix flake update sasha`. This is how every non-main deploy is done from now on. The merge to main happens after the deploy succeeds.
 5. `checks.integration` in deploys. RULED (user, 2026-10-18): the check gains the wizard-row step before `wait_for_open_port(8081)`: wait for `credentials`, then the same `psql` with `createAccountSql` the initial-startup script uses (step 5 item 2).
 
 ## Steps
@@ -64,13 +64,13 @@ Addendum, RULED (user, 2026-10-18): `packages` gains `create-account-sql = creat
 SASHA_BOOTSTRAP_TOKEN_FILE = "/var/lib/sashamud/bootstrap-token";
 ```
 
-`SASHA_BOOTSTRAP_WIZARD` comes from the wrapper default. Same step, per decision 5: `checks.integration` in `flake.nix` gains the wizard account step before `wait_for_open_port(8081)`.
+`SASHA_BOOTSTRAP_WIZARD` comes from the wrapper default. Same step, per decision 5: `checks.integration` in `flake.nix` gains, between `wait_for_unit("sashamud.service")` and `wait_for_open_port(8081)`, a `wait_until_succeeds` on `sudo -u postgres psql sashamud -c 'select 1 from credentials'` and a `succeed` running the wizard-row psql with `-f ${appPackages.sasha.create-account-sql}`. Same step, per decision 4 (folded in on 2026-10-18 because `create-account-sql` resolves only from the branch): `flake.nix:13` becomes `sasha.url = "gitlab:liftlatch/sashamud/deploy-slm-changes";`.
 
-Green: `nix flake check` in deploys.
+Green: you run `nix flake update sasha`, then `nix flake check` in deploys. You commit. GREEN (user, 2026-10-18).
 
-### Step 2 — deploys: sasha input (deploys-04)
+### Step 2 — folded into step 1 (2026-10-18)
 
-Per decision 4: `flake.nix:13` becomes `sasha.url = "gitlab:liftlatch/sashamud/deploy-slm-changes";`, then `nix flake update sasha`. Green: `nix build .#checks.x86_64-linux.arges-build` in deploys. You commit.
+Order from here (2026-10-18): step 5, the initial-startup script, is written and committed in deploys before step 3, so it is on hand the moment the switched server comes up waiting for the wizard row. Then steps 3, 4, 6, 7.
 
 ### Step 3 — arges: fresh database (you)
 
@@ -85,7 +85,7 @@ sudo -u postgres psql -c 'CREATE DATABASE sashamud OWNER sashamud;'
 
 ### Step 4 — deploy (you)
 
-In deploys: `nix run .#arges switch`. On arges: `sudo systemctl start sashamud`. The server runs the migrations, then waits for the wizard row.
+In deploys: `nix run .#arges test` (RULED user, 2026-10-18: test, so the activation leaves no boot entry; switch comes after the deploy is judged good). On arges: `sudo systemctl start sashamud`, a one-time guard because step 3 stopped the unit by hand; it does nothing if the activation already started it. The server runs the migrations, then waits for the wizard row.
 
 ### Step 5 — deploys: the initial-startup script (deploys-04), per decision 1
 
@@ -99,6 +99,8 @@ A script in the deploys repo, run from your machine over the same ssh path as `n
 6. Remove the token file.
 
 The SQL is `appPackages.sasha.create-account-sql` (step 0 addendum). The world directory is `${inputs.sasha}/sashamud-world/src`. `deploy-dsl` is `appPackages.sasha.deploy-dsl`.
+
+APPROVED shape (user, 2026-10-18): the script is `pkgs.writeShellScriptBin "sasha-initial-startup"` in a let binding in `services/sashamud.nix`, placed in `environment.systemPackages`, so `nix run .#arges switch` carries it and the sasha store paths to arges. The token file reads use `sudo test -e` and `sudo cat` because the unit is a DynamicUser. A deploys flake app `sasha-initial-startup` runs `ssh -t -p 2222 mlitchard@arges sasha-initial-startup`. You run `nix run .#sasha-initial-startup` from deploys.
 
 Green: the script runs to "logout" on arges after step 4.
 

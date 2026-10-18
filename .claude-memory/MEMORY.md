@@ -276,6 +276,7 @@
 - WorldChange is SceneCreated (GID Scene) | ObjectCreated (GID Object) | SceneModified SceneLabel | ObjectModified ObjectLabel | NewUserAgentModified | NewUserRegistered (GID Scene). bsChanges and resultChanges are appended in order. GID's Show instance renders the bare number, so a line reads "Scene created: 0".
 - Deploys: a brief was sent to the deploys session (/home/mlitchard/gitlab/deploys, services/sashamud.nix, DynamicUser, StateDirectory sashamud). The unit needs SASHA_BOOTSTRAP_TOKEN_FILE under the state directory, the wizard account created after the schema exists, and a deliver-then-logout step.
 - deploy-dsl takes `local` or `live` first, then the file. `local` uses dslServerUrl, `live` uses liveDslServerUrl (https://sashamud.net). SASHA_URL overrides either. Every caller in flake.nix passes `local`.
+- Non-main deploys (user-ruled 2026-10-18): the deploys repo's sasha input names the commit, `sasha.url = "gitlab:liftlatch/sashamud/<commit hash>"`, then `nix flake update sasha` records it in flake.lock. Michael supplies the hash of the pushed branch head. A bare `gitlab:liftlatch/sashamud` follows main.
 
 ## LLM sentence repair (branch 18-llm-experiments, done 2026-10-16)
 - Plan: .claude-plans/llm-sentence-repair.md, steps 1-5 done, flake check green.
