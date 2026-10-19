@@ -1,22 +1,15 @@
 # SashaMud Project Memory
 
 ## CRITICAL RULES (re-read before every file write/edit)
-- Precedence when rules collide: user instruction > plan/critique resolutions > MEMORY.md > CLAUDE.md — rules constrain Claude's initiative, never the user
-- Workflow: Claude writes, user builds, user either approves or sends the compiler errors as the next prompt
-- The sashamud repo has authority — old code is single-player reference; multiplayer forces fundamental changes; sashamud plans/MEMORY/code win on divergence
 - NEVER invent constructor names, type names, or patterns not in old code
 - Old code constructor: `ImplicitStimulusVerb ImplicitStimulusVerb` in StimulusVerbPhrase — use it exactly
 - When tempted to "improve" a name from old code, STOP and ASK instead
-- NEVER run builds or tests unless user explicitly requests it
-- When user asks for a commit message, give them the message text — do not run git commit
 - Effects CONTRIBUTE to building GameState — never say "modify", "delta", or "read-only"
 - Do not invent bridging mechanisms between old and new code — when there's a gap, ASK
 - DSL GADT constructors are small composable pieces from old code — do not invent monolithic constructors
 - Do not add complication the user didn't ask for
-- NEVER use the auto memory directory with `-` prefix — use /home/mlitchard/gitlab/sashamud/.claude-memory/ instead
 - Write what things ARE. No contrastive framing ("not X", "NOT the Y"). State the positive. The negative is noise that carries confusion forward.
 - NEVER invent file names, module names, or function names — find them in old code or ASK
-- NEVER invent helper functions — if old code doesn't have it, you don't need it
 - The evaluator is PURE DISPATCH — pattern match and delegate. Lookup logic belongs elsewhere (old code: ActionDiscovery, ActionManagement)
 - Study old code THOROUGHLY before writing. Read the actual files. Do not summarize from memory and fill gaps with guesses.
 - Agent cost (user-ruled 2026-10-13): verbatim lookups in old code or reference checkouts go to the quote-source agent, or a general agent with `model: haiku`. One directory and the exact names to find. Only for text not already in context. Haskell is written by a general-purpose agent with `model: opus` from a spec the default model produces (file, old-code quote, names, shape); the default model reads the diff once. Hooks in .claude/settings.json enforce both. The CLAUDE.md persona leaks into agent reports; the prompt says to return quoted text only.
@@ -44,7 +37,6 @@
 - IX reference: `eGameState = GameState <$> bAgentMap <*> bPlanetMap <@ eTick` then `reactimate`
 - Signal functions: processLeavesSF >-> processJoinsSF >-> executeJoinsSF >-> gatherInputSF >-> processInputSF >-> deliverNarrationSF (one sequential PlayerTick branch — narration delivered at end of tick)
 - processInputSF bridge: lexify tokens → parseTokens → eval → unwrap GameComputation (StateT/ExceptT/ReaderT/Identity) → add gs'
-- No TVar for GameState — lives in AccumT
 - No naked domain identifiers — newtypes (SessionId, PlayerNameVAL). GameCommand carries raw Text on purpose: unparsed input, consumed at exactly one site (processInputSF → lexify). The typed command is Sentence — typing happens by parsing, not by wrapping
 - AppM is a newtype over ReaderT AppCtx Handler (like Quux)
 - Server.Session removed — acSessions phase map (SessionPhase sum type in Server.App) holds session lifecycle
@@ -164,9 +156,7 @@
 - All state-modifying SFs sequential on one PlayerTick (parallel clock safety)
 - GID counter lives in AppCtx IORef (acNextAgentId :: IORef PInt), not in the accumulator — single-thread access, atomicModifyIORef'
 - processLeavesSF rewritten using RhineM interface — detects departed players session-based (gid ∈ acKnownPlayers ∧ gid has no InGame session in acSessions), removes from scenes, announces via NarrationMap
-- Departure detection NEVER uses AgentKind — Denizen includes NPCs; acKnownPlayers is the "is a player" source of truth
-- Game state vs server state: GameState (AccumT, single writer = PlayerTick chain) holds world truth; AppCtx (MVars/TChans, multi-writer) holds session/socket truth — disconnects are async, never route through the chain
-- One authority per question: is-a-player = acKnownPlayers, is-connected = acSessions InGame phase, is-in-scene = sceneAgents, character-or-object = AgentKind — never proxy one for another
+- Departure detection NEVER uses AgentKind — Denizen includes NPCs; the users table is the "is a player" source of truth
 - Persistence debt: acKnownPlayers (name→GID) and acNextAgentId (PInt GID counter) are world truth living in AppCtx — when save/load lands, they must be persisted alongside GameState, or a restart loses player identities and reissues colliding GIDs
 - AnalysisViewport = Parser | State | Meta | Graphics | GameMap — sum type keys AnalysisData (was Map Text; raw Text key silently dropped on client, ViewportManager.ts:65). In remove-worldaccum plan File 2. No producer yet; client key mapping updates when telemetry lands
 - Player input growth path (user-approved design): `data PlayerInput = UnVerifiedInput PUVI | VerifiedInput PVI` — PUVI/PVI are newtypes over Text. Wire Text wraps to PUVI at receipt; lexify accepts PVI only — unverified input cannot reach the parser by construction. First verifier is a pass-through (user-sanctioned placeholder); real checks (length cap, rate limit, character policy) replace it later
@@ -186,32 +176,16 @@
 ## Code Rules (learned the hard way)
 - ALL packages use NoImplicitPrelude — always include it in default-extensions
 - Every module imports SashaPrelude — it is the project's custom prelude (based on attic/core/src/SashaPrelude.hs)
-- NEVER qualify imports — user makes the call on qualified imports, not Claude. If a name collision arises, STOP and ask.
-- Always explicitly import constructors (no (..) wildcards)
 - Always include type signatures
-- NEVER second-guess user instructions — apply them, come back with compiler error if it fails
-- ALWAYS use lenses (view, set, over), NEVER direct record field access
-- Never use _fieldName accessors — use the lens equivalent without underscore
-- Import from Lens.Micro.Platform (view, set, over) as needed
-- NO partial pattern matches — use case with all branches handled
-- NO head, NO [x] = expr, NO incomplete patterns
-- ALWAYS check old code FIRST before writing ANY pattern
-- If pattern not in old code, STOP and ASK — do not guess at APIs or function names
-- Do not pre-debate whether something will compile — make the change, let the compiler decide
 - Use Map.lookup with a specific key, not elems/toList dumping
-- ONLY do what is asked — do not show initiative, do not make extra changes
-- Do not invent names — use old code naming conventions (TopLevel, ActionManagement, etc.)
 - Do not touch files the user did not ask you to touch
 - When editing a file, do NOT reformat surrounding content — preserve the user's formatting exactly
 - Use minimal, targeted Edit calls — only change what was asked, leave everything else untouched
-- NEVER write stubs, placeholders, or fake implementations — if a field requires a stub value, the field should not exist yet
 - If a type/field has no real implementation yet, do not add it to the data type. Add it when the real code arrives.
 - DerivingVia needs the constructor in scope: import Foo (Foo) not just the type
 - Use Data.Time.Calendar for Year (= Integer), MonthOfYear (= Int), Day, toGregorian — NEVER roll custom date types
 - Check Hackage BEFORE inventing any type — if the standard library has it, use it
 - ALL tests use hspec-discover — Main.hs is just `{-# OPTIONS_GHC -F -pgmF hspec-discover #-}`, never manual spec wiring
-- NEVER run builds or tests unless user explicitly requests
-- When user asks for commit message, give the TEXT — do not run git commit
 - GameState is CONSTRUCTED from accumulated pieces. Builder accumulates, then constructs.
 - Before deleting files, confirm with user — destructive operation
 - Test types with real structure. Trivial newtypes over primitives (GID over Int) prove nothing.

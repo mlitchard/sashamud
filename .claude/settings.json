@@ -7,6 +7,21 @@
             "type": "command",
             "command": "bash /home/mlitchard/gitlab/sashamud/.claude/hooks/reload-rules.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash /home/mlitchard/gitlab/sashamud/.claude/hooks/reload-workflow-rules-1.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash /home/mlitchard/gitlab/sashamud/.claude/hooks/reload-workflow-rules-2.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash /home/mlitchard/gitlab/sashamud/.claude/hooks/reload-workflow-rules-3.sh",
+            "timeout": 5
           }
         ]
       }

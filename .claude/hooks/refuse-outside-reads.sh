@@ -15,7 +15,7 @@ if printf '%s' "$input" | jq -e '.agent_type' > /dev/null; then
   exit 0
 fi
 case "$f" in
-  /home/mlitchard/gitlab/sashamud/*|/tmp/*|/home/mlitchard/.claude/*)
+  /home/mlitchard/gitlab/sashamud/*|/home/mlitchard/gitlab/sasha/*|/tmp/*|/home/mlitchard/.claude/*)
     jq -n '{}'
     ;;
   *)
