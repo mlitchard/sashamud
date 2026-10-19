@@ -233,14 +233,14 @@
           '';
           createAccountSql = pkgs.writeText "create-account.sql" ''
             WITH new_user AS (
-              INSERT INTO users (status, role_id, activated_on)
-                SELECT 'active', role_id, now() FROM roles
+              INSERT INTO users (status, role_id, activated_on, player_name)
+                SELECT 'active', role_id, now(), :'name' FROM roles
                   WHERE name = :'role'
-                    AND NOT EXISTS (SELECT 1 FROM credentials WHERE player_name = :'name')
+                    AND NOT EXISTS (SELECT 1 FROM users WHERE player_name = :'name')
+                ON CONFLICT (player_name) DO NOTHING
                 RETURNING user_id)
-            INSERT INTO credentials (user_id, player_name, authentik_user_id)
-              SELECT user_id, :'name', :'authentik_user_id' FROM new_user
-              ON CONFLICT (player_name) DO NOTHING;
+            INSERT INTO credentials (user_id, authentik_user_id)
+              SELECT user_id, :'authentik_user_id' FROM new_user;
           '';
           createAccount = pkgs.writeShellScript "create-account" ''
             set -euo pipefail

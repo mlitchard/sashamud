@@ -325,8 +325,8 @@ insertExpired :: Query
 insertExpired =
   [sql|
     INSERT INTO tokens (token, hash, user_id, created, expires_at)
-      SELECT ?, ?, credentials.user_id, now(), now() - interval '1 hour' FROM credentials
-        WHERE credentials.player_name = ?
+      SELECT ?, ?, users.user_id, now(), now() - interval '1 hour' FROM users
+        WHERE users.player_name = ?
   |]
 
 spec :: Spec
@@ -850,7 +850,7 @@ spec = describe "Integration" . around withTestServer $ do
             posted <- runClientM (dslClient (makeAuthRequest (SessionId token)) (DSLSource studySource)) env
             posted `shouldBe` Right NoContent
             rows <- withResource (acDbPool ctx) $ \conn ->
-              query conn [sql| SELECT expires_at - created = interval '5 minutes' FROM tokens JOIN credentials ON credentials.user_id = tokens.user_id WHERE credentials.player_name = ? |] (Only ("Minted" :: Text))
+              query conn [sql| SELECT expires_at - created = interval '5 minutes' FROM tokens JOIN users ON users.user_id = tokens.user_id WHERE users.player_name = ? |] (Only ("Minted" :: Text))
             case rows of
               [Only fiveMinutes] -> (fiveMinutes :: Bool) `shouldBe` True
               _                  -> expectationFailure "expected one token row for Minted"

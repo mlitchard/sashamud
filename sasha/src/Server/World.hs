@@ -150,6 +150,6 @@ mintBootstrapToken playerName@(PlayerNameVAL name) path = do
       [sql|
         SELECT credentials.user_id, credentials.authentik_user_id FROM credentials
           JOIN users ON users.user_id = credentials.user_id
-          WHERE credentials.player_name = ?
+          WHERE users.player_name = ?
             AND users.status = 'active'
       |]

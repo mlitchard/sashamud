@@ -45,7 +45,6 @@ import           Database.PostgreSQL.Simple
   , SqlError (sqlState)
   , execute
   , query
-  , query_
   , withTransaction
   )
 import           Database.PostgreSQL.Simple.SqlQQ (sql)
@@ -233,7 +232,7 @@ authAvailable unv = do
     Right val   -> pure val
   rows :: [Only Int] <-
     liftIO . withResource (acDbPool ctx) $ \conn ->
-      query conn [sql| SELECT 1 FROM credentials WHERE player_name = ? |] (Only name)
+      query conn [sql| SELECT 1 FROM users WHERE player_name = ? |] (Only name)
   case rows of
     [] -> pure NoContent
     _  -> throwError err409 { errBody = fromStrict (encodeUtf8 (name <> " is taken")) }
@@ -311,10 +310,10 @@ authCallback (AuthCode code) state = do
       created :: Either SqlError (Maybe (Mid AuthenticatedUser, PlayerNameVAL, GID Agent)) <-
         liftIO . try . withResource (acDbPool ctx) $ \conn ->
           withTransaction conn $ do
-            userRows :: [Only (Mid AuthenticatedUser)] <- query_ conn insertUser
+            userRows :: [Only (Mid AuthenticatedUser)] <- query conn insertUser (Only name)
             case userRows of
               [Only uid] -> do
-                _ <- execute conn insertCredentials (uid, name, authentikUserId)
+                _ <- execute conn insertCredentials (uid, authentikUserId)
                 pure (Just (uid, PlayerNameVAL name, GID (unMid uid)))
               _ -> pure Nothing
       case created of
@@ -351,16 +350,16 @@ authCallback (AuthCode code) state = do
   where
     credentialsQuery =
       [sql|
-        SELECT credentials.user_id, credentials.player_name FROM credentials
+        SELECT credentials.user_id, users.player_name FROM credentials
           JOIN users ON users.user_id = credentials.user_id
           WHERE credentials.authentik_user_id = ?
             AND users.status = 'active'
       |]
     insertUser =
       [sql|
-        INSERT INTO users (status, role_id, activated_on)
-          SELECT 'active', role_id, now() FROM roles WHERE name = 'wizard'
+        INSERT INTO users (status, role_id, activated_on, player_name)
+          SELECT 'active', role_id, now(), ? FROM roles WHERE name = 'wizard'
           RETURNING user_id
       |]
     insertCredentials =
-      [sql| INSERT INTO credentials (user_id, player_name, authentik_user_id) VALUES (?, ?, ?) |]
+      [sql| INSERT INTO credentials (user_id, authentik_user_id) VALUES (?, ?) |]

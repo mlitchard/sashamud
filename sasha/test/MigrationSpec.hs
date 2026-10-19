@@ -97,8 +97,8 @@ migrationTest conn migrationsDir =
 insertPlayer :: Query
 insertPlayer =
   [sql|
-    INSERT INTO users (status, role_id, activated_on)
-      SELECT 'active', role_id, now() FROM roles WHERE name = 'player'
+    INSERT INTO users (status, role_id, activated_on, player_name)
+      SELECT 'active', role_id, now(), 'tester' FROM roles WHERE name = 'player'
       RETURNING user_id
   |]
 

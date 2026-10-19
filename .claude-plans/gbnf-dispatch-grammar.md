@@ -18,13 +18,13 @@
 12. New lexeme `UNKNOWN Text`. An unknown word is promoted to `PLAYERNAME` when `users.player_name` matches it.
 13. The lookup runs in the IO gather phase of `playerTickBlock`, one batched query, `status = 'active'`. Names: `PlayerLookup = PlayerWordsFound (Set PlayerName) | PlayerLookupFailed SqlError`, `playerLookupFailureText`, `selectPlayerWords`.
 14. `users` is the one source for "is a player". `acKnownPlayers` is removed: grammar names come from `users`; joins decide new/returning by `agentMap` membership; a departure is a `users.user_id` with no live session.
-15. Schema: `player_name` moves from `credentials` to `users`; `credentials` gets a reference to `tokens`. The planner does not make this change.
+15. Schema: `player_name` moves from `credentials` to `users` as `TEXT UNIQUE NOT NULL`. `credentials` takes no token column; `tokens.user_id` (UNIQUE, REFERENCES users) links a token to its account. RULED (user, 2026-10-19).
 16. Account names are lowercased in `validate`; a migration lowercases existing names.
 17. When the sentence holds a `PLAYERNAME` and none of the object words, `generateGbnf` narrows to `LOOK AT <player-name>`.
 18. Repair-grammar verbs come from the actor's own table, then the shared agent table. Targets stay vocabulary-wide.
 19. e2e `look at googly` becomes a name seeded but not in the scene, e.g. `bootstrap`.
 20. Later: world agents need a GID source that cannot collide with `users.user_id`.
-21. Step 2: the user makes the table change; sashamud-d8 changes the queries that read `player_name` in the same step.
+21. Step 2: the database is built fresh from `migrations/build/`. sashamud-d8 writes the next SQL file, `000006-player-name.sql`, and changes the code that reads `player_name` in the same step. RULED (user, 2026-10-19).
 22. Step 1: sashamud-d8 writes the migration that lowercases existing `credentials.player_name` values.
 
 ## What exists today
@@ -94,7 +94,7 @@ All decided — see Rulings. None open.
 Step rule: every step builds and is green on its own. Any fix a step needs — imports, exports, callers, instances, tests — lands in that step.
 
 1. **Lowercase intake.** `resolveCommands` lowercases `GameCommand` and `RepairedCommand`. `lexify` drops `toUpper`; `classify` literals lowercase. `Gbnf.hs` `named` drops `toUpper`; grammar terminals lowercase. `Look.hs:91` compares without `toUpper`. `validate` lowercases account names. New migration in `migrations/build/` (existing naming) lowercases existing `credentials.player_name`. Lexer, parser and GBNF tests that use uppercase input or literals are updated.
-2. **Schema.** The user makes the table change (`player_name` → `users`; `credentials` references `tokens`). In the same step sashamud-d8 changes `credentialsQuery`, `bootstrapQuery` and every query reading `player_name`.
+2. **Schema.** New file `migrations/build/000006-player-name.sql`: `ALTER TABLE users ADD COLUMN player_name TEXT UNIQUE NOT NULL;` and `ALTER TABLE credentials DROP COLUMN player_name;`. In the same step every site that reads or writes `player_name` moves to `users`: `Authentication.hs` `authAvailable`, `credentialsQuery`, `insertUser`, `insertCredentials`; `World.hs` `mintBootstrapToken`; `FakeProvider.hs` `seedAccount`; `LoginLogoutSpec.hs` `insertExpired` and `:853`; `MigrationSpec.hs` `insertPlayer`.
 3. **UNKNOWN and the player lookup.** `classify` catch-all becomes `UNKNOWN w`. The `playerTickBlock` gather phase collects UNKNOWN words, runs `selectPlayerWords` (one batched query, `status = 'active'`) giving `PlayerLookup`. Found words are promoted to `PLAYERNAME`; `PlayerLookupFailed` sends `playerLookupFailureText` to the player. `generateGbnf` names come from the lookup. `LookAtPlayerSpec` `googly` → `bootstrap`; `ParseFailureSpec` updated where UNKNOWN changes the path.
 4. **Remove `acKnownPlayers`.** `processJoinsPure` decides new/returning by `agentMap` membership; `processLeavesPure` uses `user_id` with no live session. Remove the field, its write at :628, and update `LoginLogoutSpec`.
 5. **Shared tables per kind.** Replace `_sharedActionManagement` with the three tables (ruling 9); DSL constructors, `Builder` cases, `Reify` entries. `1-get-drop.dsl` → `sharedAgentBehavior`. Get/drop gates: own table, shared table, `throwMaybeM`.
