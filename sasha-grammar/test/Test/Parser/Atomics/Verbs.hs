@@ -5,7 +5,7 @@ import           Data.Bool (Bool (False))
 import           Data.Either (Either (Left, Right))
 import           Data.Foldable (elem)
 import           Data.Function (($))
-import           Data.Text (pack)
+import           Data.Text (pack, toLower)
 import           Data.Tuple (fst)
 import           GHC.Show (show)
 import           Grammar.Lexer (HasLexeme (toLexeme), lexify, tokens)
@@ -33,7 +33,7 @@ import           Text.Earley.Parser (fullParses, parser)
 checkImplicitStimulusVerb :: Gen Bool
 checkImplicitStimulusVerb = do
   implicitStimulusVerb <- arbitrary
-  case lexify tokens (pack (show (toLexeme implicitStimulusVerb))) of
+  case lexify tokens (toLower (pack (show (toLexeme implicitStimulusVerb)))) of
     Left _  -> pure False
     Right toks ->
       let parsed = fst (fullParses (parser (implicitStimulusVerbRule implicitStimulusVerbs)) toks)
@@ -42,7 +42,7 @@ checkImplicitStimulusVerb = do
 checkAcquisitionVerb :: Gen Bool
 checkAcquisitionVerb = do
   acquisitionVerb <- arbitrary
-  case lexify tokens (pack (show (toLexeme acquisitionVerb))) of
+  case lexify tokens (toLower (pack (show (toLexeme acquisitionVerb)))) of
     Left _  -> pure False
     Right toks ->
       let parsed = fst (fullParses (parser (acquisitionVerbRule acquisitionVerbs)) toks)
@@ -51,7 +51,7 @@ checkAcquisitionVerb = do
 checkDivestmentVerb :: Gen Bool
 checkDivestmentVerb = do
   divestmentVerb <- arbitrary
-  case lexify tokens (pack (show (toLexeme divestmentVerb))) of
+  case lexify tokens (toLower (pack (show (toLexeme divestmentVerb)))) of
     Left _  -> pure False
     Right toks ->
       let parsed = fst (fullParses (parser (divestmentVerbRule divestmentVerbs)) toks)

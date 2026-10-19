@@ -98,7 +98,7 @@ spec = do
             Left err -> expectationFailure (unpack err)
             Right sentence -> do
                 let unparsed = UnparsedSentence "luk"
-                    pending = fromList [(sid, PendingRepair unparsed (ParseFailure "Nonsense in parsed tokens PLAYERNAME \"LUK\"") [])]
+                    pending = fromList [(sid, PendingRepair unparsed (ParseFailure "Nonsense in parsed tokens PLAYERNAME \"luk\"") [])]
                     (_, replies, _, _, _, _) = resolveCommands sessions pending [] [Routed sid (RepairedCommand unparsed "look" (SlmName "qwen-Qwen3-1.7B-Q8_0"))]
                     parserLines = mconcat [viewLines | Routed target (AnalysisData viewports) <- replies, target == sid, Just viewLines <- [lookup Parser viewports]]
                 parserLines `shouldContain` ([plain "=== Outcome ===", plain "  parsed, the sentence runs"] <> fmap plain (lines (prettyShowSentence sentence)))

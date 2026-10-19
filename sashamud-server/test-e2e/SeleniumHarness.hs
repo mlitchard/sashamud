@@ -159,8 +159,8 @@ withServer action = do
       (race_ (gameLoop ctx defaultGameState) (deliverOutbound ctx))
       (do
         testWithApplication (pure (app ctx)) $ \port -> do
-          seedAccount (acDbPool ctx) Wizard (PlayerNameVAL "Bootstrap")
-          SessionId token <- loginThroughFake manager port "Bootstrap"
+          seedAccount (acDbPool ctx) Wizard (PlayerNameVAL "bootstrap")
+          SessionId token <- loginThroughFake manager port "bootstrap"
           paths <- worldPrograms dir
           forM_ paths $ \path -> do
             bytes <- BS.readFile path
@@ -245,8 +245,8 @@ webDriverTestWithClient ctx players jstest test = do
     (\port -> do
 
       loginManager <- newManager defaultManagerSettings
-      seedAccount (acDbPool ctx) Wizard (PlayerNameVAL "Raj")
-      SessionId rajToken <- loginThroughFake loginManager port "Raj"
+      seedAccount (acDbPool ctx) Wizard (PlayerNameVAL "raj")
+      SessionId rajToken <- loginThroughFake loginManager port "raj"
       extraTokens <- mapM (\name -> do
           seedAccount (acDbPool ctx) Wizard (PlayerNameVAL name)
           SessionId t <- loginThroughFake loginManager port name
@@ -319,8 +319,8 @@ webDriverTestWithPage ctx test = do
   testWithApplication (pure (appWithStaticFiles ctx dist))
     (\port -> do
       loginManager <- newManager defaultManagerSettings
-      seedAccount (acDbPool ctx) Wizard (PlayerNameVAL "Raj")
-      SessionId rajToken <- loginThroughFake loginManager port "Raj"
+      seedAccount (acDbPool ctx) Wizard (PlayerNameVAL "raj")
+      SessionId rajToken <- loginThroughFake loginManager port "raj"
       mgr <- newManager defaultManagerSettings
         { managerResponseTimeout = responseTimeoutMicro (720 * 1000000) }
       res <- runStdoutLoggingT $ do

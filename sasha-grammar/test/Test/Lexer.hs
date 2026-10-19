@@ -6,7 +6,7 @@ import           Data.Either (Either (Left, Right))
 import           Data.Function ((.))
 import           Data.Functor ((<$>))
 import           Data.Semigroup ((<>))
-import           Data.Text (Text, pack, unpack, unwords)
+import           Data.Text (Text, pack, toLower, unpack, unwords)
 import           Debug.Trace (trace)
 import           GHC.Enum (Bounded (maxBound, minBound), Enum (enumFromTo))
 import           GHC.Show (Show (show))
@@ -20,12 +20,12 @@ spec :: Spec
 spec = describe "check lexer" (do
   it "lexer parses all tokens" (checkLexer `shouldBe` True)
   it "lexer parses unrecognized word as PLAYERNAME"
-    (lexify tokens "RAJ" `shouldBe` Right [PLAYERNAME "RAJ"])
+    (lexify tokens "raj" `shouldBe` Right [PLAYERNAME "raj"])
   it "lexer parses look at playername"
-    (lexify tokens "look at raj" `shouldBe` Right [LOOK, AT, PLAYERNAME "RAJ"]))
+    (lexify tokens "look at raj" `shouldBe` Right [LOOK, AT, PLAYERNAME "raj"]))
 
 toText :: (Show a) => a -> Text
-toText = pack . show
+toText = toLower . pack . show
 
 checkLexer :: Bool
 checkLexer = case lexify tokens (unwords (toText <$> lexemes)) of

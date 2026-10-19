@@ -18,7 +18,7 @@ import           Data.Aeson.TypeScript (derivingTypeScriptDefinition)
 import           Data.ByteString.Lazy (fromStrict)
 import           Data.Char (isAlphaNum)
 import           Data.String (fromString)
-import           Data.Text (strip)
+import           Data.Text (strip, toLower)
 import qualified Data.Text
 import           Data.Text.Encoding (encodeUtf8)
 import           Lens.Micro.Platform (makeLenses)
@@ -100,7 +100,7 @@ instance Validate PlayerNameUNV PlayerNameVAL where
         | not (Data.Text.all isAlphaNum trimmed) ->
             Left "Player name may only contain letters and numbers"
         | otherwise ->
-            Right (PlayerNameVAL trimmed)
+            Right (PlayerNameVAL (toLower trimmed))
 
 #ifdef TESTING
 deriving newtype instance Arbitrary PlayerNameUNV

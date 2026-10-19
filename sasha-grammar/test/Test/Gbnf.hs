@@ -4,7 +4,7 @@ import           Data.Bool (Bool)
 import           Data.Foldable (all)
 import           Data.HashSet (toList)
 import           Data.Semigroup ((<>))
-import           Data.Text (Text, isInfixOf, pack)
+import           Data.Text (Text, isInfixOf, pack, toLower)
 import           GHC.Show (Show (show))
 import           Grammar.Gbnf
   ( Gbnf (Gbnf)
@@ -63,7 +63,7 @@ spec = describe "generateGbnf" (do
   it "lists every adjective"
     (toList adjectives `shouldSatisfy` all listed)
   it "lists the player name"
-    (gbnf `shouldSatisfy` isInfixOf "player-name ::= \"Raj\"")
+    (gbnf `shouldSatisfy` isInfixOf "player-name ::= \"raj\"")
   it "writes the three imperative shapes"
     (gbnf `shouldSatisfy` isInfixOf "root ::= stimulus | acquisition | divestment")
   it "writes the implicit look"
@@ -89,49 +89,49 @@ spec = describe "generateGbnf" (do
   it "writes the determiner adjective noun object phrase"
     (gbnf `shouldSatisfy` isInfixOf "| determiner \" \" adjective \" \" objective\n")
   it "keeps BALL as the objective the sentence names"
-    (narrowed `shouldSatisfy` isInfixOf "objective ::= \"BALL\"\n")
+    (narrowed `shouldSatisfy` isInfixOf "objective ::= \"ball\"\n")
   it "keeps RED as the adjective the sentence names"
-    (narrowed `shouldSatisfy` isInfixOf "adjective ::= \"RED\"\n")
+    (narrowed `shouldSatisfy` isInfixOf "adjective ::= \"red\"\n")
   it "keeps THE as the determiner the sentence names"
-    (narrowed `shouldSatisfy` isInfixOf "determiner ::= \"THE\"\n")
+    (narrowed `shouldSatisfy` isInfixOf "determiner ::= \"the\"\n")
   it "drops FLOOR"
-    (narrowed `shouldNotSatisfy` isInfixOf "\"FLOOR\"")
+    (narrowed `shouldNotSatisfy` isInfixOf "\"floor\"")
   it "drops SMALL"
-    (narrowed `shouldNotSatisfy` isInfixOf "\"SMALL\"")
+    (narrowed `shouldNotSatisfy` isInfixOf "\"small\"")
   it "drops WHITE"
-    (narrowed `shouldNotSatisfy` isInfixOf "\"WHITE\"")
+    (narrowed `shouldNotSatisfy` isInfixOf "\"white\"")
   it "drops A"
-    (narrowed `shouldNotSatisfy` isInfixOf "\"A\"")
+    (narrowed `shouldNotSatisfy` isInfixOf "\"a\"")
   it "keeps the full directional stimulus marker list when the sentence names no marker"
-    (narrowed `shouldSatisfy` isInfixOf "directional-stimulus-marker ::= \"AT\"\n")
+    (narrowed `shouldSatisfy` isInfixOf "directional-stimulus-marker ::= \"at\"\n")
   it "keeps the implicit stimulus verb"
-    (narrowed `shouldSatisfy` isInfixOf "implicit-stimulus-verb ::= \"LOOK\"\n")
+    (narrowed `shouldSatisfy` isInfixOf "implicit-stimulus-verb ::= \"look\"\n")
   it "keeps the directional stimulus verb"
-    (narrowed `shouldSatisfy` isInfixOf "directional-stimulus-verb ::= \"LOOK\"\n")
+    (narrowed `shouldSatisfy` isInfixOf "directional-stimulus-verb ::= \"look\"\n")
   it "keeps the acquisition verb"
-    (narrowed `shouldSatisfy` isInfixOf "acquisition-verb ::= \"GET\"\n")
+    (narrowed `shouldSatisfy` isInfixOf "acquisition-verb ::= \"get\"\n")
   it "keeps the divestment verb"
-    (narrowed `shouldSatisfy` isInfixOf "divestment-verb ::= \"DROP\"\n")
+    (narrowed `shouldSatisfy` isInfixOf "divestment-verb ::= \"drop\"\n")
   it "keeps the player the sentence names"
-    (named `shouldSatisfy` isInfixOf "player-name ::= \"Raj\"\n")
+    (named `shouldSatisfy` isInfixOf "player-name ::= \"raj\"\n")
   it "keeps every player when the sentence names none"
-    (unnamed `shouldSatisfy` isInfixOf "player-name ::= \"Raj\" | \"Bob\"\n"))
+    (unnamed `shouldSatisfy` isInfixOf "player-name ::= \"raj\" | \"bob\"\n"))
   where
     gbnf :: Text
-    gbnf = case generateGbnf (UnparsedSentence "") [PlayerName "Raj"] of
+    gbnf = case generateGbnf (UnparsedSentence "") [PlayerName "raj"] of
       Gbnf txt -> txt
 
     narrowed :: Text
-    narrowed = case generateGbnf (UnparsedSentence "pick up the red ball") [PlayerName "Raj"] of
+    narrowed = case generateGbnf (UnparsedSentence "pick up the red ball") [PlayerName "raj"] of
       Gbnf txt -> txt
 
     named :: Text
-    named = case generateGbnf (UnparsedSentence "look at raj") [PlayerName "Raj", PlayerName "Bob"] of
+    named = case generateGbnf (UnparsedSentence "look at raj") [PlayerName "raj", PlayerName "bob"] of
       Gbnf txt -> txt
 
     unnamed :: Text
-    unnamed = case generateGbnf (UnparsedSentence "look at the ball") [PlayerName "Raj", PlayerName "Bob"] of
+    unnamed = case generateGbnf (UnparsedSentence "look at the ball") [PlayerName "raj", PlayerName "bob"] of
       Gbnf txt -> txt
 
     listed :: (HasLexeme a) => a -> Bool
-    listed w = ("\"" <> pack (show (toLexeme w)) <> "\"") `isInfixOf` gbnf
+    listed w = ("\"" <> toLower (pack (show (toLexeme w))) <> "\"") `isInfixOf` gbnf

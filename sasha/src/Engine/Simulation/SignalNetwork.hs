@@ -69,7 +69,7 @@ import qualified Data.Set as Set
   , null
   , toList
   )
-import           Data.Text (lines)
+import           Data.Text (lines, toLower)
 import           Data.Text.Encoding (decodeUtf8')
 import           Database.PostgreSQL.Simple (Connection, SqlError, execute)
 import           Database.PostgreSQL.Simple.SqlQQ (sql)
@@ -464,13 +464,15 @@ resolveCommands sessions pending names msgs =
     pings     = [sid | Routed sid Ping <- msgs]
     cmds =
       [ (sid, UnparsedSentence cmdText, commandLines cmdText lexed parsed, parsed)
-      | Routed sid (GameCommand cmdText) <- msgs
+      | Routed sid (GameCommand typed) <- msgs
+      , let cmdText = toLower typed
       , let lexed = lexify tokens cmdText
       , let parsed = lexed >>= parseTokens
       ]
     repaired =
       [ (sid, unparsed, rewrite, slm, attemptLines unparsed (lookup sid pending) rewrite slm lexed parsed, parsed)
-      | Routed sid (RepairedCommand unparsed rewrite slm) <- msgs
+      | Routed sid (RepairedCommand unparsed rewriteText slm) <- msgs
+      , let rewrite = toLower rewriteText
       , let lexed = lexify tokens rewrite
       , let parsed = lexed >>= parseTokens
       ]

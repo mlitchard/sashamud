@@ -9,7 +9,6 @@ import           SashaPrelude
 import           Control.Monad.State (gets)
 import           Data.Functor.Identity (Identity)
 import           Data.Map.Strict (lookup)
-import           Data.Text (toUpper)
 import           Engine.ActionDiscovery.Instances ()
 import           Engine.ActionDiscovery.Protocol
   ( ActionProtocol (getActionMap, mkEffectKey, runActionProtocol)
@@ -88,7 +87,7 @@ manageAgentStimulusProcess actorGid verb (PlayerName playerNameText) = do
   let candidates =
         [ gid
         | (gid, agent) <- others
-        , toUpper (toPlainText (view agentShortName agent)) == playerNameText
+        , toPlainText (view agentShortName agent) == playerNameText
         ]
   case candidates of
     [] -> do

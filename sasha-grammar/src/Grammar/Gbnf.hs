@@ -15,7 +15,7 @@ import           Data.Kind (Type)
 import           Data.List (filter)
 import           Data.Ord (Ord)
 import           Data.Semigroup ((<>))
-import           Data.Text (Text, intercalate, pack, toUpper, unlines)
+import           Data.Text (Text, intercalate, pack, toLower, unlines)
 import           GHC.Generics (Generic)
 import           GHC.Show (Show (show))
 import           Grammar.Lexer
@@ -97,10 +97,10 @@ generateGbnf (UnparsedSentence sentence) playerNames = Gbnf (unlines
       kept -> kept
 
     named :: PlayerName -> Bool
-    named (PlayerName txt) = PLAYERNAME (toUpper txt) `elem` lexemes
+    named (PlayerName txt) = PLAYERNAME txt `elem` lexemes
 
     wordAlternatives :: (HasLexeme a) => [a] -> Text
-    wordAlternatives ws = intercalate " | " (quote . pack . show . toLexeme <$> ws)
+    wordAlternatives ws = intercalate " | " (quote . toLower . pack . show . toLexeme <$> ws)
 
     playerNameAlternatives :: Text
     playerNameAlternatives = intercalate " | " ((\(PlayerName txt) -> quote txt) <$> namedPlayers)

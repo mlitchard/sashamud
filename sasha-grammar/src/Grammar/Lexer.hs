@@ -24,7 +24,7 @@ import           Data.Functor (Functor, (<$>))
 import           Data.Hashable (Hashable)
 import           Data.Kind (Constraint, Type)
 import           Data.Ord (Ord)
-import           Data.Text (Text, pack, toUpper)
+import           Data.Text (Text, pack)
 import           Data.Void (Void)
 import           GHC.Enum
   ( Bounded (maxBound, minBound)
@@ -98,7 +98,7 @@ class HasLexeme a where
 
 lexify :: Lexer a -> Text -> Either Text a
 lexify (Lexer parser) txt =
-  case parse parser "" (toUpper txt) of
+  case parse parser "" txt of
     Left err  -> Left (pack (errorBundlePretty err))
     Right res -> Right res
 
@@ -114,17 +114,17 @@ term :: Lexer Lexeme
 term = classify <$> word
   where
     classify :: Text -> Lexeme
-    classify "A"     = A
-    classify "AT"    = AT
-    classify "BALL"  = BALL
-    classify "DROP"  = DROP
-    classify "FLOOR" = FLOOR
-    classify "GET"   = GET
-    classify "LOOK"  = LOOK
-    classify "RED"   = RED
-    classify "SMALL" = SMALL
-    classify "THE"   = THE
-    classify "WHITE" = WHITE
+    classify "a"     = A
+    classify "at"    = AT
+    classify "ball"  = BALL
+    classify "drop"  = DROP
+    classify "floor" = FLOOR
+    classify "get"   = GET
+    classify "look"  = LOOK
+    classify "red"   = RED
+    classify "small" = SMALL
+    classify "the"   = THE
+    classify "white" = WHITE
     classify w       = PLAYERNAME w
 
 word :: Lexer Text
