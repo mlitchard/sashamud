@@ -58,6 +58,7 @@ data Lexeme = A
             | THE
             | WHITE
             | PLAYERNAME Text
+            | UNKNOWN Text
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (FromJSON, Hashable, NFData, ToJSON)
 
@@ -91,6 +92,7 @@ instance Enum Lexeme where
   fromEnum THE            = 9
   fromEnum WHITE          = 10
   fromEnum (PLAYERNAME _) = 11
+  fromEnum (UNKNOWN _)    = 12
 
 type HasLexeme :: Type -> Constraint
 class HasLexeme a where
@@ -125,7 +127,7 @@ term = classify <$> word
     classify "small" = SMALL
     classify "the"   = THE
     classify "white" = WHITE
-    classify w       = PLAYERNAME w
+    classify w       = UNKNOWN w
 
 word :: Lexer Text
 word = Lexer (pack <$> some alphaNumChar) <* sc

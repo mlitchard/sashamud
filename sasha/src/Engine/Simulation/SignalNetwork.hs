@@ -2,7 +2,8 @@
 {-# OPTIONS_GHC -fsimpl-tick-factor=200 #-}
 
 module Engine.Simulation.SignalNetwork
-  ( RhineM
+  ( PlayerLookup (PlayerWordsFound, PlayerLookupFailed)
+  , RhineM
   , formatState
   , gameLoop
   , insertRepairFailure
@@ -52,13 +53,13 @@ import           Data.Map.Strict
   , elems
   , fromList
   , insert
-  , keys
   , lookup
   , unionWith
   )
 import           Data.Monoid (Last (Last))
 import           Data.Ord (max)
 import           Data.Pool (withResource)
+import           Data.Set (Set)
 import qualified Data.Set (toList)
 import qualified Data.Set as Set
   ( delete
@@ -71,7 +72,13 @@ import qualified Data.Set as Set
   )
 import           Data.Text (lines, toLower)
 import           Data.Text.Encoding (decodeUtf8')
-import           Database.PostgreSQL.Simple (Connection, SqlError, execute)
+import           Database.PostgreSQL.Simple
+  ( Connection
+  , Only (Only)
+  , SqlError
+  , execute
+  , query
+  )
 import           Database.PostgreSQL.Simple.SqlQQ (sql)
 import           Database.PostgreSQL.Simple.Types (PGArray (PGArray))
 import           DSL.Builder
@@ -100,7 +107,7 @@ import           Grammar.Gbnf
   ( UnparsedSentence (UnparsedSentence)
   , generateGbnf
   )
-import           Grammar.Lexer (lexify, tokens)
+import           Grammar.Lexer (Lexeme (PLAYERNAME, UNKNOWN), lexify, tokens)
 import           Grammar.Parser.Composites.Model (Sentence)
 import           Grammar.Parser.Composites.Nouns (PlayerName (PlayerName))
 import           Grammar.Sentence (parseTokens)
@@ -163,6 +170,9 @@ import           Server.Validator (PlayerNameVAL, unPlayerNameVAL)
 
 data JoinResult = NewPlayerJoined SessionId PlayerNameVAL (GID Agent)
                 | ReturningPlayerJoined SessionId (GID Agent)
+
+data PlayerLookup = PlayerWordsFound (Set PlayerName)
+                  | PlayerLookupFailed SqlError
 
 type RhineM :: Type -> Type
 newtype RhineM a = RhineM { unRhineM :: AccumT (Last GameState) (ReaderT AppCtx IO) a }
@@ -244,11 +254,22 @@ playerTickBlock = constMCl $ do
   joins <- liftIO $ drainChan (acJoinChan appCtx)
   msgs <- liftIO $ drainChan (acInbound appCtx)
   pending <- liftIO $ readMVar (acPendingRepairs appCtx)
+  let sentenceTexts = [cmdText | Routed _ (GameCommand cmdText) <- msgs]
+                   <> [rewrite | Routed _ (RepairedCommand _ rewrite _) <- msgs]
+      unknownWords  = [w | txt <- sentenceTexts, Right lexemes <- [lexify tokens (toLower txt)], UNKNOWN w <- lexemes]
+  playerLookup <- liftIO $ case unknownWords of
+    [] -> pure (PlayerWordsFound mempty)
+    _  -> do
+      found :: Either SqlError (Set PlayerName) <- try . withResource (acDbPool appCtx) $ \conn ->
+        selectPlayerWords conn unknownWords
+      case found of
+        Left err    -> do
+          hPutStrLn stderr ("Player lookup failed: " <> show err)
+          pure (PlayerLookupFailed err)
+        Right names -> pure (PlayerWordsFound names)
 
   -- GENERATE: compose one big GameComputation
-  let names = [PlayerName (view unPlayerNameVAL name) | name <- keys known]
-        <> [PlayerName (view unPlayerNameVAL name) | NewPlayerJoined _ name _ <- joinResults]
-      (pings, replies, updates, failureRows, successRows, commandComp) = resolveCommands sessions pending names msgs
+  let (pings, replies, updates, failureRows, successRows, commandComp) = resolveCommands sessions pending playerLookup msgs
       (joinResults, joinComp) = processJoinsPure known joins
       leavesComp = processLeavesPure sessions known
       tickComp = composeTick leavesComp joinComp commandComp (joinGIDs joinResults)
@@ -449,7 +470,7 @@ runPureComputation comp gs =
 
 resolveCommands :: Map SessionId SessionPhase
                 -> Map SessionId PendingRepair
-                -> [PlayerName]
+                -> PlayerLookup
                 -> [Routed MessageTo]
                 -> ( [SessionId]
                    , [Routed MessageFrom]
@@ -458,22 +479,29 @@ resolveCommands :: Map SessionId SessionPhase
                    , [(SessionId, UnparsedSentence, Text, SlmName)]
                    , GameComputation Identity ()
                    )
-resolveCommands sessions pending names msgs =
+resolveCommands sessions pending playerLookup msgs =
   (pings, replies, updates, exhausted, successRows, mapM_ commandComputation sentences)
   where
+    found = case playerLookup of
+      PlayerWordsFound playerNames -> playerNames
+      PlayerLookupFailed _         -> mempty
+    names = Set.toList found
+    promote = \case
+      UNKNOWN w | Set.member (PlayerName w) found -> PLAYERNAME w
+      lexeme                                      -> lexeme
     pings     = [sid | Routed sid Ping <- msgs]
     cmds =
       [ (sid, UnparsedSentence cmdText, commandLines cmdText lexed parsed, parsed)
       | Routed sid (GameCommand typed) <- msgs
       , let cmdText = toLower typed
-      , let lexed = lexify tokens cmdText
+      , let lexed = fmap (fmap promote) (lexify tokens cmdText)
       , let parsed = lexed >>= parseTokens
       ]
     repaired =
       [ (sid, unparsed, rewrite, slm, attemptLines unparsed (lookup sid pending) rewrite slm lexed parsed, parsed)
       | Routed sid (RepairedCommand unparsed rewriteText slm) <- msgs
       , let rewrite = toLower rewriteText
-      , let lexed = lexify tokens rewrite
+      , let lexed = fmap (fmap promote) (lexify tokens rewrite)
       , let parsed = lexed >>= parseTokens
       ]
     unparsedCmds = [(sid, unparsed, ParseFailure err) | (sid, unparsed, _, Left err) <- cmds]
@@ -624,6 +652,17 @@ insertRepairSuccess conn (SceneLabel scene) actor (UnparsedSentence unparsed) re
         VALUES (?, ?, ?, ?, (SELECT slm_id FROM slm WHERE name = ?))
     |]
     (scene, actor, unparsed, rewrite, slm)
+
+selectPlayerWords :: Connection -> [Text] -> IO (Set PlayerName)
+selectPlayerWords conn candidates = do
+  rows :: [Only Text] <- query conn
+    [sql|
+      SELECT player_name FROM users
+        WHERE status = 'active'
+          AND player_name = ANY (?)
+    |]
+    (Only (PGArray candidates))
+  pure (Set.fromList [PlayerName name | Only name <- rows])
 
 executeJoinIO :: AppCtx -> JoinResult -> IO ()
 executeJoinIO ctx (NewPlayerJoined sid name gid) = do

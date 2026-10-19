@@ -27,7 +27,8 @@ import           Data.Map.Strict (fromList)
 import           Data.Set (insert, singleton)
 import           Data.Text (lines)
 import           Engine.Simulation.SignalNetwork
-  ( formatState
+  ( PlayerLookup (PlayerWordsFound)
+  , formatState
   , prettyShowSentence
   , resolveCommands
   )
@@ -82,14 +83,14 @@ spec = do
         case lexify tokens "look" >>= parseTokens of
             Left err -> expectationFailure (unpack err)
             Right sentence -> do
-                let (_, replies, _, _, _, _) = resolveCommands sessions mempty [] [Routed sid (GameCommand "look")]
+                let (_, replies, _, _, _, _) = resolveCommands sessions mempty (PlayerWordsFound mempty) [Routed sid (GameCommand "look")]
                     parserLines = mconcat [viewLines | Routed target (AnalysisData viewports) <- replies, target == sid, Just viewLines <- [lookup Parser viewports]]
                 parserLines `shouldContain` ([plain "=== Sentence ==="] <> fmap plain (lines (prettyShowSentence sentence)))
     it "shows the parse error and the repair request for a GameCommand that fails to parse" $
         case lexify tokens "look look" >>= parseTokens of
             Right _ -> expectationFailure "expected a parse failure"
             Left err -> do
-                let (_, replies, _, _, _, _) = resolveCommands sessions mempty [] [Routed sid (GameCommand "look look")]
+                let (_, replies, _, _, _, _) = resolveCommands sessions mempty (PlayerWordsFound mempty) [Routed sid (GameCommand "look look")]
                     parserLines = mconcat [viewLines | Routed target (AnalysisData viewports) <- replies, target == sid, Just viewLines <- [lookup Parser viewports]]
                 parserLines `shouldContain` ([plain "=== Sentence ==="] <> fmap plain (lines err))
                 parserLines `shouldContain` [plain "=== Repair ===", plain "  repair requested"]
@@ -98,8 +99,8 @@ spec = do
             Left err -> expectationFailure (unpack err)
             Right sentence -> do
                 let unparsed = UnparsedSentence "luk"
-                    pending = fromList [(sid, PendingRepair unparsed (ParseFailure "Nonsense in parsed tokens PLAYERNAME \"luk\"") [])]
-                    (_, replies, _, _, _, _) = resolveCommands sessions pending [] [Routed sid (RepairedCommand unparsed "look" (SlmName "qwen-Qwen3-1.7B-Q8_0"))]
+                    pending = fromList [(sid, PendingRepair unparsed (ParseFailure "Nonsense in parsed tokens UNKNOWN \"luk\"") [])]
+                    (_, replies, _, _, _, _) = resolveCommands sessions pending (PlayerWordsFound mempty) [Routed sid (RepairedCommand unparsed "look" (SlmName "qwen-Qwen3-1.7B-Q8_0"))]
                     parserLines = mconcat [viewLines | Routed target (AnalysisData viewports) <- replies, target == sid, Just viewLines <- [lookup Parser viewports]]
                 parserLines `shouldContain` ([plain "=== Outcome ===", plain "  parsed, the sentence runs"] <> fmap plain (lines (prettyShowSentence sentence)))
   describe "formatState" $ do

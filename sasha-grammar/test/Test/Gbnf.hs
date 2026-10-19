@@ -62,8 +62,8 @@ spec = describe "generateGbnf" (do
     (toList determiners `shouldSatisfy` all listed)
   it "lists every adjective"
     (toList adjectives `shouldSatisfy` all listed)
-  it "lists the player name"
-    (gbnf `shouldSatisfy` isInfixOf "player-name ::= \"raj\"")
+  it "leaves out the player name when the sentence names none"
+    (gbnf `shouldNotSatisfy` isInfixOf "player-name")
   it "writes the three imperative shapes"
     (gbnf `shouldSatisfy` isInfixOf "root ::= stimulus | acquisition | divestment")
   it "writes the implicit look"
@@ -73,9 +73,9 @@ spec = describe "generateGbnf" (do
   it "writes look at an adjective noun"
     (gbnf `shouldSatisfy` isInfixOf "| directional-stimulus-verb \" \" directional-stimulus-marker \" \" adjective \" \" directional-stimulus |")
   it "writes look at a determiner adjective noun"
-    (gbnf `shouldSatisfy` isInfixOf "| directional-stimulus-verb \" \" directional-stimulus-marker \" \" determiner \" \" adjective \" \" directional-stimulus |")
+    (named `shouldSatisfy` isInfixOf "| directional-stimulus-verb \" \" directional-stimulus-marker \" \" determiner \" \" adjective \" \" directional-stimulus |")
   it "writes look at a player"
-    (gbnf `shouldSatisfy` isInfixOf "| directional-stimulus-verb \" \" directional-stimulus-marker \" \" player-name\n")
+    (named `shouldSatisfy` isInfixOf "| directional-stimulus-verb \" \" directional-stimulus-marker \" \" player-name\n")
   it "writes get with an object phrase"
     (gbnf `shouldSatisfy` isInfixOf "acquisition ::= acquisition-verb \" \" object-phrase\n")
   it "writes drop with an object phrase"
@@ -114,8 +114,8 @@ spec = describe "generateGbnf" (do
     (narrowed `shouldSatisfy` isInfixOf "divestment-verb ::= \"drop\"\n")
   it "keeps the player the sentence names"
     (named `shouldSatisfy` isInfixOf "player-name ::= \"raj\"\n")
-  it "keeps every player when the sentence names none"
-    (unnamed `shouldSatisfy` isInfixOf "player-name ::= \"raj\" | \"bob\"\n"))
+  it "leaves out the player name rule when the sentence names no player"
+    (unnamed `shouldNotSatisfy` isInfixOf "player-name"))
   where
     gbnf :: Text
     gbnf = case generateGbnf (UnparsedSentence "") [PlayerName "raj"] of

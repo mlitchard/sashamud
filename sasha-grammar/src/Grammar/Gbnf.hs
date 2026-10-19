@@ -20,7 +20,7 @@ import           GHC.Generics (Generic)
 import           GHC.Show (Show (show))
 import           Grammar.Lexer
   ( HasLexeme (toLexeme)
-  , Lexeme (PLAYERNAME)
+  , Lexeme (UNKNOWN)
   , lexify
   , tokens
   )
@@ -60,23 +60,23 @@ newtype UnparsedSentence = UnparsedSentence Text
   deriving anyclass (NFData)
 
 generateGbnf :: UnparsedSentence -> [PlayerName] -> Gbnf
-generateGbnf (UnparsedSentence sentence) playerNames = Gbnf (unlines
+generateGbnf (UnparsedSentence sentence) playerNames = Gbnf (unlines (
   [ "root ::= stimulus | acquisition | divestment"
-  , "stimulus ::= implicit-stimulus-verb | directional-stimulus-verb \" \" directional-stimulus-marker \" \" directional-stimulus | directional-stimulus-verb \" \" directional-stimulus-marker \" \" determiner \" \" directional-stimulus | directional-stimulus-verb \" \" directional-stimulus-marker \" \" adjective \" \" directional-stimulus | directional-stimulus-verb \" \" directional-stimulus-marker \" \" determiner \" \" adjective \" \" directional-stimulus | directional-stimulus-verb \" \" directional-stimulus-marker \" \" player-name"
-  , "acquisition ::= acquisition-verb \" \" object-phrase"
+  , "stimulus ::= implicit-stimulus-verb | directional-stimulus-verb \" \" directional-stimulus-marker \" \" directional-stimulus | directional-stimulus-verb \" \" directional-stimulus-marker \" \" determiner \" \" directional-stimulus | directional-stimulus-verb \" \" directional-stimulus-marker \" \" adjective \" \" directional-stimulus | directional-stimulus-verb \" \" directional-stimulus-marker \" \" determiner \" \" adjective \" \" directional-stimulus" <> playerAlternative
+  , "acquisition ::=acquisition-verb \" \" object-phrase"
   , "divestment ::= divestment-verb \" \" object-phrase"
   , "object-phrase ::= objective | determiner \" \" objective | adjective \" \" objective | determiner \" \" adjective \" \" objective"
   , "implicit-stimulus-verb ::= " <> wordAlternatives (toList implicitStimulusVerbs)
   , "directional-stimulus-verb ::= " <> wordAlternatives (toList directionalStimulusVerbs)
   , "directional-stimulus-marker ::= " <> wordAlternatives (narrowed (toList directionalStimulusMarkers))
   , "directional-stimulus ::= " <> wordAlternatives (narrowed (toList directionalStimuli))
-  , "player-name ::= " <> playerNameAlternatives
-  , "acquisition-verb ::= " <> wordAlternatives (toList acquisitionVerbs)
+  ] <> playerNameLines <>
+  [ "acquisition-verb ::= " <> wordAlternatives (toList acquisitionVerbs)
   , "divestment-verb ::= " <> wordAlternatives (toList divestmentVerbs)
   , "objective ::= " <> wordAlternatives (narrowed (toList objectives))
   , "determiner ::= " <> wordAlternatives (narrowed (toList determiners))
   , "adjective ::= " <> wordAlternatives (narrowed (toList adjectives))
-  ])
+  ]))
   where
     lexemes :: [Lexeme]
     lexemes = case lexify tokens sentence of
@@ -92,12 +92,20 @@ generateGbnf (UnparsedSentence sentence) playerNames = Gbnf (unlines
     recognized w = toLexeme w `elem` lexemes
 
     namedPlayers :: [PlayerName]
-    namedPlayers = case filter named playerNames of
-      []   -> playerNames
-      kept -> kept
+    namedPlayers = filter named playerNames
 
     named :: PlayerName -> Bool
-    named (PlayerName txt) = PLAYERNAME txt `elem` lexemes
+    named (PlayerName txt) = UNKNOWN txt `elem` lexemes
+
+    playerAlternative :: Text
+    playerAlternative = case namedPlayers of
+      [] -> ""
+      _  -> " | directional-stimulus-verb \" \" directional-stimulus-marker \" \" player-name"
+
+    playerNameLines :: [Text]
+    playerNameLines = case namedPlayers of
+      [] -> []
+      _  -> ["player-name ::= " <> playerNameAlternatives]
 
     wordAlternatives :: (HasLexeme a) => [a] -> Text
     wordAlternatives ws = intercalate " | " (quote . toLower . pack . show . toLexeme <$> ws)

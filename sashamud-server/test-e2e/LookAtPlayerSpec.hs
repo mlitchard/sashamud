@@ -88,7 +88,7 @@ lookAtNobodyTest =
     }
   });
 
-  sock.send({tag: "GameCommand", contents: "look at googly"});
+  sock.send({tag: "GameCommand", contents: "look at bootstrap"});
 
   setTimeout(() => {
     sock.raw.close();
@@ -161,7 +161,7 @@ lookAtNobodyWitnessTest =
     }
   });
 
-  sock.send({tag: "GameCommand", contents: "look at googly"});
+  sock.send({tag: "GameCommand", contents: "look at bootstrap"});
 
   setTimeout(() => {
     if (!gotWitness) {

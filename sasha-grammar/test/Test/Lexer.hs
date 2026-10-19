@@ -10,7 +10,7 @@ import           Data.Text (Text, pack, toLower, unpack, unwords)
 import           Debug.Trace (trace)
 import           GHC.Enum (Bounded (maxBound, minBound), Enum (enumFromTo))
 import           GHC.Show (Show (show))
-import           Grammar.Lexer (Lexeme (AT, LOOK, PLAYERNAME), lexify, tokens)
+import           Grammar.Lexer (Lexeme (AT, LOOK, UNKNOWN), lexify, tokens)
 import           Test.Hspec (Spec, describe, it, shouldBe)
 
 lexemes :: [Lexeme]
@@ -19,10 +19,10 @@ lexemes = enumFromTo minBound maxBound
 spec :: Spec
 spec = describe "check lexer" (do
   it "lexer parses all tokens" (checkLexer `shouldBe` True)
-  it "lexer parses unrecognized word as PLAYERNAME"
-    (lexify tokens "raj" `shouldBe` Right [PLAYERNAME "raj"])
+  it "lexer parses unrecognized word as UNKNOWN"
+    (lexify tokens "raj" `shouldBe` Right [UNKNOWN "raj"])
   it "lexer parses look at playername"
-    (lexify tokens "look at raj" `shouldBe` Right [LOOK, AT, PLAYERNAME "raj"]))
+    (lexify tokens "look at raj" `shouldBe` Right [LOOK, AT, UNKNOWN "raj"]))
 
 toText :: (Show a) => a -> Text
 toText = toLower . pack . show
