@@ -10,6 +10,36 @@
           },
           {
             "type": "command",
+            "command": "bash /home/mlitchard/gitlab/sashamud/.claude/hooks/reload-memory-1.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash /home/mlitchard/gitlab/sashamud/.claude/hooks/reload-memory-1b.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash /home/mlitchard/gitlab/sashamud/.claude/hooks/reload-memory-2.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash /home/mlitchard/gitlab/sashamud/.claude/hooks/reload-memory-3.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash /home/mlitchard/gitlab/sashamud/.claude/hooks/reload-memory-4.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash /home/mlitchard/gitlab/sashamud/.claude/hooks/reload-memory-5.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "command": "bash /home/mlitchard/gitlab/sashamud/.claude/hooks/reload-workflow-rules-1.sh",
             "timeout": 5
           },

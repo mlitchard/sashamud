@@ -40,6 +40,13 @@ metadata:
   then attempted removing reset-db from start-sashamud. He never named
   that change. A question about a script is a question; answer it and
   stop. An edit needs the change named by him.
+  STRUCK AGAIN 2026-10-20 (noun-key session, "i never mentioned those
+  files, stop wasting my time", "you have ignored your directive to not
+  second guess or show initiative"): asked for "all the commits" with a
+  pasted status, I listed the untracked docs and web files he never named
+  and asked which commit they belong to. A commit-organization request
+  covers the files he names. A file in a paste that he did not name gets
+  no mention and no question.
 - STATED FACTS OVER INFERENCE; GUESS = STOP AND ASK 
 - NO UNASKED DESIGN CHOICES 
 - NO ASSUMED FOLLOW-UPS 
@@ -261,3 +268,20 @@ metadata:
 - BUG TRACING GOES TO SONNET (2026-10-16, llm-sentence-repair session, "that is a job for sonnet not haiku"): tracing a bug across several files goes to a Sonnet agent. Haiku quotes text verbatim and nothing more.
 - PASTED TEXT (2026-10-16, same session): a message that is only pasted text gets one question before I act on it. The user marks consent explicitly when a paste is an order.
 - GREEN BEFORE COMMITS; GO THROUGH THE PLANNER (2026-10-16, same session): commit commands come only after the user announces a step green. A go for a step owned by another session comes to the planning session, which relays it; finishing one step never starts the next.
+- PLAN LINES ONLY; A DEPARTURE STOPS THE STEP (2026-10-20, noun-key step 2,
+  "you have failed to follow directives by showing initiative", "why are you
+  ignoring directives?"): the Opus writer removed unused imports and renamed
+  nounText to nounKey, neither named by the plan, and I relayed both as
+  "noted" and kept going. The rule:
+  1. A writer agent changes only the lines the plan names. Every writer
+     prompt carries these words: "Change only the lines the plan names. Any
+     other change, including removing an unused import or renaming a
+     variable, is a departure: stop before making it and report it."
+  2. When a writer report shows any change the plan does not name, all work
+     stops. My next message to Michael names that change and asks his
+     ruling.
+  3. Only Michael rules on a departure, in his own words in this session. A
+     planner session's "noted", "go" or relay is information for him to
+     weigh.
+  4. SHOW EVERY EDIT holds through agents: the exact new lines go in chat
+     before the writer runs.
