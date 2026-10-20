@@ -27,7 +27,7 @@ import           Control.Monad.State
   , put
   , runState
   )
-import           Data.Map.Strict (insert, lookup, member)
+import           Data.Map.Strict (Map, insert, lookup, member)
 import qualified Data.Set (insert, member)
 import           DSL.Model.EDSL.SashaLambdaDSL (SashaLambdaDSL (..))
 import           Grammar.Parser.Atomics.Semantics.Prepositions.DirectionalStimulusMarker
@@ -36,31 +36,39 @@ import           Grammar.Parser.Atomics.Semantics.Prepositions.DirectionalStimul
 import           Grammar.Parser.Composites.Nouns
   ( DirectionalStimulusNounPhrase (DirectionalStimulusNounPhrase)
   )
-import           Lens.Micro.Platform (at, non, view, (%~), (.~))
+import           Grammar.Parser.GCase
+  ( VerbKey (AcquisitionKey, DivestmentKey, ImperativeKey, ImplicitStimulusKey)
+  )
+import           Lens.Micro.Platform (at, non, view, (%~), (.~), (?~))
 import           Model.Core
-  ( ActionManagement (AVSupportManagementKey, AVTargetManagementKey, DSAManagementKey, DVManagementKey, DVSurfaceManagementKey, ISAManagementKey)
+  ( ActionManagement (AVSupportManagementKey, AVTargetManagementKey, DSAManagementKey, DSATargetManagementKey, DVManagementKey, DVSurfaceManagementKey, ISAManagementKey, ISATargetManagementKey)
+  , ActionManagementFunctions (ActionManagementFunctions)
+  , ActorKey
   , Agent
+  , Entity
   , EntityActionRegistry
   , GameState
   , Object
   , ObjectLabel
-  , PossibilityGraph (PossibilityGraph, _entityActionEffects, _newUserMkAgent, _newUserStartScene, _witnessMap, _worldOutcomeEffects)
+  , PossibilityGraph (PossibilityGraph, _actorTargetEntityActionEffects, _actorTargetWorldOutcomeEffects, _newUserMkAgent, _newUserStartScene, _sharedEntityActionEffects, _sharedWorldOutcomeEffects, _targetEntityActionEffects, _targetWorldOutcomeEffects, _witnessMap)
   , Scene (_sceneDescription, _title)
   , SceneLabel
+  , TargetKey
   , WitnessMap
   , WorldOutcomeRegistry
   , acquisitionActionMap
   , actionManagementFunctions
   , actionMaps
+  , actorTargetActionManagement
+  , actorTargetEntityActionEffects
+  , actorTargetWorldOutcomeEffects
   , agentActionManagement
-  , agentWitnessManagement
   , declaredObjectGIDs
   , declaredSceneGIDs
   , description
   , descriptives
   , directionalStimulusMap
   , divestmentActionMap
-  , entityActionEffects
   , getGIDToDataMap
   , globalSemanticMap
   , implicitStimulusMap
@@ -75,15 +83,18 @@ import           Model.Core
   , sceneMap
   , sceneObjects
   , sharedActionManagement
+  , sharedEntityActionEffects
   , sharedWitnessManagement
+  , sharedWorldOutcomeEffects
   , shortName
   , spatialRelationshipMap
+  , targetEntityActionEffects
+  , targetWorldOutcomeEffects
   , unObjectLabel
   , unSceneLabel
   , unSpatialRelationshipMap
   , witnessMap
   , world
-  , worldOutcomeEffects
   )
 import           Model.GID (GID (GID))
 import           Server.App
@@ -100,14 +111,18 @@ import           Server.App
   )
 
 data BuilderState = BuilderState
-  { bsGameState            :: GameState
-  , bsCounters             :: BuilderCounters
-  , bsWitnessMap           :: WitnessMap
-  , bsEntityActionRegistry :: EntityActionRegistry
-  , bsWorldOutcomeRegistry :: WorldOutcomeRegistry
-  , bsNewUserStartScene    :: Maybe (GID Scene)
-  , bsNewUserMkAgent       :: Maybe (Text -> Agent)
-  , bsChanges              :: [WorldChange]
+  { bsGameState :: GameState
+  , bsCounters :: BuilderCounters
+  , bsWitnessMap :: WitnessMap
+  , bsActorTargetWorldOutcomeRegistry :: Map ActorKey (Map TargetKey WorldOutcomeRegistry)
+  , bsTargetWorldOutcomeRegistry :: Map TargetKey WorldOutcomeRegistry
+  , bsSharedWorldOutcomeRegistry :: Map Entity WorldOutcomeRegistry
+  , bsActorTargetEntityActionRegistry :: Map ActorKey (Map TargetKey EntityActionRegistry)
+  , bsTargetEntityActionRegistry :: Map TargetKey EntityActionRegistry
+  , bsSharedEntityActionRegistry :: Map Entity EntityActionRegistry
+  , bsNewUserStartScene :: Maybe (GID Scene)
+  , bsNewUserMkAgent :: Maybe (Text -> Agent)
+  , bsChanges :: [WorldChange]
   }
 
 type WorldChange :: Type
@@ -154,8 +169,12 @@ initialBuilderState gs counters = BuilderState
   { bsGameState               = gs
   , bsCounters                = counters
   , bsWitnessMap              = view (possibilityGraph . witnessMap) gs
-  , bsEntityActionRegistry    = view (possibilityGraph . entityActionEffects) gs
-  , bsWorldOutcomeRegistry    = view (possibilityGraph . worldOutcomeEffects) gs
+  , bsActorTargetWorldOutcomeRegistry = view (possibilityGraph . actorTargetWorldOutcomeEffects) gs
+  , bsTargetWorldOutcomeRegistry = view (possibilityGraph . targetWorldOutcomeEffects) gs
+  , bsSharedWorldOutcomeRegistry = view (possibilityGraph . sharedWorldOutcomeEffects) gs
+  , bsActorTargetEntityActionRegistry = view (possibilityGraph . actorTargetEntityActionEffects) gs
+  , bsTargetEntityActionRegistry = view (possibilityGraph . targetEntityActionEffects) gs
+  , bsSharedEntityActionRegistry = view (possibilityGraph . sharedEntityActionEffects) gs
   , bsNewUserStartScene       = view (possibilityGraph . newUserStartScene) gs
   , bsNewUserMkAgent          = view (possibilityGraph . newUserMkAgent) gs
   , bsChanges                 = []
@@ -260,6 +279,8 @@ interpretDSL (DeclareImplicitStimulusGID actionF) = do
 
 interpretDSL (CreateISAManagement verb gid) = pure (ISAManagementKey verb gid)
 
+interpretDSL (CreateISATargetManagement verb gid) = pure (ISATargetManagementKey verb gid)
+
 interpretDSL (DeclareDirectionalStimulusGID actionF) = do
   st <- get
   let gid = GID (unPInt (view nextDirectionalStimulusId (bsCounters st)))
@@ -270,6 +291,8 @@ interpretDSL (DeclareDirectionalStimulusGID actionF) = do
   pure gid
 
 interpretDSL (CreateDSAManagement verb gid) = pure (DSAManagementKey verb gid)
+
+interpretDSL (CreateDSATargetManagement verb gid) = pure (DSATargetManagementKey verb gid)
 
 interpretDSL (DeclareAcquisitionActionGID actionF) = do
   st <- get
@@ -311,28 +334,59 @@ interpretDSL (SceneBehavior scene actionMgmt) =
 interpretDSL (PlayerBehavior mkAgent actionMgmt) =
   pure (\name -> mkAgent name & agentActionManagement . actionManagementFunctions %~ Data.Set.insert actionMgmt)
 
-interpretDSL (WitnessBehavior mkAgent verbKey witnessGid) =
-  pure (\name -> mkAgent name & agentWitnessManagement %~ insert verbKey witnessGid)
-
-interpretDSL (SharedBehavior actionMgmt) = do
+interpretDSL (SharedBehavior entity actionMgmt) = do
   st <- get
-  let gs' = bsGameState st & world . sharedActionManagement . actionManagementFunctions %~ Data.Set.insert actionMgmt
+  let verbKey = case actionMgmt of
+        DSAManagementKey verb _       -> ImperativeKey verb
+        ISAManagementKey verb _       -> ImplicitStimulusKey verb
+        DSATargetManagementKey verb _ -> ImperativeKey verb
+        ISATargetManagementKey verb _ -> ImplicitStimulusKey verb
+        AVTargetManagementKey verb _  -> AcquisitionKey verb
+        AVSupportManagementKey verb _ -> AcquisitionKey verb
+        DVManagementKey verb _        -> DivestmentKey verb
+        DVSurfaceManagementKey verb _ -> DivestmentKey verb
+      gs' = bsGameState st & world . sharedActionManagement . at verbKey . non mempty . at entity . non (ActionManagementFunctions mempty) . actionManagementFunctions %~ Data.Set.insert actionMgmt
   put st { bsGameState = gs' }
 
-interpretDSL (SharedWitnessBehavior verbKey witnessGid) = do
+interpretDSL (ActorTargetBehavior actorKey targetKey actionMgmt) = do
   st <- get
-  let gs' = bsGameState st & world . sharedWitnessManagement %~ insert verbKey witnessGid
+  let gs' = bsGameState st & world . actorTargetActionManagement . at actorKey . non mempty . at targetKey . non (ActionManagementFunctions mempty) . actionManagementFunctions %~ Data.Set.insert actionMgmt
   put st { bsGameState = gs' }
 
-interpretDSL (LinkWorldOutcomeEffect actionKey worldOutcome) = do
+interpretDSL (SharedWitnessBehavior entity witnessGid) = do
   st <- get
-  put st { bsWorldOutcomeRegistry =
-             bsWorldOutcomeRegistry st & at actionKey . non mempty %~ Data.Set.insert worldOutcome }
+  let gs' = bsGameState st & world . sharedWitnessManagement . at entity ?~ witnessGid
+  put st { bsGameState = gs' }
 
-interpretDSL (LinkEntityActionEffect actionKey eid op) = do
+interpretDSL (LinkWorldOutcomeEffect entity actionKey worldOutcome) = do
   st <- get
-  put st { bsEntityActionRegistry =
-             bsEntityActionRegistry st & at actionKey . non mempty . at eid . non mempty %~ Data.Set.insert op }
+  put st { bsSharedWorldOutcomeRegistry =
+             bsSharedWorldOutcomeRegistry st & at entity . non mempty . at actionKey . non mempty %~ Data.Set.insert worldOutcome }
+
+interpretDSL (LinkTargetWorldOutcomeEffect targetKey actionKey worldOutcome) = do
+  st <- get
+  put st { bsTargetWorldOutcomeRegistry =
+             bsTargetWorldOutcomeRegistry st & at targetKey . non mempty . at actionKey . non mempty %~ Data.Set.insert worldOutcome }
+
+interpretDSL (LinkActorTargetWorldOutcomeEffect actorKey targetKey actionKey worldOutcome) = do
+  st <- get
+  put st { bsActorTargetWorldOutcomeRegistry =
+             bsActorTargetWorldOutcomeRegistry st & at actorKey . non mempty . at targetKey . non mempty . at actionKey . non mempty %~ Data.Set.insert worldOutcome }
+
+interpretDSL (LinkEntityActionEffect entity actionKey eid op) = do
+  st <- get
+  put st { bsSharedEntityActionRegistry =
+             bsSharedEntityActionRegistry st & at entity . non mempty . at actionKey . non mempty . at eid . non mempty %~ Data.Set.insert op }
+
+interpretDSL (LinkTargetEntityActionEffect targetKey actionKey eid op) = do
+  st <- get
+  put st { bsTargetEntityActionRegistry =
+             bsTargetEntityActionRegistry st & at targetKey . non mempty . at actionKey . non mempty . at eid . non mempty %~ Data.Set.insert op }
+
+interpretDSL (LinkActorTargetEntityActionEffect actorKey targetKey actionKey eid op) = do
+  st <- get
+  put st { bsActorTargetEntityActionRegistry =
+             bsActorTargetEntityActionRegistry st & at actorKey . non mempty . at targetKey . non mempty . at actionKey . non mempty . at eid . non mempty %~ Data.Set.insert op }
 
 interpretDSL (NewUser sceneGid mkAgent) = do
   st <- get
@@ -388,8 +442,12 @@ runWorldBuilder (WorldBuilder builder) initState =
     (Left err, _) -> Left err
     (Right gs, finalState) ->
       let pg = PossibilityGraph
-            { _entityActionEffects = bsEntityActionRegistry finalState
-            , _worldOutcomeEffects = bsWorldOutcomeRegistry finalState
+            { _actorTargetWorldOutcomeEffects = bsActorTargetWorldOutcomeRegistry finalState
+            , _targetWorldOutcomeEffects      = bsTargetWorldOutcomeRegistry finalState
+            , _sharedWorldOutcomeEffects      = bsSharedWorldOutcomeRegistry finalState
+            , _actorTargetEntityActionEffects = bsActorTargetEntityActionRegistry finalState
+            , _targetEntityActionEffects      = bsTargetEntityActionRegistry finalState
+            , _sharedEntityActionEffects      = bsSharedEntityActionRegistry finalState
             , _witnessMap          = bsWitnessMap finalState
             , _newUserStartScene   = bsNewUserStartScene finalState
             , _newUserMkAgent      = bsNewUserMkAgent finalState

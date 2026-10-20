@@ -53,12 +53,15 @@ reifyDSL source = do
       , ModuleImport "DSL.Model.EDSL.SashaLambdaDSL" NotQualified
           (ImportList
             [ "SashaLambdaDSL"
+            , "actorTargetBehavior"
             , "createAVSupportManagement"
             , "createAVTargetManagement"
             , "createDSAManagement"
+            , "createDSATargetManagement"
             , "createDVManagement"
             , "createDVSurfaceManagement"
             , "createISAManagement"
+            , "createISATargetManagement"
             , "declareAcquisitionActionGID"
             , "declareDirectionalStimulusGID"
             , "declareDivestmentActionGID"
@@ -69,7 +72,11 @@ reifyDSL source = do
             , "description"
             , "descriptive"
             , "finalizeGameState"
+            , "linkActorTargetEntityActionEffect"
+            , "linkActorTargetWorldOutcomeEffect"
             , "linkEntityActionEffect"
+            , "linkTargetEntityActionEffect"
+            , "linkTargetWorldOutcomeEffect"
             , "linkWorldOutcomeEffect"
             , "modifyNewUserAgent"
             , "modifyObject"
@@ -87,7 +94,6 @@ reifyDSL source = do
             , "sharedWitnessBehavior"
             , "shortName"
             , "title"
-            , "witnessBehavior"
             ])
       , ModuleImport "DSL.Vocabulary" NotQualified
           (ImportList ["andThen"])
@@ -106,28 +112,30 @@ reifyDSL source = do
       , ModuleImport "Grammar.Parser.Composites.Nouns" NotQualified
           (ImportList ["NounPhrase (DescriptiveNounPhrase)"])
       , ModuleImport "Grammar.Parser.GCase" NotQualified
-          (ImportList ["VerbKey (AcquisitionKey, DirectionalStimulusKey, DivestmentKey, ImplicitStimulusKey)"])
+          (ImportList ["VerbKey (AcquisitionKey, DivestmentKey, ImperativeKey, ImplicitStimulusKey)"])
       , ModuleImport "Model.Core" NotQualified
           (ImportList
             [ "ActionEffectKey (AcquisitionalActionKey, DirectionalStimulusActionKey, DivestmentActionKey, ImplicitStimulusActionKey)"
             , "ActionManagement"
             , "ActionManagementFunctions (ActionManagementFunctions)"
             , "ActionManagementOperation (AddAcquisitionVerb, AddDivestmentVerb)"
-            , "Agent (Agent, _agentActionManagement, _agentDescription, _agentKind, _agentShortName, _agentTitle, _agentWitnessManagement)"
+            , "ActorKey (ActorKey)"
+            , "Agent (Agent, _agentActionManagement, _agentDescription, _agentKind, _agentShortName, _agentTitle)"
             , "AgentKind (Denizen)"
             , "DirectionalStimulusF"
             , "DivestmentTargetType (DivestToSurface')"
-            , "EntityID (EntityObject)"
-            , "EntityKey (ActingAgentKey, AgentKey', ObjectKey', SceneKey')"
+            , "Entity (AgentEntity, ObjectEntity, SceneEntity)"
+            , "EntityKey (EntityAgent, EntityObject, EntityScene)"
             , "GameState"
             , "ImplicitStimulusF"
-            , "NarrationComputation (LookAtNarration, LookNarration, StaticNarration)"
+            , "NarrationComputation (LookAtAgentNarration, LookAtNarration, LookNarration, StaticNarration)"
             , "Object"
             , "ObjectLabel (ObjectLabel)"
             , "Scene"
             , "SceneLabel (SceneLabel)"
             , "SpatialRelationship (Inventory, SupportedBy, Supports)"
             , "SpatialRelationshipComputation (Acquisition, Divestiture)"
+            , "TargetKey (TargetKey)"
             , "WitnessF"
             , "WorldOutcome (NarrationEffect, SpatialRelationshipEffect)"
             , "defaultObject"

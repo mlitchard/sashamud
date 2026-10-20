@@ -3,6 +3,10 @@ module Grammar.Parser.Atomics.Nouns
       ( DirectionalStimulus
       , _fromDirectionalStimulus
       )
+  , DirectionalStimulusPlayer
+      ( DirectionalStimulusPlayer
+      , _fromDirectionalStimulusPlayer
+      )
   , Objective
       ( Objective
       , _fromObjective
@@ -25,6 +29,14 @@ newtype DirectionalStimulus = DirectionalStimulus { _fromDirectionalStimulus :: 
 
 instance HasLexeme DirectionalStimulus where
   toLexeme = _fromDirectionalStimulus
+
+type DirectionalStimulusPlayer :: Type
+newtype DirectionalStimulusPlayer = DirectionalStimulusPlayer { _fromDirectionalStimulusPlayer :: Lexeme }
+  deriving stock (Eq, Ord, Show)
+  deriving newtype (FromJSON, Hashable, NFData, ToJSON)
+
+instance HasLexeme DirectionalStimulusPlayer where
+  toLexeme = _fromDirectionalStimulusPlayer
 
 type Objective :: Type
 newtype Objective = Objective { _fromObjective :: Lexeme }
