@@ -22,6 +22,8 @@ import           Grammar.Parser.Atomics.Verbs
 import           Grammar.Parser.Composites.Nouns
   ( DirectionalStimulusNounPhrase
   , NounPhrase
+  , PlayerName (PlayerName)
+  , PlayerNamePhrase (PlayerNamePhrase)
   )
 import           Grammar.Parser.GCase (VerbKey)
 import           Test.QuickCheck (Arbitrary)
@@ -43,4 +45,7 @@ deriving newtype instance Arbitrary AcquisitionVerb
 deriving newtype instance Arbitrary DivestmentVerb
 deriving via (GenericArbitrary (NounPhrase DirectionalStimulus)) instance Arbitrary (NounPhrase DirectionalStimulus)
 deriving via (GenericArbitrary DirectionalStimulusNounPhrase) instance Arbitrary DirectionalStimulusNounPhrase
+deriving newtype instance Arbitrary PlayerName
+deriving via (GenericArbitrary (NounPhrase PlayerName)) instance Arbitrary (NounPhrase PlayerName)
+deriving newtype instance Arbitrary PlayerNamePhrase
 deriving via (GenericArbitrary VerbKey) instance Arbitrary VerbKey

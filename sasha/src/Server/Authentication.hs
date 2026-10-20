@@ -232,7 +232,7 @@ authAvailable unv = do
     Right val   -> pure val
   rows :: [Only Int] <-
     liftIO . withResource (acDbPool ctx) $ \conn ->
-      query conn [sql| SELECT 1 FROM users WHERE player_name = ? |] (Only name)
+      query conn [sql| SELECT 1 FROM agents WHERE name = ? |] (Only name)
   case rows of
     [] -> pure NoContent
     _  -> throwError err409 { errBody = fromStrict (encodeUtf8 (name <> " is taken")) }
@@ -350,15 +350,20 @@ authCallback (AuthCode code) state = do
   where
     credentialsQuery =
       [sql|
-        SELECT credentials.user_id, users.player_name FROM credentials
+        SELECT credentials.user_id, agents.name FROM credentials
           JOIN users ON users.user_id = credentials.user_id
+          JOIN agents ON agents.agent_id = users.user_id
           WHERE credentials.authentik_user_id = ?
             AND users.status = 'active'
       |]
     insertUser =
       [sql|
-        INSERT INTO users (status, role_id, activated_on, player_name)
-          SELECT 'active', role_id, now(), ? FROM roles WHERE name = 'wizard'
+        WITH new_agent AS (
+          INSERT INTO agents (agent, name) VALUES ('denizen', ?)
+            RETURNING agent_id)
+        INSERT INTO users (user_id, status, role_id, activated_on)
+          SELECT new_agent.agent_id, 'active', roles.role_id, now() FROM new_agent, roles
+            WHERE roles.name = 'wizard'
           RETURNING user_id
       |]
     insertCredentials =

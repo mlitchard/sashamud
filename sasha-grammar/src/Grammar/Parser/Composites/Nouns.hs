@@ -1,9 +1,10 @@
 {- HLINT ignore "Use newtype instead of data" -}
 module Grammar.Parser.Composites.Nouns
-  ( DirectionalStimulusNounPhrase (DirectionalStimulusNounPhrase)
+  ( DirectionalStimulusNounPhrase (DirectionalStimulusNounPhrase, PlayerDirectionalStimulusNounPhrase)
   , NounPhrase (SimpleNounPhrase, NounPhrase, DescriptiveNounPhrase, DescriptiveNounPhraseDet)
   , ObjectPhrase (ObjectPhrase)
   , PlayerName (PlayerName)
+  , PlayerNamePhrase (PlayerNamePhrase)
   ) where
 
 import           Control.DeepSeq (NFData)
@@ -34,10 +35,16 @@ newtype ObjectPhrase = ObjectPhrase (NounPhrase Objective)
 
 type DirectionalStimulusNounPhrase :: Type
 data DirectionalStimulusNounPhrase = DirectionalStimulusNounPhrase DirectionalStimulusMarker (NounPhrase DirectionalStimulus)
+                                   | PlayerDirectionalStimulusNounPhrase DirectionalStimulusMarker PlayerNamePhrase
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (FromJSON, NFData, ToJSON)
 
 type PlayerName :: Type
 newtype PlayerName = PlayerName Text
   deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
+  deriving anyclass (FromJSON, NFData, ToJSON)
+
+type PlayerNamePhrase :: Type
+newtype PlayerNamePhrase = PlayerNamePhrase (NounPhrase PlayerName)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (FromJSON, NFData, ToJSON)

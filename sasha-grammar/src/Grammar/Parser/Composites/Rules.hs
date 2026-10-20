@@ -8,14 +8,14 @@ module Grammar.Parser.Composites.Rules
   , imperativeRules
   ) where
 
-import           Control.Applicative ((<*), (<*>), (<|>))
+import           Control.Applicative ((<*>), (<|>))
 import           Control.Monad ((>>=))
 import           Data.Function (($))
 import           Data.Functor ((<$>))
 import           Data.Kind (Type)
 import           Data.Maybe (Maybe (Just, Nothing))
 import           Data.Text (Text)
-import           Grammar.Lexer (Lexeme (PLAYERNAME))
+import           Grammar.Lexer (Lexeme (AGENTNAME))
 import           Grammar.Parser.Atomics.Adjectives (Adjective)
 import           Grammar.Parser.Atomics.Misc (Determiner)
 import           Grammar.Parser.Atomics.Nouns (Objective)
@@ -61,13 +61,14 @@ import           Grammar.Parser.Composites.Model
   ( AcquisitionVerbPhrase (SimpleAcquisitionVerbPhrase)
   , DivestmentVerbPhrase (SimpleDivestmentVerbPhrase)
   , Imperative (AcquisitionVerbPhrase', DivestmentVerbPhrase', StimulusVerbPhrase)
-  , StimulusVerbPhrase (AgentStimulusVerbPhrase, DirectStimulusVerbPhrase, ImplicitStimulusVerb)
+  , StimulusVerbPhrase (DirectStimulusVerbPhrase, ImplicitStimulusVerb)
   )
 import           Grammar.Parser.Composites.Nouns
-  ( DirectionalStimulusNounPhrase (DirectionalStimulusNounPhrase)
+  ( DirectionalStimulusNounPhrase (DirectionalStimulusNounPhrase, PlayerDirectionalStimulusNounPhrase)
   , NounPhrase (DescriptiveNounPhrase, DescriptiveNounPhraseDet, NounPhrase, SimpleNounPhrase)
   , ObjectPhrase (ObjectPhrase)
   , PlayerName (PlayerName)
+  , PlayerNamePhrase (PlayerNamePhrase)
   )
 import           Text.Earley.Grammar (Grammar, Prod, rule, terminal)
 
@@ -140,20 +141,26 @@ stimulusVerbPhraseRules = do
                   , _nounRule = directionalStimulus
                   }
   playerName <- playerNameRule
+  playerNameNounPhrase <- nounPhraseRule NounPhraseRules
+                  { _determinerRule = determiner
+                  , _adjRule = adj
+                  , _nounRule = playerName
+                  }
   rule $ ImplicitStimulusVerb <$> implicitStimulusVerb
      <|> DirectStimulusVerbPhrase
            <$> directionalStimulusVerb
            <*> (DirectionalStimulusNounPhrase
                   <$> directionalStimulusMarker
                   <*> nounPhrase)
-     <|> AgentStimulusVerbPhrase
+     <|> DirectStimulusVerbPhrase
            <$> directionalStimulusVerb
-           <* directionalStimulusMarker
-           <*> playerName
+           <*> (PlayerDirectionalStimulusNounPhrase
+                  <$> directionalStimulusMarker
+                  <*> (PlayerNamePhrase <$> playerNameNounPhrase))
 
 playerNameRule :: Grammar r (Prod r Text Lexeme PlayerName)
 playerNameRule = rule (terminal (\case
-    PLAYERNAME txt -> Just (PlayerName txt)
+    AGENTNAME txt  -> Just (PlayerName txt)
     _              -> Nothing))
 
 imperativeRules :: Grammar r (Prod r Text Lexeme Imperative)

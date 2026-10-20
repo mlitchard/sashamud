@@ -232,12 +232,16 @@
             sashamud-admin sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIGIQxWd6UuR8QMyqLQxTjSjrfrdOEAIcw7ilskEW5JDlAAAABHNzaDo=
           '';
           createAccountSql = pkgs.writeText "create-account.sql" ''
-            WITH new_user AS (
-              INSERT INTO users (status, role_id, activated_on, player_name)
-                SELECT 'active', role_id, now(), :'name' FROM roles
-                  WHERE name = :'role'
-                    AND NOT EXISTS (SELECT 1 FROM users WHERE player_name = :'name')
-                ON CONFLICT (player_name) DO NOTHING
+            WITH new_agent AS (
+              INSERT INTO agents (agent, name)
+                SELECT 'denizen', :'name'
+                  WHERE NOT EXISTS (SELECT 1 FROM agents WHERE name = :'name')
+                ON CONFLICT (name) DO NOTHING
+                RETURNING agent_id),
+            new_user AS (
+              INSERT INTO users (user_id, status, role_id, activated_on)
+                SELECT new_agent.agent_id, 'active', roles.role_id, now() FROM new_agent, roles
+                  WHERE roles.name = :'role'
                 RETURNING user_id)
             INSERT INTO credentials (user_id, authentik_user_id)
               SELECT user_id, :'authentik_user_id' FROM new_user;

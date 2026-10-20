@@ -13,8 +13,9 @@ import           Error (throwMaybeM)
 import           Lens.Micro.Platform (at, non, over, use, view, (%=))
 import           Model.Core
   ( Agent
+  , AgentKey (AgentKey)
   , AgentKind (Denizen)
-  , EntityID (EntityObject)
+  , EntityKey (EntityObject)
   , GameComputation
   , Narration
   , Object
@@ -43,9 +44,9 @@ import           Model.Core
 import           Model.GID (GID)
 import           Model.RichText (TextColor (White), colored, toPlainText)
 
-modifyAgentNarration :: GID Agent -> (Narration -> Narration) -> GameComputation Identity ()
-modifyAgentNarration agentGid f =
-  narrationMap . unNarrationMap . at agentGid . non mempty %= f
+modifyAgentNarration :: AgentKey -> (Narration -> Narration) -> GameComputation Identity ()
+modifyAgentNarration agentKey f =
+  narrationMap . unNarrationMap . at agentKey . non mempty %= f
 
 youSeeM :: GID Agent -> GameComputation Identity ()
 youSeeM actorGid = do
@@ -57,9 +58,9 @@ youSeeM actorGid = do
   sMap <- use (world . sceneMap . getGIDToDataMap)
   scene <- throwMaybeM ("Scene not found: " <> pack (show sceneGid))
              (lookup sceneGid sMap)
-  modifyAgentNarration actorGid (over playerAction (<> [colored White "You look around."]))
+  modifyAgentNarration (AgentKey actorGid) (over playerAction (<> [colored White "You look around."]))
   let desc = view sceneDescription scene
-  modifyAgentNarration actorGid (over actionConsequence (<> [desc]))
+  modifyAgentNarration (AgentKey actorGid) (over actionConsequence (<> [desc]))
   -- List visible objects (old code: Perception.hs:168-195)
   semMap <- use (world . globalSemanticMap)
   spatialMap <- use (world . spatialRelationshipMap . unSpatialRelationshipMap)
@@ -77,7 +78,7 @@ youSeeM actorGid = do
   when (not (null topLevelNames)) $ do
     let articleNames = fmap ("a " <>) topLevelNames
         seeText = "You see: " <> intercalate ", " articleNames
-    modifyAgentNarration actorGid
+    modifyAgentNarration (AgentKey actorGid)
       (over actionConsequence (<> [colored White seeText]))
   -- List other Denizen agents
   let otherAgentGids = filter (/= actorGid) (toList (view sceneAgents scene))
@@ -88,7 +89,7 @@ youSeeM actorGid = do
         , view agentKind agent == Denizen
         ]
   when (not (null otherPlayerNames)) $
-    modifyAgentNarration actorGid
+    modifyAgentNarration (AgentKey actorGid)
       (over presenceListing (<> [colored White ("Also here: " <> intercalate ", " otherPlayerNames)]))
   where
     isContainedOrSupported :: SpatialRelationship -> Bool
@@ -96,12 +97,12 @@ youSeeM actorGid = do
     isContainedOrSupported (SupportedBy _) = True
     isContainedOrSupported _               = False
 
-    getDirectlySupported :: Map EntityID (Set SpatialRelationship) -> GID Object -> [EntityID]
+    getDirectlySupported :: Map EntityKey (Set SpatialRelationship) -> GID Object -> [EntityKey]
     getDirectlySupported smap oid =
       case lookup (EntityObject oid) smap of
         Nothing   -> []
         Just rels -> concatMap extractSupported (toList rels)
 
-    extractSupported :: SpatialRelationship -> [EntityID]
+    extractSupported :: SpatialRelationship -> [EntityKey]
     extractSupported (Supports eidSet) = toList eidSet
     extractSupported _                 = []

@@ -12,15 +12,12 @@ let
     , _agentDescription       = colored White "A player."
     , _agentTitle             = mempty
     , _agentActionManagement  = ActionManagementFunctions mempty
-    , _agentWitnessManagement = mempty
     , _agentKind              = Denizen
     }
-  playerTemplate :: ActionManagement -> ActionManagement -> GID WitnessF -> SashaLambdaDSL (Text -> Agent)
-  playerTemplate lookKey lookAtKey witnessGID = do
+  playerTemplate :: ActionManagement -> ActionManagement -> SashaLambdaDSL (Text -> Agent)
+  playerTemplate lookKey lookAtKey = do
     denizen  <- playerBehavior defaultDenizen lookKey
-    denizen' <- playerBehavior denizen lookAtKey
-    w1       <- witnessBehavior denizen' (ImplicitStimulusKey isaLook) witnessGID
-    witnessBehavior w1 (DirectionalStimulusKey dsaLook) witnessGID
+    playerBehavior denizen lookAtKey
   declareLook :: SashaLambdaDSL (GID ImplicitStimulusF, ActionManagement)
   declareLook = do
     gid <- declareImplicitStimulusGID lookF
@@ -33,13 +30,20 @@ let
     pure (gid, key)
 in do
   lobbyGID <- declareSceneGID (SceneLabel "lobby")
-  (sceneLookGID, sceneLookKey) <- declareLook
+  sceneLookGID <- declareImplicitStimulusGID lookF
+  sceneLookKey <- createISATargetManagement isaLook sceneLookGID
   (_, playerLookKey)           <- declareLook
-  (_, sceneLookAtKey)          <- declareLookAt
+  sceneLookAtGID <- declareDirectionalStimulusGID lookAtF
+  sceneLookAtKey <- createDSATargetManagement dsaLook sceneLookAtGID
   (_, playerLookAtKey)         <- declareLookAt
+  agentLookAtGID <- declareDirectionalStimulusGID lookAtF
+  agentLookAtKey <- createDSATargetManagement dsaLook agentLookAtGID
+  sharedBehavior AgentEntity agentLookAtKey
   witnessGID <- declareWitnessGID witnessF
+  sharedWitnessBehavior AgentEntity witnessGID
   registerScene lobbyGID (buildLobby sceneLookKey sceneLookAtKey)
-  template <- playerTemplate playerLookKey playerLookAtKey witnessGID
+  template <- playerTemplate playerLookKey playerLookAtKey
   newUser lobbyGID template
-  linkWorldOutcomeEffect (ImplicitStimulusActionKey sceneLookGID) (NarrationEffect LookNarration)
+  linkTargetWorldOutcomeEffect (TargetKey (EntityScene lobbyGID)) (ImplicitStimulusActionKey sceneLookGID) (NarrationEffect LookNarration)
+  linkWorldOutcomeEffect AgentEntity (DirectionalStimulusActionKey agentLookAtGID) (NarrationEffect LookAtAgentNarration)
   finalizeGameState

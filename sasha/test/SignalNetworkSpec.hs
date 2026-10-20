@@ -38,7 +38,7 @@ import           Grammar.Sentence (parseTokens)
 import           Lens.Micro.Platform (set)
 import           Model.Core
   ( ActionManagementFunctions (ActionManagementFunctions)
-  , Agent (Agent, _agentActionManagement, _agentDescription, _agentKind, _agentShortName, _agentTitle, _agentWitnessManagement)
+  , Agent (Agent, _agentActionManagement, _agentDescription, _agentKind, _agentShortName, _agentTitle)
   , AgentKind (Denizen)
   , SessionId (SessionId)
   , agentLocationMap
@@ -113,7 +113,6 @@ spec = do
           , _agentDescription       = mempty
           , _agentTitle             = mempty
           , _agentActionManagement  = ActionManagementFunctions mempty
-          , _agentWitnessManagement = mempty
           , _agentKind              = Denizen
           }
         scene = defaultScene

@@ -10,8 +10,7 @@ import           Engine.ActionDiscovery.Get.Acquisition.Get
   ( manageAcquisitionProcess
   )
 import           Engine.ActionDiscovery.Percieve.Look
-  ( manageAgentStimulusProcess
-  , manageDirectionalStimulusProcess
+  ( manageDirectionalStimulusProcess
   , manageImplicitStimulusProcess
   )
 import           Grammar.Parser.Composites.Model
@@ -19,7 +18,7 @@ import           Grammar.Parser.Composites.Model
   , DivestmentVerbPhrase
   , Imperative (AcquisitionVerbPhrase', DivestmentVerbPhrase', StimulusVerbPhrase)
   , Sentence (Imperative)
-  , StimulusVerbPhrase (AgentStimulusVerbPhrase, DirectStimulusVerbPhrase, ImplicitStimulusVerb)
+  , StimulusVerbPhrase (DirectStimulusVerbPhrase, ImplicitStimulusVerb)
   )
 import           Model.Core (Agent, GameComputation)
 import           Model.GID (GID)
@@ -46,5 +45,3 @@ evalStimulusVerbPhrase actorGid (ImplicitStimulusVerb verb) =
   manageImplicitStimulusProcess actorGid verb
 evalStimulusVerbPhrase actorGid (DirectStimulusVerbPhrase verb nounPhrase) =
   manageDirectionalStimulusProcess actorGid verb nounPhrase
-evalStimulusVerbPhrase actorGid (AgentStimulusVerbPhrase verb playerName) =
-  manageAgentStimulusProcess actorGid verb playerName

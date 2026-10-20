@@ -184,16 +184,20 @@ loginThroughFake manager port user = do
 
 seedAccount :: Pool Connection -> RoleName -> PlayerNameVAL -> IO ()
 seedAccount pool role (PlayerNameVAL name) = withResource pool $ \conn -> do
-  _ <- execute conn seedQuery (name, role, name, fakeAuthentikUserId name)
+  _ <- execute conn seedQuery (name, name, role, fakeAuthentikUserId name)
   pure ()
   where
     seedQuery =
       [sql|
-        WITH new_user AS (
-          INSERT INTO users (status, role_id, activated_on, player_name)
-            SELECT 'active', role_id, now(), ? FROM roles
-              WHERE name = ?
-                AND NOT EXISTS (SELECT 1 FROM users WHERE player_name = ?)
+        WITH new_agent AS (
+          INSERT INTO agents (agent, name)
+            SELECT 'denizen', ?
+              WHERE NOT EXISTS (SELECT 1 FROM agents WHERE name = ?)
+            RETURNING agent_id),
+        new_user AS (
+          INSERT INTO users (user_id, status, role_id, activated_on)
+            SELECT new_agent.agent_id, 'active', roles.role_id, now() FROM new_agent, roles
+              WHERE roles.name = ?
             RETURNING user_id)
         INSERT INTO credentials (user_id, authentik_user_id)
           SELECT user_id, ? FROM new_user

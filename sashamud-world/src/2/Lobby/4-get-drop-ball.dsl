@@ -14,6 +14,7 @@ do
   ballDropGID <- declareDivestmentActionGID dropF
   ballDropKey <- createDVManagement dropDV ballDropGID
   modifyObject (ObjectLabel "ball") (flip objectBehavior ballGetKey `andThen` flip objectBehavior ballDropKey)
-  linkWorldOutcomeEffect (AcquisitionalActionKey ballGetGID) (NarrationEffect (StaticNarration "You pick up the red ball."))
-  linkWorldOutcomeEffect (DivestmentActionKey ballDropGID) (NarrationEffect (StaticNarration "You drop the red ball."))
+  ballGID <- declareObjectGID (ObjectLabel "ball")
+  linkTargetWorldOutcomeEffect (TargetKey (EntityObject ballGID)) (AcquisitionalActionKey ballGetGID) (NarrationEffect (StaticNarration "You pick up the red ball."))
+  linkTargetWorldOutcomeEffect (TargetKey (EntityObject ballGID)) (DivestmentActionKey ballDropGID) (NarrationEffect (StaticNarration "You drop the red ball."))
   finalizeGameState
