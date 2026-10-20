@@ -49,15 +49,17 @@ type Lexeme :: Type
 data Lexeme = A
             | AT
             | BALL
+            | CUP
             | DROP
             | FLOOR
             | GET
             | LOOK
             | RED
             | SMALL
+            | TABLE
             | THE
             | WHITE
-            | PLAYERNAME Text
+            | AGENTNAME Text
             | UNKNOWN Text
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (FromJSON, Hashable, NFData, ToJSON)
@@ -70,29 +72,33 @@ instance Enum Lexeme where
   toEnum 0  = A
   toEnum 1  = AT
   toEnum 2  = BALL
-  toEnum 3  = DROP
-  toEnum 4  = FLOOR
-  toEnum 5  = GET
-  toEnum 6  = LOOK
-  toEnum 7  = RED
-  toEnum 8  = SMALL
-  toEnum 9  = THE
-  toEnum 10 = WHITE
+  toEnum 3  = CUP
+  toEnum 4  = DROP
+  toEnum 5  = FLOOR
+  toEnum 6  = GET
+  toEnum 7  = LOOK
+  toEnum 8  = RED
+  toEnum 9  = SMALL
+  toEnum 10 = TABLE
+  toEnum 11 = THE
+  toEnum 12 = WHITE
   toEnum _  = error "toEnum: no Lexeme at this index"
 
-  fromEnum A              = 0
-  fromEnum AT             = 1
-  fromEnum BALL           = 2
-  fromEnum DROP           = 3
-  fromEnum FLOOR          = 4
-  fromEnum GET            = 5
-  fromEnum LOOK           = 6
-  fromEnum RED            = 7
-  fromEnum SMALL          = 8
-  fromEnum THE            = 9
-  fromEnum WHITE          = 10
-  fromEnum (PLAYERNAME _) = 11
-  fromEnum (UNKNOWN _)    = 12
+  fromEnum A             = 0
+  fromEnum AT            = 1
+  fromEnum BALL          = 2
+  fromEnum CUP           = 3
+  fromEnum DROP          = 4
+  fromEnum FLOOR         = 5
+  fromEnum GET           = 6
+  fromEnum LOOK          = 7
+  fromEnum RED           = 8
+  fromEnum SMALL         = 9
+  fromEnum TABLE         = 10
+  fromEnum THE           = 11
+  fromEnum WHITE         = 12
+  fromEnum (AGENTNAME _) = 13
+  fromEnum (UNKNOWN _)   = 14
 
 type HasLexeme :: Type -> Constraint
 class HasLexeme a where
@@ -119,12 +125,14 @@ term = classify <$> word
     classify "a"     = A
     classify "at"    = AT
     classify "ball"  = BALL
+    classify "cup"   = CUP
     classify "drop"  = DROP
     classify "floor" = FLOOR
     classify "get"   = GET
     classify "look"  = LOOK
     classify "red"   = RED
     classify "small" = SMALL
+    classify "table" = TABLE
     classify "the"   = THE
     classify "white" = WHITE
     classify w       = UNKNOWN w
