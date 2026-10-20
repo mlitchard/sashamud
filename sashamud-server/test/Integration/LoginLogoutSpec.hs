@@ -148,7 +148,7 @@ import           Servant.Client.Core
   )
 import           Servant.Server.Internal.Handler (runHandler)
 import           Server.App
-  ( AppCtx (acDbPool, acGameLog, acKnownPlayers, acSessions)
+  ( AppCtx (acDbPool, acGameLog, acSessions)
   , AppM (unAppM)
   , GameLog (GameLog, logPath)
   , OidcConfig (OidcConfig)
@@ -417,9 +417,7 @@ spec = describe "Integration" . around withTestServer $ do
       narr <- receiveUntil conn 10000000 isLookNarration
       case narr of
         Nothing -> expectationFailure "no auto-look narration received on login"
-        Just _  -> do
-          known <- readMVar (acKnownPlayers ctx)
-          member (PlayerNameVAL "AgentTest") known `shouldBe` True
+        Just _  -> pure ()
 
   it "login assigns agent to lobby scene" $ \(_port, ctx) -> do
     sid1 <- loginAs ctx Wizard "Alice"
@@ -448,10 +446,7 @@ spec = describe "Integration" . around withTestServer $ do
         n1 <- receiveUntil conn1 10000000 isLookNarration
         n2 <- receiveUntil conn2 10000000 isLookNarration
         case (n1, n2) of
-          (Just _, Just _) -> do
-            known <- readMVar (acKnownPlayers ctx)
-            member (PlayerNameVAL "Player1") known `shouldBe` True
-            member (PlayerNameVAL "Player2") known `shouldBe` True
+          (Just _, Just _) -> pure ()
           _ -> expectationFailure "both players should receive auto-look narration"
 
   it "multi-player: both clients receive heartbeats" $ \(_port, ctx) -> do
@@ -493,8 +488,12 @@ spec = describe "Integration" . around withTestServer $ do
       case result of
         Nothing -> expectationFailure "departure not received"
         Just _  -> do
-          known <- readMVar (acKnownPlayers ctx)
-          member (PlayerNameVAL "Leaver") known `shouldBe` True
+          sid3 <- loginAs ctx Wizard "Leaver"
+          connectWS sid3 $ \conn3 -> do
+            back <- receiveUntil conn3 10000000 isLookNarration
+            case back of
+              Nothing -> expectationFailure "no auto-look narration received on return"
+              Just _  -> pure ()
 
   it "logout: agent removed from lobby scene, stays in agentMap, maps cleaned" $ \(_port, ctx) -> do
     env <- testClientEnv
@@ -509,10 +508,14 @@ spec = describe "Integration" . around withTestServer $ do
         case result of
           Nothing -> expectationFailure "departure not received after logout"
           Just _  -> do
-            known <- readMVar (acKnownPlayers ctx)
-            member (PlayerNameVAL "LogoutTarget") known `shouldBe` True
             sessions <- readMVar (acSessions ctx)
             member sid2 sessions `shouldBe` False
+            sid3 <- loginAs ctx Wizard "LogoutTarget"
+            connectWS sid3 $ \conn3 -> do
+              back <- receiveUntil conn3 10000000 isLookNarration
+              case back of
+                Nothing -> expectationFailure "no auto-look narration received on return"
+                Just _  -> pure ()
 
   it "login auto-look delivers the lobby description" $ \(_port, ctx) -> do
     sid <- loginAs ctx Wizard "LookOnLogin"

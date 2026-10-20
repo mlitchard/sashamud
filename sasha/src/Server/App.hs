@@ -156,7 +156,6 @@ data AppCtx = AppCtx
   , acJoinChan :: TChan PlayerJoined
   , acDSLChan :: TChan (Routed (SashaLambdaDSL GameState))
   , acSessions :: MVar (Map SessionId SessionPhase)
-  , acKnownPlayers :: MVar (Map PlayerNameVAL (GID Agent))
   , acBuilderCounters :: IORef BuilderCounters
   , acDbPool :: Pool Connection
   , acOidcConfig :: OidcConfig
@@ -174,7 +173,6 @@ newAppCtx logCfg pool oidcConfig manager counters = do
   joinChan <- newTChanIO
   dslChan  <- newTChanIO
   sessions <- newMVar mempty
-  known    <- newMVar mempty
   builderCounters <- newIORef counters
   oidcStates <- newMVar mempty
   pendingRepairs <- newMVar mempty
@@ -185,7 +183,6 @@ newAppCtx logCfg pool oidcConfig manager counters = do
     , acJoinChan     = joinChan
     , acDSLChan      = dslChan
     , acSessions     = sessions
-    , acKnownPlayers = known
     , acBuilderCounters = builderCounters
     , acDbPool       = pool
     , acOidcConfig   = oidcConfig

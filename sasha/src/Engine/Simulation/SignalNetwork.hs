@@ -178,7 +178,7 @@ import           Model.WireProtocol
   , MessageFrom (AnalysisData, ChatMessage, GameNarration, Pong, RepairRequest, SystemMessage)
   )
 import           Server.App
-  ( AppCtx (acBuilderCounters, acDSLChan, acDbPool, acGameLog, acInbound, acJoinChan, acKnownPlayers, acLastStateViews, acOutbound, acPendingRepairs, acSessions)
+  ( AppCtx (acBuilderCounters, acDSLChan, acDbPool, acGameLog, acInbound, acJoinChan, acLastStateViews, acOutbound, acPendingRepairs, acSessions)
   , PendingRepair (PendingRepair)
   , SessionPhase (SessionPhase)
   , SessionState (AwaitingJoin, AwaitingSocket, InGame)
@@ -272,7 +272,6 @@ playerTickBlock = constMCl $ do
 
   -- IO: gather inputs
   sessions <- liftIO $ readMVar (acSessions appCtx)
-  known <- liftIO $ readMVar (acKnownPlayers appCtx)
   joins <- liftIO $ drainChan (acJoinChan appCtx)
   msgs <- liftIO $ drainChan (acInbound appCtx)
   pending <- liftIO $ readMVar (acPendingRepairs appCtx)
@@ -292,8 +291,8 @@ playerTickBlock = constMCl $ do
 
   -- GENERATE: compose one big GameComputation
   let (pings, replies, updates, failureRows, successRows, commandComp) = resolveCommands sessions pending playerLookup msgs
-      (joinResults, joinComp) = processJoinsPure known joins
-      leavesComp = processLeavesPure sessions known
+      (joinResults, joinComp) = processJoinsPure (view (world . agentMap . getAgentMap) gs) joins
+      leavesComp = processLeavesPure sessions
       tickComp = composeTick leavesComp joinComp commandComp (joinGIDs joinResults)
 
       -- EXECUTE: run once
@@ -367,12 +366,11 @@ composeTick leavesComp joinComp commandComp joinedGids = do
   extractNarration
 
 processLeavesPure :: Map SessionId SessionPhase
-                  -> Map PlayerNameVAL (GID Agent)
                   -> GameComputation Identity ()
-processLeavesPure sessions known = do
+processLeavesPure sessions = do
   gs <- get
   let activeGids = Set.fromList [gid | phase <- elems sessions, Just gid <- [sessionGid phase]]
-      knownGids = Set.fromList (elems known)
+      knownGids = Set.fromList [gid | (gid, _) <- assocs aMap]
       aMap = view (world . agentMap . getAgentMap) gs
       isDeparted gid = Set.member gid knownGids
                     && not (Set.member gid activeGids)
@@ -401,16 +399,16 @@ processLeavesPure sessions known = do
              & announceToDenizens aMap (Set.toList remaining) departNarr
   put (foldl' applyDeparture gs sceneDepartures)
 
-processJoinsPure :: Map PlayerNameVAL (GID Agent)
+processJoinsPure :: Map (GID Agent) Agent
                  -> [PlayerJoined]
                  -> ([JoinResult], GameComputation Identity ())
-processJoinsPure known joins = (joinResults, mapM_ joinComputation joinResults)
+processJoinsPure aMap joins = (joinResults, mapM_ joinComputation joinResults)
   where
     joinResults = fmap classify joins
     classify (PlayerJoined sid name accountGid) =
-      case lookup name known of
-        Just gid -> ReturningPlayerJoined sid gid
-        Nothing  -> NewPlayerJoined sid name accountGid
+      case lookup accountGid aMap of
+        Just _  -> ReturningPlayerJoined sid accountGid
+        Nothing -> NewPlayerJoined sid name accountGid
     joinComputation (ReturningPlayerJoined _sid gid) = do
       gs <- get
       case lookup gid (view (world . agentMap . getAgentMap) gs) of
@@ -425,7 +423,7 @@ processJoinsPure known joins = (joinResults, mapM_ joinComputation joinResults)
                   case lookup AgentEntity (view (world . sharedWitnessManagement) gs) of
                     Nothing -> throwError "Programmer Error: world declared no shared AgentEntity witness"
                     Just witnessGid -> do
-                      let aMap = view (world . agentMap . getAgentMap) gs
+                      let currentAMap = view (world . agentMap . getAgentMap) gs
                           key = DirectionalStimulusPlayerKey (DirectionalStimulusPlayer (AGENTNAME (toPlainText (view agentShortName agent))))
                           scene' = set sceneAgents (Set.insert gid (view sceneAgents scene)) scene
                             & agentSemanticMap . at key . non mempty %~ Set.insert gid
@@ -435,7 +433,7 @@ processJoinsPure known joins = (joinResults, mapM_ joinComputation joinResults)
                             & world . sceneMap . getGIDToDataMap . at sceneGid ?~ scene'
                             & agentWitnessMap . at (AgentKey gid) ?~ fromList [(EntityAgent g, witnessGid) | g <- others]
                             & over agentWitnessMap (flip (unionWith (<>)) (fromList [(AgentKey g, fromList [(EntityAgent gid, witnessGid)]) | g <- others]))
-                            & announceToDenizens aMap others announceNarration
+                            & announceToDenizens currentAMap others announceNarration
                       put gs'
     joinComputation (NewPlayerJoined _sid name gid) = do
       gs <- get
@@ -452,7 +450,7 @@ processJoinsPure known joins = (joinResults, mapM_ joinComputation joinResults)
                     Nothing -> throwError ("Programmer Error: new player start scene not found: " <> pack (show sceneGid))
                     Just scene -> do
                       let agent = mkAgent (view unPlayerNameVAL name)
-                          aMap = view (world . agentMap . getAgentMap) gs
+                          currentAMap = view (world . agentMap . getAgentMap) gs
                           key = DirectionalStimulusPlayerKey (DirectionalStimulusPlayer (AGENTNAME (toPlainText (view agentShortName agent))))
                           scene' = set sceneAgents (Set.insert gid (view sceneAgents scene)) scene
                             & agentSemanticMap . at key . non mempty %~ Set.insert gid
@@ -464,7 +462,7 @@ processJoinsPure known joins = (joinResults, mapM_ joinComputation joinResults)
                             & agentLocationMap . at gid ?~ sceneGid
                             & agentWitnessMap . at (AgentKey gid) ?~ fromList [(EntityAgent g, witnessGid) | g <- others]
                             & over agentWitnessMap (flip (unionWith (<>)) (fromList [(AgentKey g, fromList [(EntityAgent gid, witnessGid)]) | g <- others]))
-                            & announceToDenizens aMap others announceNarration
+                            & announceToDenizens currentAMap others announceNarration
                             & evaluation . at gid ?~ Evaluator eval
                       put gs'
 
@@ -706,8 +704,7 @@ selectPlayerWords conn candidates = do
   pure [(GID agentId, PlayerName name) | (agentId, name) <- rows]
 
 executeJoinIO :: AppCtx -> JoinResult -> IO ()
-executeJoinIO ctx (NewPlayerJoined sid name gid) = do
-  modifyMVar_ (acKnownPlayers ctx) (pure . insert name gid)
+executeJoinIO ctx (NewPlayerJoined sid name _gid) = do
   modifyMVar_ (acSessions ctx) $ \sessions ->
     pure $ case lookup sid sessions of
       Just (SessionPhase n g (AwaitingJoin send)) -> insert sid (SessionPhase n g (InGame send)) sessions
