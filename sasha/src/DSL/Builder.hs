@@ -250,17 +250,17 @@ interpretDSL (Descriptive descs obj) = do
 interpretDSL (ObjectBehavior obj actionMgmt) =
   pure (obj & objectActionManagement . actionManagementFunctions %~ Data.Set.insert actionMgmt)
 
-interpretDSL (RegisterObjectToScene sceneGID objGID nounText) = do
+interpretDSL (RegisterObjectToScene sceneGID objGID nounKey) = do
   st <- get
   case lookup sceneGID (view (world . sceneMap . getGIDToDataMap) (bsGameState st)) of
     Nothing -> throwError (InvalidSceneGID sceneGID "Scene not registered")
     Just scene -> do
       let updatedScene = scene
-            & objectSemanticMap . at nounText . non mempty %~ Data.Set.insert objGID
+            & objectSemanticMap . at nounKey . non mempty %~ Data.Set.insert objGID
             & sceneObjects %~ Data.Set.insert objGID
           gs' = bsGameState st
             & world . sceneMap . getGIDToDataMap %~ insert sceneGID updatedScene
-            & world . globalSemanticMap . at nounText . non mempty %~ Data.Set.insert objGID
+            & world . globalSemanticMap . at nounKey . non mempty %~ Data.Set.insert objGID
       put st { bsGameState = gs' }
 
 interpretDSL (RegisterSpatial entityID spatialRel) = do

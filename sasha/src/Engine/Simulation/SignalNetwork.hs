@@ -48,6 +48,7 @@ import           Data.IORef (readIORef, writeIORef)
 import           Data.List (replicate)
 import           Data.Map.Strict
   ( Map
+  , adjust
   , alter
   , assocs
   , elems
@@ -107,14 +108,32 @@ import           Grammar.Gbnf
   ( UnparsedSentence (UnparsedSentence)
   , generateGbnf
   )
-import           Grammar.Lexer (Lexeme (PLAYERNAME, UNKNOWN), lexify, tokens)
+import           Grammar.Lexer (Lexeme (AGENTNAME, UNKNOWN), lexify, tokens)
+import           Grammar.Parser.Atomics.Nouns
+  ( DirectionalStimulusPlayer (DirectionalStimulusPlayer)
+  )
 import           Grammar.Parser.Composites.Model (Sentence)
 import           Grammar.Parser.Composites.Nouns (PlayerName (PlayerName))
+import           Grammar.Parser.GCase (NounKey (DirectionalStimulusPlayerKey))
 import           Grammar.Sentence (parseTokens)
-import           Lens.Micro.Platform (at, over, set, use, view, (.=), (?~))
+import           Lens.Micro.Platform
+  ( at
+  , non
+  , over
+  , set
+  , use
+  , view
+  , (%~)
+  , (.=)
+  , (.~)
+  , (?~)
+  )
 import           Model.Core
   ( Agent
+  , AgentKey (AgentKey)
   , AgentKind (Denizen)
+  , Entity (AgentEntity)
+  , EntityKey (EntityAgent)
   , Evaluator (Evaluator)
   , GameComputation (runGameComputation)
   , GameState
@@ -125,7 +144,9 @@ import           Model.Core
   , agentKind
   , agentLocationMap
   , agentMap
+  , agentSemanticMap
   , agentShortName
+  , agentWitnessMap
   , declaredSceneGIDs
   , evaluation
   , getAgentMap
@@ -139,10 +160,11 @@ import           Model.Core
   , sceneAgents
   , sceneMap
   , sceneObjects
+  , sharedWitnessManagement
   , unNarrationMap
   , world
   )
-import           Model.GID (GID (unGID))
+import           Model.GID (GID (GID, unGID))
 import           Model.Mid (Mid (Mid))
 import           Model.RichText
   ( RichText
@@ -260,13 +282,13 @@ playerTickBlock = constMCl $ do
   playerLookup <- liftIO $ case unknownWords of
     [] -> pure (PlayerWordsFound mempty)
     _  -> do
-      found :: Either SqlError (Set PlayerName) <- try . withResource (acDbPool appCtx) $ \conn ->
+      found :: Either SqlError [(GID Agent, PlayerName)] <- try . withResource (acDbPool appCtx) $ \conn ->
         selectPlayerWords conn unknownWords
       case found of
         Left err    -> do
           hPutStrLn stderr ("Player lookup failed: " <> show err)
           pure (PlayerLookupFailed err)
-        Right names -> pure (PlayerWordsFound names)
+        Right rows  -> pure (PlayerWordsFound (Set.fromList [playerName | (_, playerName) <- rows]))
 
   -- GENERATE: compose one big GameComputation
   let (pings, replies, updates, failureRows, successRows, commandComp) = resolveCommands sessions pending playerLookup msgs
@@ -333,7 +355,7 @@ composeTick :: GameComputation Identity ()
             -> GameComputation Identity ()
             -> GameComputation Identity ()
             -> [GID Agent]
-            -> GameComputation Identity (Map (GID Agent) Narration)
+            -> GameComputation Identity (Map AgentKey Narration)
 composeTick leavesComp joinComp commandComp joinedGids = do
   leavesComp
   joinComp
@@ -362,13 +384,19 @@ processLeavesPure sessions known = do
         ]
       applyDeparture currentGs (sceneGid, scene, departed) =
         let remaining = foldl' (flip Set.delete) (view sceneAgents scene) (toList departed)
-            scene' = set sceneAgents remaining scene
+            scene' = foldr (\(gid, key) sc -> over agentSemanticMap (adjust (Set.delete gid) key) sc)
+                       (set sceneAgents remaining scene)
+                       [ (gid, DirectionalStimulusPlayerKey (DirectionalStimulusPlayer (AGENTNAME (toPlainText (view agentShortName a)))))
+                       | gid <- Set.toList departed
+                       , Just a <- [lookup gid aMap]
+                       ]
             departNarr = mconcat
               [ consequenceNarration (view agentShortName a <> plain " has departed.")
               | gid <- Set.toList departed
               , Just a <- [lookup gid aMap]
               ]
-        in currentGs
+            departedGs = foldl' (\acc gid -> acc & agentWitnessMap . at (AgentKey gid) .~ Nothing) currentGs (toList departed)
+        in departedGs
              & world . sceneMap . getGIDToDataMap . at sceneGid ?~ scene'
              & announceToDenizens aMap (Set.toList remaining) departNarr
   put (foldl' applyDeparture gs sceneDepartures)
@@ -393,15 +421,22 @@ processJoinsPure known joins = (joinResults, mapM_ joinComputation joinResults)
             Just sceneGid ->
               case lookup sceneGid (view (world . sceneMap . getGIDToDataMap) gs) of
                 Nothing -> throwError ("Programmer Error: returning player scene not found: " <> pack (show sceneGid))
-                Just scene -> do
-                  let aMap = view (world . agentMap . getAgentMap) gs
-                      scene' = set sceneAgents (Set.insert gid (view sceneAgents scene)) scene
-                      announceNarration = consequenceNarration (colored White (toPlainText (view agentShortName agent) <> " has arrived."))
-                      others = [g | g <- Set.toList (view sceneAgents scene'), g /= gid]
-                      gs' = gs
-                        & world . sceneMap . getGIDToDataMap . at sceneGid ?~ scene'
-                        & announceToDenizens aMap others announceNarration
-                  put gs'
+                Just scene ->
+                  case lookup AgentEntity (view (world . sharedWitnessManagement) gs) of
+                    Nothing -> throwError "Programmer Error: world declared no shared AgentEntity witness"
+                    Just witnessGid -> do
+                      let aMap = view (world . agentMap . getAgentMap) gs
+                          key = DirectionalStimulusPlayerKey (DirectionalStimulusPlayer (AGENTNAME (toPlainText (view agentShortName agent))))
+                          scene' = set sceneAgents (Set.insert gid (view sceneAgents scene)) scene
+                            & agentSemanticMap . at key . non mempty %~ Set.insert gid
+                          announceNarration = consequenceNarration (colored White (toPlainText (view agentShortName agent) <> " has arrived."))
+                          others = [g | g <- Set.toList (view sceneAgents scene'), g /= gid]
+                          gs' = gs
+                            & world . sceneMap . getGIDToDataMap . at sceneGid ?~ scene'
+                            & agentWitnessMap . at (AgentKey gid) ?~ fromList [(EntityAgent g, witnessGid) | g <- others]
+                            & over agentWitnessMap (flip (unionWith (<>)) (fromList [(AgentKey g, fromList [(EntityAgent gid, witnessGid)]) | g <- others]))
+                            & announceToDenizens aMap others announceNarration
+                      put gs'
     joinComputation (NewPlayerJoined _sid name gid) = do
       gs <- get
       case view (possibilityGraph . newUserStartScene) gs of
@@ -410,21 +445,28 @@ processJoinsPure known joins = (joinResults, mapM_ joinComputation joinResults)
           case view (possibilityGraph . newUserMkAgent) gs of
             Nothing -> throwError "Programmer Error: world declared no newUser agent template"
             Just mkAgent ->
-              case lookup sceneGid (view (world . sceneMap . getGIDToDataMap) gs) of
-                Nothing -> throwError ("Programmer Error: new player start scene not found: " <> pack (show sceneGid))
-                Just scene -> do
-                  let agent = mkAgent (view unPlayerNameVAL name)
-                      aMap = view (world . agentMap . getAgentMap) gs
-                      scene' = set sceneAgents (Set.insert gid (view sceneAgents scene)) scene
-                      announceNarration = consequenceNarration (colored White (view unPlayerNameVAL name <> " has arrived."))
-                      others = [g | g <- Set.toList (view sceneAgents scene'), g /= gid]
-                      gs' = gs
-                        & world . agentMap . getAgentMap . at gid ?~ agent
-                        & world . sceneMap . getGIDToDataMap . at sceneGid ?~ scene'
-                        & agentLocationMap . at gid ?~ sceneGid
-                        & announceToDenizens aMap others announceNarration
-                        & evaluation . at gid ?~ Evaluator eval
-                  put gs'
+              case lookup AgentEntity (view (world . sharedWitnessManagement) gs) of
+                Nothing -> throwError "Programmer Error: world declared no shared AgentEntity witness"
+                Just witnessGid ->
+                  case lookup sceneGid (view (world . sceneMap . getGIDToDataMap) gs) of
+                    Nothing -> throwError ("Programmer Error: new player start scene not found: " <> pack (show sceneGid))
+                    Just scene -> do
+                      let agent = mkAgent (view unPlayerNameVAL name)
+                          aMap = view (world . agentMap . getAgentMap) gs
+                          key = DirectionalStimulusPlayerKey (DirectionalStimulusPlayer (AGENTNAME (toPlainText (view agentShortName agent))))
+                          scene' = set sceneAgents (Set.insert gid (view sceneAgents scene)) scene
+                            & agentSemanticMap . at key . non mempty %~ Set.insert gid
+                          announceNarration = consequenceNarration (colored White (view unPlayerNameVAL name <> " has arrived."))
+                          others = [g | g <- Set.toList (view sceneAgents scene'), g /= gid]
+                          gs' = gs
+                            & world . agentMap . getAgentMap . at gid ?~ agent
+                            & world . sceneMap . getGIDToDataMap . at sceneGid ?~ scene'
+                            & agentLocationMap . at gid ?~ sceneGid
+                            & agentWitnessMap . at (AgentKey gid) ?~ fromList [(EntityAgent g, witnessGid) | g <- others]
+                            & over agentWitnessMap (flip (unionWith (<>)) (fromList [(AgentKey g, fromList [(EntityAgent gid, witnessGid)]) | g <- others]))
+                            & announceToDenizens aMap others announceNarration
+                            & evaluation . at gid ?~ Evaluator eval
+                      put gs'
 
 consequenceNarration :: RichText -> Narration
 consequenceNarration line = Narration
@@ -437,9 +479,9 @@ consequenceNarration line = Narration
 announceToDenizens :: Map (GID Agent) Agent -> [GID Agent] -> Narration -> GameState -> GameState
 announceToDenizens aMap gids narr =
   let recipients = [g | g <- gids, Just a <- [lookup g aMap], view agentKind a == Denizen]
-  in over (narrationMap . unNarrationMap) (flip (unionWith (<>)) (fromList [(g, narr) | g <- recipients]))
+  in over (narrationMap . unNarrationMap) (flip (unionWith (<>)) (fromList [(AgentKey g, narr) | g <- recipients]))
 
-extractNarration :: GameComputation Identity (Map (GID Agent) Narration)
+extractNarration :: GameComputation Identity (Map AgentKey Narration)
 extractNarration = do
   nMap <- use (narrationMap . unNarrationMap)
   narrationMap .= NarrationMap mempty
@@ -487,7 +529,7 @@ resolveCommands sessions pending playerLookup msgs =
       PlayerLookupFailed _         -> mempty
     names = Set.toList found
     promote = \case
-      UNKNOWN w | Set.member (PlayerName w) found -> PLAYERNAME w
+      UNKNOWN w | Set.member (PlayerName w) found -> AGENTNAME w
       lexeme                                      -> lexeme
     pings     = [sid | Routed sid Ping <- msgs]
     cmds =
@@ -653,16 +695,15 @@ insertRepairSuccess conn (SceneLabel scene) actor (UnparsedSentence unparsed) re
     |]
     (scene, actor, unparsed, rewrite, slm)
 
-selectPlayerWords :: Connection -> [Text] -> IO (Set PlayerName)
+selectPlayerWords :: Connection -> [Text] -> IO [(GID Agent, PlayerName)]
 selectPlayerWords conn candidates = do
-  rows :: [Only Text] <- query conn
+  rows :: [(Int, Text)] <- query conn
     [sql|
-      SELECT player_name FROM users
-        WHERE status = 'active'
-          AND player_name = ANY (?)
+      SELECT agent_id, name FROM agents
+        WHERE name = ANY (?)
     |]
     (Only (PGArray candidates))
-  pure (Set.fromList [PlayerName name | Only name <- rows])
+  pure [(GID agentId, PlayerName name) | (agentId, name) <- rows]
 
 executeJoinIO :: AppCtx -> JoinResult -> IO ()
 executeJoinIO ctx (NewPlayerJoined sid name gid) = do
@@ -688,11 +729,11 @@ executeJoinIO ctx (ReturningPlayerJoined sid _gid) = do
       (Routed sid (ChatMessage "Welcome back!"))
 
 deliverNarrationIO :: AppCtx
-                   -> Map (GID Agent) Narration
+                   -> Map AgentKey Narration
                    -> IO ()
 deliverNarrationIO appCtx narrations = do
   sessions <- readMVar (acSessions appCtx)
-  forM_ (assocs narrations) $ \(agentGid, narr) -> do
+  forM_ (assocs narrations) $ \(AgentKey agentGid, narr) -> do
     let targetSids = [s | (s, phase) <- assocs sessions, sessionGid phase == Just agentGid]
     forM_ targetSids $ \targetSid ->
       atomically $ writeTChan (acOutbound appCtx) (Routed targetSid (GameNarration narr))

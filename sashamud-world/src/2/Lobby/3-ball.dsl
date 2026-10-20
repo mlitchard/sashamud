@@ -10,7 +10,8 @@ let
   placeBall lobbyGID floorGID lookAtKey = do
     ballGID <- declareObjectGID (ObjectLabel "ball")
     registerObject ballGID (buildBall lookAtKey)
-    registerObjectToScene lobbyGID ballGID "BALL"
+    registerObjectToScene lobbyGID ballGID (DirectionalStimulusKey ballDS)
+    registerObjectToScene lobbyGID ballGID (ObjectiveKey ballOB)
     registerSpatial (EntityObject ballGID)  (SupportedBy (EntityObject floorGID))
     registerSpatial (EntityObject floorGID) (Supports (Data.Set.singleton (EntityObject ballGID)))
     pure ballGID
@@ -18,7 +19,7 @@ in do
   lobbyGID <- declareSceneGID (SceneLabel "lobby")
   floorGID <- declareObjectGID (ObjectLabel "floor")
   ballLookAtGID <- declareDirectionalStimulusGID lookAtF
-  ballLookAtKey <- createDSAManagement dsaLook ballLookAtGID
+  ballLookAtKey <- createDSATargetManagement dsaLook ballLookAtGID
   ballGID <- placeBall lobbyGID floorGID ballLookAtKey
-  linkWorldOutcomeEffect (DirectionalStimulusActionKey ballLookAtGID) (NarrationEffect (LookAtNarration ballGID))
+  linkTargetWorldOutcomeEffect (TargetKey (EntityObject ballGID)) (DirectionalStimulusActionKey ballLookAtGID) (NarrationEffect (LookAtNarration ballGID))
   finalizeGameState

@@ -9,12 +9,13 @@ let
   placeFloor lobbyGID lookAtKey = do
     floorGID <- declareObjectGID (ObjectLabel "floor")
     registerObject floorGID (buildFloor lookAtKey)
-    registerObjectToScene lobbyGID floorGID "FLOOR"
+    registerObjectToScene lobbyGID floorGID (DirectionalStimulusKey floorDS)
+    registerObjectToScene lobbyGID floorGID (ObjectiveKey floorOB)
     pure floorGID
 in do
   lobbyGID <- declareSceneGID (SceneLabel "lobby")
   floorLookAtGID <- declareDirectionalStimulusGID lookAtF
-  floorLookAtKey <- createDSAManagement dsaLook floorLookAtGID
+  floorLookAtKey <- createDSATargetManagement dsaLook floorLookAtGID
   floorGID <- placeFloor lobbyGID floorLookAtKey
-  linkWorldOutcomeEffect (DirectionalStimulusActionKey floorLookAtGID) (NarrationEffect (LookAtNarration floorGID))
+  linkTargetWorldOutcomeEffect (TargetKey (EntityObject floorGID)) (DirectionalStimulusActionKey floorLookAtGID) (NarrationEffect (LookAtNarration floorGID))
   finalizeGameState

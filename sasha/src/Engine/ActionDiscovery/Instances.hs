@@ -3,7 +3,6 @@ module Engine.ActionDiscovery.Instances () where
 import           SashaPrelude
 
 import           Control.Monad (filterM)
-import           Control.Monad.Except (throwError)
 import           Control.Monad.State (gets)
 import           Data.Functor.Identity (Identity)
 import           Data.Map.Strict (Map, lookup)
@@ -30,8 +29,11 @@ import           Engine.Resolution.ActionManagement
   )
 import           Engine.Resolution.Perception (modifyAgentNarration)
 import           Error (throwMaybeM)
-import           Grammar.Lexer (HasLexeme (toLexeme))
+import           Grammar.Lexer (Lexeme (AGENTNAME))
 import           Grammar.Parser.Atomics.Adjectives (Adjective)
+import           Grammar.Parser.Atomics.Nouns
+  ( DirectionalStimulusPlayer (DirectionalStimulusPlayer)
+  )
 import           Grammar.Parser.Atomics.Semantics.Nouns.Objective (floorOB)
 import           Grammar.Parser.Atomics.Verbs
   ( AcquisitionVerb
@@ -50,7 +52,8 @@ import           Grammar.Parser.Composites.Nouns
   , PlayerNamePhrase (PlayerNamePhrase)
   )
 import           Grammar.Parser.GCase
-  ( VerbKey (AcquisitionKey, DivestmentKey, ImperativeKey, ImplicitStimulusKey)
+  ( NounKey (DirectionalStimulusKey, DirectionalStimulusPlayerKey, ObjectiveKey)
+  , VerbKey (AcquisitionKey, DivestmentKey, ImperativeKey, ImplicitStimulusKey)
   )
 import           Lens.Micro.Platform (over, use, view)
 import           Model.Core
@@ -75,26 +78,23 @@ import           Model.Core
   , actionConsequence
   , actionMaps
   , agentLocationMap
-  , agentMap
-  , agentShortName
+  , agentSemanticMap
   , descriptives
   , directionalStimulusMap
   , divestmentActionMap
-  , getAgentMap
   , getGIDToDataMap
   , globalSemanticMap
   , implicitStimulusMap
   , objectActionManagement
   , objectMap
   , objectSemanticMap
-  , sceneAgents
   , sceneMap
   , spatialRelationshipMap
   , unSpatialRelationshipMap
   , world
   )
 import           Model.GID (GID)
-import           Model.RichText (TextColor (White), colored, toPlainText)
+import           Model.RichText (TextColor (White), colored)
 
 -- | Instance for ImplicitStimulusF (actor + scene veto for bare "look")
 instance ActionProtocol ImplicitStimulusF where
@@ -148,14 +148,14 @@ instance ActionProtocol DirectionalStimulusF where
   lookupTargetActionGID (verb, _) = lookupDirectionalStimulusTarget verb
 
   runActionProtocol actorGid (verb, nounPhrase@(DirectionalStimulusNounPhrase _ np)) = do
-    let nounText = extractDirectionalNoun nounPhrase
+    let nounKey = extractDirectionalNoun nounPhrase
     locMap <- use agentLocationMap
     sceneGid <- throwMaybeM ("Agent location not found: " <> pack (show actorGid))
                   (lookup actorGid locMap)
     sMap <- use (world . sceneMap . getGIDToDataMap)
     scene <- throwMaybeM ("Scene not found: " <> pack (show sceneGid))
                (lookup sceneGid sMap)
-    objGIDMaybe <- case lookup nounText (view objectSemanticMap scene) of
+    objGIDMaybe <- case lookup nounKey (view objectSemanticMap scene) of
                      Nothing -> pure Nothing
                      Just objGIDSet -> case np of
                        DescriptiveNounPhrase adj _      ->
@@ -163,16 +163,14 @@ instance ActionProtocol DirectionalStimulusF where
                        DescriptiveNounPhraseDet _ adj _ ->
                          findMatchingObject adj (toList objGIDSet)
                        SimpleNounPhrase _               -> case toList objGIDSet of
-                         [gid] -> pure (Just gid)
-                         []    -> pure Nothing
-                         _     -> throwError ("Which " <> nounText <> "?")
+                         []        -> pure Nothing
+                         (gid : _) -> pure (Just gid)
                        NounPhrase _ _                   -> case toList objGIDSet of
-                         [gid] -> pure (Just gid)
-                         []    -> pure Nothing
-                         _     -> throwError ("Which " <> nounText <> "?")
+                         []        -> pure Nothing
+                         (gid : _) -> pure (Just gid)
 
     case objGIDMaybe of
-      Nothing -> modifyAgentNarration (AgentKey actorGid) (over actionConsequence (<> [colored White "You don't see that here."]))
+      Nothing -> modifyAgentNarration (AgentKey actorGid) (over actionConsequence (<> [colored White "That's not here. Try something else."]))
       Just objGID -> do
         let actorKey = ActorKey (EntityAgent actorGid)
             targetKey = TargetKey (EntityObject objGID)
@@ -199,34 +197,20 @@ instance ActionProtocol DirectionalStimulusF where
               >> processWitnesses actorKey (DirectedWitnessContext objGID)
 
   runActionProtocol actorGid (verb, nounPhrase@(PlayerDirectionalStimulusNounPhrase _ _)) = do
-    let nameText = extractDirectionalNoun nounPhrase
+    let nounKey = extractDirectionalNoun nounPhrase
         actorKey = ActorKey (EntityAgent actorGid)
-    aMap <- use (world . agentMap . getAgentMap)
     locMap <- use agentLocationMap
     sceneGid <- throwMaybeM ("Agent location not found: " <> pack (show actorGid))
                   (lookup actorGid locMap)
     sMap <- use (world . sceneMap . getGIDToDataMap)
     scene <- throwMaybeM ("Scene not found: " <> pack (show sceneGid))
                (lookup sceneGid sMap)
-    let otherGids = toList (view sceneAgents scene)
-    others <- forM otherGids $ \gid -> do
-      agent <- throwMaybeM ("Programmer Error: sceneAgents contains GID not in agentMap: " <> pack (show gid))
-                 (lookup gid aMap)
-      pure (gid, agent)
-    let candidates =
-          [ gid
-          | (gid, agent) <- others
-          , toPlainText (view agentShortName agent) == nameText
-          ]
-    case candidates of
+    case toList (fromMaybe mempty (lookup nounKey (view agentSemanticMap scene))) of
       [] -> do
         modifyAgentNarration (AgentKey actorGid)
-          (over actionConsequence (<> [colored White ("you don't see " <> nameText <> " here")]))
+          (over actionConsequence (<> [colored White "That's not here. Try something else."]))
         processWitnesses actorKey FailedAgentLookContext
-      (_:_:_) ->
-        modifyAgentNarration (AgentKey actorGid)
-          (over actionConsequence (<> [colored White ("Which " <> nameText <> "?")]))
-      [targetGid] -> do
+      (targetGid : _) -> do
         let targetKey = TargetKey (EntityAgent targetGid)
         actionMap <- gets (getActionMap @DirectionalStimulusF . view actionMaps)
         (playerGID, playerAction) <- fetchAgentAction @DirectionalStimulusF (verb, nounPhrase) actionMap actorGid
@@ -251,17 +235,17 @@ instance ActionProtocol DirectionalStimulusF where
             processWitnesses actorKey (AgentWitnessContext targetGid)
 
 -- | Extract noun text from DirectionalStimulusNounPhrase for globalSemanticMap lookup
-extractDirectionalNoun :: DirectionalStimulusNounPhrase -> Text
+extractDirectionalNoun :: DirectionalStimulusNounPhrase -> NounKey
 extractDirectionalNoun (DirectionalStimulusNounPhrase _ np) = case np of
-  SimpleNounPhrase ds             -> pack (show (toLexeme ds))
-  NounPhrase _ ds                 -> pack (show (toLexeme ds))
-  DescriptiveNounPhrase _ ds      -> pack (show (toLexeme ds))
-  DescriptiveNounPhraseDet _ _ ds -> pack (show (toLexeme ds))
+  SimpleNounPhrase ds             -> DirectionalStimulusKey ds
+  NounPhrase _ ds                 -> DirectionalStimulusKey ds
+  DescriptiveNounPhrase _ ds      -> DirectionalStimulusKey ds
+  DescriptiveNounPhraseDet _ _ ds -> DirectionalStimulusKey ds
 extractDirectionalNoun (PlayerDirectionalStimulusNounPhrase _ (PlayerNamePhrase np)) = case np of
-  SimpleNounPhrase (PlayerName name)             -> name
-  NounPhrase _ (PlayerName name)                 -> name
-  DescriptiveNounPhrase _ (PlayerName name)      -> name
-  DescriptiveNounPhraseDet _ _ (PlayerName name) -> name
+  SimpleNounPhrase (PlayerName name)             -> DirectionalStimulusPlayerKey (DirectionalStimulusPlayer (AGENTNAME name))
+  NounPhrase _ (PlayerName name)                 -> DirectionalStimulusPlayerKey (DirectionalStimulusPlayer (AGENTNAME name))
+  DescriptiveNounPhrase _ (PlayerName name)      -> DirectionalStimulusPlayerKey (DirectionalStimulusPlayer (AGENTNAME name))
+  DescriptiveNounPhraseDet _ _ (PlayerName name) -> DirectionalStimulusPlayerKey (DirectionalStimulusPlayer (AGENTNAME name))
 
 -- | Instance for AcquisitionF (player + scene + support + object veto chain for "get X")
 instance ActionProtocol AcquisitionF where
@@ -283,14 +267,14 @@ instance ActionProtocol AcquisitionF where
     let playerKey = mkEffectKey @AcquisitionF playerGID
 
     -- Resolve object in the actor's scene
-    let nounText = parseObjectPhrase objectPhrase
+    let nounKey = parseObjectPhrase objectPhrase
     locMap <- use agentLocationMap
     sceneGid <- throwMaybeM ("Agent location not found: " <> pack (show actorGid))
                   (lookup actorGid locMap)
     sMap <- use (world . sceneMap . getGIDToDataMap)
     scene <- throwMaybeM ("Scene not found: " <> pack (show sceneGid))
                (lookup sceneGid sMap)
-    case lookup nounText (view objectSemanticMap scene) of
+    case lookup nounKey (view objectSemanticMap scene) of
       Nothing -> modifyAgentNarration (AgentKey actorGid) (over actionConsequence (<> [colored White "You don't see that here."]))
       Just objGIDSet -> case objectPhrase of
         ObjectPhrase np -> case np of
@@ -303,13 +287,11 @@ instance ActionProtocol AcquisitionF where
               Nothing  -> modifyAgentNarration (AgentKey actorGid) (over actionConsequence (<> [colored White "You don't see that here."]))
               Just gid -> handleAcquisition actorGid avp playerAction playerKey verb actionMap gid
           SimpleNounPhrase _               -> case toList objGIDSet of
-            [gid] -> handleAcquisition actorGid avp playerAction playerKey verb actionMap gid
-            []    -> modifyAgentNarration (AgentKey actorGid) (over actionConsequence (<> [colored White "You don't see that here."]))
-            _     -> throwError ("Which " <> nounText <> "?")
+            []        -> modifyAgentNarration (AgentKey actorGid) (over actionConsequence (<> [colored White "You don't see that here."]))
+            (gid : _) -> handleAcquisition actorGid avp playerAction playerKey verb actionMap gid
           NounPhrase _ _                   -> case toList objGIDSet of
-            [gid] -> handleAcquisition actorGid avp playerAction playerKey verb actionMap gid
-            []    -> modifyAgentNarration (AgentKey actorGid) (over actionConsequence (<> [colored White "You don't see that here."]))
-            _     -> throwError ("Which " <> nounText <> "?")
+            []        -> modifyAgentNarration (AgentKey actorGid) (over actionConsequence (<> [colored White "You don't see that here."]))
+            (gid : _) -> handleAcquisition actorGid avp playerAction playerKey verb actionMap gid
 
 handleAcquisition :: GID Agent
                   -> AcquisitionVerbPhrase
@@ -385,10 +367,10 @@ instance ActionProtocol DivestmentF where
     let playerKey = mkEffectKey @DivestmentF playerGID
 
     -- Resolve object in the actor's inventory
-    let nounText = parseObjectPhrase objectPhrase
+    let nounKey = parseObjectPhrase objectPhrase
     semMap <- use (world . globalSemanticMap)
     spatialMap <- use (world . spatialRelationshipMap . unSpatialRelationshipMap)
-    let candidates = fromMaybe mempty (lookup nounText semMap)
+    let candidates = fromMaybe mempty (lookup nounKey semMap)
         inventoryObjs =
           [ oid
           | oid <- toList candidates
@@ -402,13 +384,11 @@ instance ActionProtocol DivestmentF where
                           DescriptiveNounPhraseDet _ adj _ ->
                             findMatchingObject adj inventoryObjs
                           SimpleNounPhrase _               -> case inventoryObjs of
-                            [oid] -> pure (Just oid)
-                            []    -> pure Nothing
-                            _     -> throwError ("Which " <> nounText <> "?")
+                            []        -> pure Nothing
+                            (oid : _) -> pure (Just oid)
                           NounPhrase _ _                   -> case inventoryObjs of
-                            [oid] -> pure (Just oid)
-                            []    -> pure Nothing
-                            _     -> throwError ("Which " <> nounText <> "?")
+                            []        -> pure Nothing
+                            (oid : _) -> pure (Just oid)
 
     case objectGIDMaybe of
       Nothing -> modifyAgentNarration (AgentKey actorGid) (over actionConsequence (<> [colored White "You don't have that."]))
@@ -426,7 +406,7 @@ instance ActionProtocol DivestmentF where
             scene <- throwMaybeM ("Scene not found: " <> pack (show sceneGid))
                        (lookup sceneGid sMap)
             floorSet <- throwMaybeM "There's nowhere to drop that here."
-                          (lookup (pack (show (toLexeme floorOB))) (view objectSemanticMap scene))
+                          (lookup (ObjectiveKey floorOB) (view objectSemanticMap scene))
             floorGID <- throwMaybeM "There's nowhere to drop that here."
                           (listToMaybe (toList floorSet))
 
@@ -466,12 +446,12 @@ instance ActionProtocol DivestmentF where
                 processWitnesses actorKey (DivestmentWitnessContext objectGID)
 
 -- | Extract noun text from ObjectPhrase for semantic map lookup
-parseObjectPhrase :: ObjectPhrase -> Text
+parseObjectPhrase :: ObjectPhrase -> NounKey
 parseObjectPhrase (ObjectPhrase np) = case np of
-  SimpleNounPhrase obj             -> pack (show (toLexeme obj))
-  NounPhrase _ obj                 -> pack (show (toLexeme obj))
-  DescriptiveNounPhrase _ obj      -> pack (show (toLexeme obj))
-  DescriptiveNounPhraseDet _ _ obj -> pack (show (toLexeme obj))
+  SimpleNounPhrase obj             -> ObjectiveKey obj
+  NounPhrase _ obj                 -> ObjectiveKey obj
+  DescriptiveNounPhrase _ obj      -> ObjectiveKey obj
+  DescriptiveNounPhraseDet _ _ obj -> ObjectiveKey obj
 
 objectMatchesAdjective :: Adjective -> GID Object -> GameComputation Identity Bool
 objectMatchesAdjective adj oid = do

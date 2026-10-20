@@ -79,7 +79,7 @@ lookAtNobodyTest =
       const conseq = narr._actionConsequence || [];
       for (const richText of conseq) {
         const text = richText.map(s => s._ssText).join("");
-        if (text.includes("Nobody called")) {
+        if (text.includes("That's not here. Try something else.")) {
           sock.raw.close();
           resolve("#{successToken}");
           return;
@@ -99,7 +99,7 @@ lookAtNobodyTest =
 lookAtPlayerWitnessTest :: String
 lookAtPlayerWitnessTest =
     [i|(sessionId, sock, resolve) => {
-  let gotWitness = false;
+  let settled = false;
 
   const sid2: string = tokens["sasha"];
   const sock2 = await API["/ws/game{Sec-WebSocket-Protocol}"](sid2);
@@ -109,16 +109,21 @@ lookAtPlayerWitnessTest =
   sock2.receive((msg) => {
     if (msg.tag === "GameNarration") {
       const narr = msg.contents;
-      const conseq = narr._actionConsequence || [];
-      for (const richText of conseq) {
-        const text = richText.map(s => s._ssText).join("");
-        if (text.includes("looks at")) {
-          gotWitness = true;
-          sock2.raw.close();
-          sock.raw.close();
-          resolve("#{successToken}");
-          return;
-        }
+      const fields = [narr._playerAction, narr._actionConsequence, narr._presenceListing, narr._actionEpilogue];
+      const texts = fields.flatMap(field => (field || []).map(richText => richText.map(s => s._ssText).join("")));
+      if (texts.some(text => text.includes("A player."))) {
+        settled = true;
+        sock2.raw.close();
+        sock.raw.close();
+        resolve("target received the looked-at description: " + JSON.stringify(texts));
+        return;
+      }
+      if (texts.some(text => text.includes("looks at"))) {
+        settled = true;
+        sock2.raw.close();
+        sock.raw.close();
+        resolve("#{successToken}");
+        return;
       }
     }
   });
@@ -126,7 +131,7 @@ lookAtPlayerWitnessTest =
   sock.send({tag: "GameCommand", contents: "look at sasha"});
 
   setTimeout(() => {
-    if (!gotWitness) {
+    if (!settled) {
       sock2.raw.close();
       sock.raw.close();
       resolve("timeout: no witness narration within 10s");

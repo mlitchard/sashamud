@@ -1,11 +1,14 @@
 module DSL.Model.EDSL.SashaLambdaDSL
   ( SashaLambdaDSL (..)
+  , actorTargetBehavior
   , createAVSupportManagement
   , createAVTargetManagement
   , createDSAManagement
+  , createDSATargetManagement
   , createDVManagement
   , createDVSurfaceManagement
   , createISAManagement
+  , createISATargetManagement
   , declareAcquisitionActionGID
   , declareDirectionalStimulusGID
   , declareDivestmentActionGID
@@ -16,7 +19,11 @@ module DSL.Model.EDSL.SashaLambdaDSL
   , description
   , descriptive
   , finalizeGameState
+  , linkActorTargetEntityActionEffect
+  , linkActorTargetWorldOutcomeEffect
   , linkEntityActionEffect
+  , linkTargetEntityActionEffect
+  , linkTargetWorldOutcomeEffect
   , linkWorldOutcomeEffect
   , modifyNewUserAgent
   , modifyObject
@@ -34,7 +41,6 @@ module DSL.Model.EDSL.SashaLambdaDSL
   , sharedWitnessBehavior
   , shortName
   , title
-  , witnessBehavior
   ) where
 
 import           SashaPrelude hiding (map)
@@ -47,16 +53,17 @@ import           Grammar.Parser.Atomics.Verbs
   , ImplicitStimulusVerb
   )
 import           Grammar.Parser.Composites.Nouns (NounPhrase)
-import           Grammar.Parser.GCase (VerbKey)
+import           Grammar.Parser.GCase (NounKey)
 import           Model.Core
   ( AcquisitionF
   , ActionEffectKey
   , ActionManagement
   , ActionManagementOperation
+  , ActorKey
   , Agent
   , DirectionalStimulusF
   , DivestmentF
-  , EntityID
+  , Entity
   , EntityKey
   , GameState
   , ImplicitStimulusF
@@ -65,6 +72,7 @@ import           Model.Core
   , Scene
   , SceneLabel
   , SpatialRelationship
+  , TargetKey
   , WitnessF
   , WorldOutcome
   )
@@ -84,12 +92,14 @@ data SashaLambdaDSL a where Pure :: a -> SashaLambdaDSL a
                             Description :: RichText -> Object -> SashaLambdaDSL Object
                             Descriptive :: NounPhrase DirectionalStimulus -> Object -> SashaLambdaDSL Object
                             ObjectBehavior :: Object -> ActionManagement -> SashaLambdaDSL Object
-                            RegisterObjectToScene :: GID Scene -> GID Object -> Text -> SashaLambdaDSL ()
-                            RegisterSpatial :: EntityID -> SpatialRelationship -> SashaLambdaDSL ()
+                            RegisterObjectToScene :: GID Scene -> GID Object -> NounKey -> SashaLambdaDSL ()
+                            RegisterSpatial :: EntityKey -> SpatialRelationship -> SashaLambdaDSL ()
                             DeclareImplicitStimulusGID :: ImplicitStimulusF -> SashaLambdaDSL (GID ImplicitStimulusF)
                             DeclareDirectionalStimulusGID :: DirectionalStimulusF -> SashaLambdaDSL (GID DirectionalStimulusF)
                             CreateISAManagement :: ImplicitStimulusVerb -> GID ImplicitStimulusF -> SashaLambdaDSL ActionManagement
                             CreateDSAManagement :: DirectionalStimulusVerb -> GID DirectionalStimulusF -> SashaLambdaDSL ActionManagement
+                            CreateISATargetManagement :: ImplicitStimulusVerb -> GID ImplicitStimulusF -> SashaLambdaDSL ActionManagement
+                            CreateDSATargetManagement :: DirectionalStimulusVerb -> GID DirectionalStimulusF -> SashaLambdaDSL ActionManagement
                             DeclareAcquisitionActionGID :: AcquisitionF -> SashaLambdaDSL (GID AcquisitionF)
                             DeclareDivestmentActionGID :: DivestmentF -> SashaLambdaDSL (GID DivestmentF)
                             CreateAVTargetManagement :: AcquisitionVerb -> GID AcquisitionF -> SashaLambdaDSL ActionManagement
@@ -99,11 +109,15 @@ data SashaLambdaDSL a where Pure :: a -> SashaLambdaDSL a
                             DeclareWitnessGID :: WitnessF -> SashaLambdaDSL (GID WitnessF)
                             SceneBehavior :: Scene -> ActionManagement -> SashaLambdaDSL Scene
                             PlayerBehavior :: (Text -> Agent) -> ActionManagement -> SashaLambdaDSL (Text -> Agent)
-                            WitnessBehavior :: (Text -> Agent) -> VerbKey -> GID WitnessF -> SashaLambdaDSL (Text -> Agent)
-                            SharedBehavior :: ActionManagement -> SashaLambdaDSL ()
-                            SharedWitnessBehavior :: VerbKey -> GID WitnessF -> SashaLambdaDSL ()
-                            LinkWorldOutcomeEffect :: ActionEffectKey -> WorldOutcome -> SashaLambdaDSL ()
-                            LinkEntityActionEffect :: ActionEffectKey -> EntityKey -> ActionManagementOperation -> SashaLambdaDSL ()
+                            SharedBehavior :: Entity -> ActionManagement -> SashaLambdaDSL ()
+                            ActorTargetBehavior :: ActorKey -> TargetKey -> ActionManagement -> SashaLambdaDSL ()
+                            SharedWitnessBehavior :: Entity -> GID WitnessF -> SashaLambdaDSL ()
+                            LinkWorldOutcomeEffect :: Entity -> ActionEffectKey -> WorldOutcome -> SashaLambdaDSL ()
+                            LinkTargetWorldOutcomeEffect :: TargetKey -> ActionEffectKey -> WorldOutcome -> SashaLambdaDSL ()
+                            LinkActorTargetWorldOutcomeEffect :: ActorKey -> TargetKey -> ActionEffectKey -> WorldOutcome -> SashaLambdaDSL ()
+                            LinkEntityActionEffect :: Entity -> ActionEffectKey -> EntityKey -> ActionManagementOperation -> SashaLambdaDSL ()
+                            LinkTargetEntityActionEffect :: TargetKey -> ActionEffectKey -> EntityKey -> ActionManagementOperation -> SashaLambdaDSL ()
+                            LinkActorTargetEntityActionEffect :: ActorKey -> TargetKey -> ActionEffectKey -> EntityKey -> ActionManagementOperation -> SashaLambdaDSL ()
                             NewUser :: GID Scene -> (Text -> Agent) -> SashaLambdaDSL ()
                             ModifyScene :: SceneLabel -> (Scene -> SashaLambdaDSL Scene) -> SashaLambdaDSL ()
                             ModifyObject :: ObjectLabel -> (Object -> SashaLambdaDSL Object) -> SashaLambdaDSL ()
@@ -150,10 +164,10 @@ descriptive = Descriptive
 objectBehavior :: Object -> ActionManagement -> SashaLambdaDSL Object
 objectBehavior = ObjectBehavior
 
-registerObjectToScene :: GID Scene -> GID Object -> Text -> SashaLambdaDSL ()
+registerObjectToScene :: GID Scene -> GID Object -> NounKey -> SashaLambdaDSL ()
 registerObjectToScene = RegisterObjectToScene
 
-registerSpatial :: EntityID -> SpatialRelationship -> SashaLambdaDSL ()
+registerSpatial :: EntityKey -> SpatialRelationship -> SashaLambdaDSL ()
 registerSpatial = RegisterSpatial
 
 declareImplicitStimulusGID :: ImplicitStimulusF -> SashaLambdaDSL (GID ImplicitStimulusF)
@@ -167,6 +181,12 @@ createISAManagement = CreateISAManagement
 
 createDSAManagement :: DirectionalStimulusVerb -> GID DirectionalStimulusF -> SashaLambdaDSL ActionManagement
 createDSAManagement = CreateDSAManagement
+
+createISATargetManagement :: ImplicitStimulusVerb -> GID ImplicitStimulusF -> SashaLambdaDSL ActionManagement
+createISATargetManagement = CreateISATargetManagement
+
+createDSATargetManagement :: DirectionalStimulusVerb -> GID DirectionalStimulusF -> SashaLambdaDSL ActionManagement
+createDSATargetManagement = CreateDSATargetManagement
 
 declareAcquisitionActionGID :: AcquisitionF -> SashaLambdaDSL (GID AcquisitionF)
 declareAcquisitionActionGID = DeclareAcquisitionActionGID
@@ -195,20 +215,32 @@ sceneBehavior = SceneBehavior
 playerBehavior :: (Text -> Agent) -> ActionManagement -> SashaLambdaDSL (Text -> Agent)
 playerBehavior = PlayerBehavior
 
-witnessBehavior :: (Text -> Agent) -> VerbKey -> GID WitnessF -> SashaLambdaDSL (Text -> Agent)
-witnessBehavior = WitnessBehavior
-
-sharedBehavior :: ActionManagement -> SashaLambdaDSL ()
+sharedBehavior :: Entity -> ActionManagement -> SashaLambdaDSL ()
 sharedBehavior = SharedBehavior
 
-sharedWitnessBehavior :: VerbKey -> GID WitnessF -> SashaLambdaDSL ()
+actorTargetBehavior :: ActorKey -> TargetKey -> ActionManagement -> SashaLambdaDSL ()
+actorTargetBehavior = ActorTargetBehavior
+
+sharedWitnessBehavior :: Entity -> GID WitnessF -> SashaLambdaDSL ()
 sharedWitnessBehavior = SharedWitnessBehavior
 
-linkWorldOutcomeEffect :: ActionEffectKey -> WorldOutcome -> SashaLambdaDSL ()
+linkWorldOutcomeEffect :: Entity -> ActionEffectKey -> WorldOutcome -> SashaLambdaDSL ()
 linkWorldOutcomeEffect = LinkWorldOutcomeEffect
 
-linkEntityActionEffect :: ActionEffectKey -> EntityKey -> ActionManagementOperation -> SashaLambdaDSL ()
+linkTargetWorldOutcomeEffect :: TargetKey -> ActionEffectKey -> WorldOutcome -> SashaLambdaDSL ()
+linkTargetWorldOutcomeEffect = LinkTargetWorldOutcomeEffect
+
+linkActorTargetWorldOutcomeEffect :: ActorKey -> TargetKey -> ActionEffectKey -> WorldOutcome -> SashaLambdaDSL ()
+linkActorTargetWorldOutcomeEffect = LinkActorTargetWorldOutcomeEffect
+
+linkEntityActionEffect :: Entity -> ActionEffectKey -> EntityKey -> ActionManagementOperation -> SashaLambdaDSL ()
 linkEntityActionEffect = LinkEntityActionEffect
+
+linkTargetEntityActionEffect :: TargetKey -> ActionEffectKey -> EntityKey -> ActionManagementOperation -> SashaLambdaDSL ()
+linkTargetEntityActionEffect = LinkTargetEntityActionEffect
+
+linkActorTargetEntityActionEffect :: ActorKey -> TargetKey -> ActionEffectKey -> EntityKey -> ActionManagementOperation -> SashaLambdaDSL ()
+linkActorTargetEntityActionEffect = LinkActorTargetEntityActionEffect
 
 newUser :: GID Scene -> (Text -> Agent) -> SashaLambdaDSL ()
 newUser = NewUser

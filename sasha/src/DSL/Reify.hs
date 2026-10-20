@@ -97,10 +97,14 @@ reifyDSL source = do
             ])
       , ModuleImport "DSL.Vocabulary" NotQualified
           (ImportList ["andThen"])
+      , ModuleImport "Grammar.Parser.Atomics.Nouns" NotQualified
+          (ImportList ["DirectionalStimulus", "DirectionalStimulusPlayer", "Objective"])
       , ModuleImport "Grammar.Parser.Atomics.Semantics.Adjectives" NotQualified
           (ImportList ["red"])
       , ModuleImport "Grammar.Parser.Atomics.Semantics.Nouns.DirectionalStimulus" NotQualified
-          (ImportList ["ballDS"])
+          (ImportList ["ballDS", "cupDS", "floorDS", "tableDS"])
+      , ModuleImport "Grammar.Parser.Atomics.Semantics.Nouns.Objective" NotQualified
+          (ImportList ["ballOB", "cupOB", "floorOB", "tableOB"])
       , ModuleImport "Grammar.Parser.Atomics.Semantics.Verbs.Acquisition" NotQualified
           (ImportList ["getAV"])
       , ModuleImport "Grammar.Parser.Atomics.Semantics.Verbs.DirectionalStimulus" NotQualified
@@ -112,7 +116,7 @@ reifyDSL source = do
       , ModuleImport "Grammar.Parser.Composites.Nouns" NotQualified
           (ImportList ["NounPhrase (DescriptiveNounPhrase)"])
       , ModuleImport "Grammar.Parser.GCase" NotQualified
-          (ImportList ["VerbKey (AcquisitionKey, DivestmentKey, ImperativeKey, ImplicitStimulusKey)"])
+          (ImportList ["NounKey (DirectionalStimulusKey, DirectionalStimulusPlayerKey, ObjectiveKey)", "VerbKey (AcquisitionKey, DivestmentKey, ImperativeKey, ImplicitStimulusKey)"])
       , ModuleImport "Model.Core" NotQualified
           (ImportList
             [ "ActionEffectKey (AcquisitionalActionKey, DirectionalStimulusActionKey, DivestmentActionKey, ImplicitStimulusActionKey)"
@@ -138,6 +142,7 @@ reifyDSL source = do
             , "TargetKey (TargetKey)"
             , "WitnessF"
             , "WorldOutcome (NarrationEffect, SpatialRelationshipEffect)"
+            , "agentSemanticMap"
             , "defaultObject"
             , "defaultScene"
             ])

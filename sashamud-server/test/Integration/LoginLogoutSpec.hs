@@ -325,8 +325,8 @@ insertExpired :: Query
 insertExpired =
   [sql|
     INSERT INTO tokens (token, hash, user_id, created, expires_at)
-      SELECT ?, ?, users.user_id, now(), now() - interval '1 hour' FROM users
-        WHERE users.player_name = ?
+      SELECT ?, ?, agents.agent_id, now(), now() - interval '1 hour' FROM agents
+        WHERE agents.name = ?
   |]
 
 spec :: Spec
@@ -850,7 +850,7 @@ spec = describe "Integration" . around withTestServer $ do
             posted <- runClientM (dslClient (makeAuthRequest (SessionId token)) (DSLSource studySource)) env
             posted `shouldBe` Right NoContent
             rows <- withResource (acDbPool ctx) $ \conn ->
-              query conn [sql| SELECT expires_at - created = interval '5 minutes' FROM tokens JOIN users ON users.user_id = tokens.user_id WHERE users.player_name = ? |] (Only ("Minted" :: Text))
+              query conn [sql| SELECT expires_at - created = interval '5 minutes' FROM tokens JOIN agents ON agents.agent_id = tokens.user_id WHERE agents.name = ? |] (Only ("Minted" :: Text))
             case rows of
               [Only fiveMinutes] -> (fiveMinutes :: Bool) `shouldBe` True
               _                  -> expectationFailure "expected one token row for Minted"
@@ -865,8 +865,10 @@ studySource = unlines
   , "  cupGID   <- declareObjectGID (ObjectLabel \"cup\")"
   , "  registerObject tableGID (defaultObject & shortName \"table\")"
   , "  registerObject cupGID   (defaultObject & shortName \"cup\")"
-  , "  registerObjectToScene studyGID tableGID \"TABLE\""
-  , "  registerObjectToScene studyGID cupGID   \"CUP\""
+  , "  registerObjectToScene studyGID tableGID (DirectionalStimulusKey tableDS)"
+  , "  registerObjectToScene studyGID tableGID (ObjectiveKey tableOB)"
+  , "  registerObjectToScene studyGID cupGID (DirectionalStimulusKey cupDS)"
+  , "  registerObjectToScene studyGID cupGID (ObjectiveKey cupOB)"
   , "  registerSpatial (EntityObject cupGID)   (SupportedBy (EntityObject tableGID))"
   , "  registerSpatial (EntityObject tableGID) (Supports (Data.Set.singleton (EntityObject cupGID)))"
   , "  registerScene studyGID (defaultScene & title \"the study\")"
