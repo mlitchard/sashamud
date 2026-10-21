@@ -257,6 +257,22 @@ branch's work is lost.
 - RULED (user, 2026-10-21): the journald priority is the Emergency
   constructor of hsyslog's Priority type, per the hsyslog documentation
   the user supplied.
+- RULED (user, 2026-10-21): PlayerResult carries what playerTickBlock's
+  IO needs after Proceed: playerResultNarrations,
+  playerResultRepairReplies, playerResultJoins :: [JoinResult], and
+  playerResultState :: GameState. JoinResult and its constructors
+  NewPlayerJoined and ReturningPlayerJoined move from SignalNetwork.hs to
+  Server.App. After Proceed, playerTickBlock runs executeJoinIO over
+  playerResultJoins and builds the repair rows and the State views from
+  playerResultState, as the current code does from gs'.
+- RULED (user, 2026-10-21): the writer's per-request step is
+  serveSender :: GameState -> Sender -> ServeResult in SignalNetwork.hs,
+  exported for the tests. Served and ServeResult live in Server.App
+  beside Sender. writerSF folds serveSender over the drained senders.
+- RULED (user, 2026-10-21): no naked products, ever. A function that
+  returns several values returns a record with named fields.
+- RULED (user, 2026-10-21): on a failed player tick the SystemMessage
+  carries gameErrorText err, the same text as the narration.
 - Pinned: mailing errors to Michael.
 
 ### What exists today
@@ -414,12 +430,22 @@ In Server.App:
     data PlayerResult = PlayerResult
       { playerResultNarrations    :: Map AgentKey Narration
       , playerResultRepairReplies :: [Routed MessageFrom]
+      , playerResultJoins         :: [JoinResult]
+      , playerResultState         :: GameState
       }
 
     type Sender :: Type
     data Sender
       = DslSender Try (GameState -> Either WorldBuilderError (GameState, DslResult))
       | PlayerSender Try (GameState -> Either GameError (GameState, PlayerResult))
+
+    data Served = DslServed Try (Either WorldBuilderError DslResult)
+                | PlayerServed Try (Either GameError PlayerResult)
+
+    data ServeResult = ServeResult
+      { serveResultState  :: GameState
+      , serveResultServed :: Served
+      }
 
     type ScriptMessage :: Type
     data ScriptMessage = WorldReady
@@ -479,36 +505,47 @@ token, post the world files with it, log out, then raiseSignal sigUSR1.
 All of this is one step so every login path stays green.
 
 10.4 The writer. Server.App gains Try, WriteAnswer, DslResult,
-PlayerResult, Sender, and AppCtx gains acWriteChan, acDslAnswer,
-acPlayerAnswer. Clocks.hs gains WriterTick. SignalNetwork gains
-writerSF :: ClSF RhineM (IOClock RhineM WriterTick) () (), composed into
-the pipeline with |@|. Each tick it drains acWriteChan in order with the
-tryReadTChan loop of drainChan. For each Sender it looks, runs the
-function on the state, and: on Right (gs', result) adds gs' and puts
+PlayerResult, Sender, Served, ServeResult, and JoinResult with
+NewPlayerJoined and ReturningPlayerJoined moved from SignalNetwork.hs,
+and AppCtx gains acWriteChan, acDslAnswer, acPlayerAnswer. Clocks.hs
+gains WriterTick. SignalNetwork gains serveSender :: GameState ->
+Sender -> ServeResult, exported for the tests, and writerSF :: ClSF
+RhineM (IOClock RhineM WriterTick) () (), composed into the pipeline
+with |@|. serveSender runs the sender's function on the state: on Right
+(gs', result) it returns ServeResult gs' with DslServed try (Right
+result) or PlayerServed try (Right result); on Left err it returns the
+state it was given with DslServed try (Left err) or PlayerServed try
+(Left err). Each tick writerSF drains acWriteChan in order with the
+tryReadTChan loop of drainChan, looks once, folds serveSender over the
+senders, adds the final state, and for each Served: on Right puts
 Proceed result into that sender's slot; on Left with TryOne, TryTwo or
-TryThree puts TryAgain (rendered error) into that sender's slot; on Left
-with TryFailed takes the failure action, then puts TryAgain (rendered
-error). DslSender failure action: sendMessageWith (worldBuilderErrorText
-err) (priority Emergency), with import Systemd.Journal (priority,
-sendMessageWith) and import System.Posix.Syslog (Priority (Emergency)),
-then exitFailure. PlayerSender failure action: for Left (ActorError gid
-err), the sessions with sessionGid == Just gid each get Routed sid
-(SystemMessage text) and Routed sid (GameNarration narr) with
-gameErrorText err in actionConsequence on acOutbound, and writeLog
-(TickFailed (ActorError gid err)); for any other Left, writeLog
-(TickFailed err) alone. dslTickSF and playerTickBlock lose every
-lookGameState and addGameState call. Each builds its function from the
-drained inputs, writes DslSender TryOne f or PlayerSender TryOne f to
-acWriteChan, takes its slot; on Proceed it does its IO (executeJoinIO,
-deliverNarrationIO, repair replies, DSL reports, counter write-back)
-from the result; on TryAgain it resends with the next Try, and after
-TryThree's TryAgain sends TryFailed, takes the slot, and carries on. Any
-other lookGameState or addGameState call site outside writerSF is
-removed in this step. sasha.cabal build-depends gains libsystemd-journal
-and hsyslog. sashamud-9b adds the C side to the nix: libsystemd in the
-package set and what satisfies libsystemd-journal's pkgconfig-depends.
-That nix lands before this step. Tests for the writer: a DslSender and
-a PlayerSender write in the same tick both land in the adopted state; a
-Left player function leaves the state unchanged. SlmRepairSpec's "an
-unparseable sentence is repaired by the model and runs" goes back from
-xit to it in this step and must pass.
+TryThree puts TryAgain (rendered error) into that sender's slot; on
+Left with TryFailed takes the failure action, then puts TryAgain
+(rendered error). DslSender failure action: sendMessageWith
+(worldBuilderErrorText err) (priority Emergency), with import
+Systemd.Journal (priority, sendMessageWith) and import
+System.Posix.Syslog (Priority (Emergency)), then exitFailure.
+PlayerSender failure action: for Left (ActorError gid err), the
+sessions with sessionGid == Just gid each get Routed sid (SystemMessage
+text) and Routed sid (GameNarration narr) with gameErrorText err in
+actionConsequence on acOutbound, and writeLog (TickFailed (ActorError
+gid err)); for any other Left, writeLog (TickFailed err) alone.
+dslTickSF and playerTickBlock lose every lookGameState and addGameState
+call. Each builds its function from the drained inputs, writes
+DslSender TryOne f or PlayerSender TryOne f to acWriteChan, takes its
+slot; on Proceed it does its IO from the result (playerTickBlock:
+executeJoinIO over playerResultJoins, the repair rows and the State
+views from playerResultState, deliverNarrationIO, the repair replies;
+dslTickSF: the DSL reports, the counter write-back); on TryAgain it
+resends with the next Try, and after TryThree's TryAgain sends
+TryFailed, takes the slot, and carries on. Any other lookGameState or
+addGameState call site outside writerSF is removed in this step.
+sasha.cabal build-depends gains libsystemd-journal and hsyslog.
+sashamud-9b adds the C side to the nix: libsystemd in the package set
+and what satisfies libsystemd-journal's pkgconfig-depends. That nix
+lands before this step. Tests for the writer: a DslSender and a
+PlayerSender write in the same tick both land in the adopted state; a
+Left player function leaves the state unchanged. Both tests call
+serveSender. SlmRepairSpec's "an unparseable sentence is repaired by
+the model and runs" goes back from xit to it in this step and must
+pass.
