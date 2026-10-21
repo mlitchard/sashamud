@@ -4,10 +4,10 @@ module Grammar.Gbnf (Gbnf (Gbnf), UnparsedSentence (UnparsedSentence), generateG
 import           Control.DeepSeq (NFData)
 import           Data.Aeson (FromJSON, ToJSON)
 import           Data.Aeson.TypeScript (derivingTypeScriptDefinition)
-import           Data.Bool (Bool)
+import           Data.Bool (Bool (False), (||))
 import           Data.Either (Either (Left, Right))
 import           Data.Eq (Eq)
-import           Data.Foldable (elem)
+import           Data.Foldable (any, elem)
 import           Data.Function ((.))
 import           Data.Functor ((<$>))
 import           Data.HashSet (toList)
@@ -33,19 +33,16 @@ import           Grammar.Parser.Atomics.Semantics.Nouns.Objective (objectives)
 import           Grammar.Parser.Atomics.Semantics.Prepositions.DirectionalStimulusMarker
   ( directionalStimulusMarkers
   )
-import           Grammar.Parser.Atomics.Semantics.Verbs.Acquisition
-  ( acquisitionVerbs
-  )
-import           Grammar.Parser.Atomics.Semantics.Verbs.DirectionalStimulus
-  ( directionalStimulusVerbs
-  )
-import           Grammar.Parser.Atomics.Semantics.Verbs.Divestment
-  ( divestmentVerbs
-  )
-import           Grammar.Parser.Atomics.Semantics.Verbs.ImplicitStimulus
-  ( implicitStimulusVerbs
+import           Grammar.Parser.Atomics.Verbs
+  ( AcquisitionVerb
+  , DirectionalStimulusVerb
+  , DivestmentVerb
+  , ImplicitStimulusVerb
   )
 import           Grammar.Parser.Composites.Nouns (PlayerName (PlayerName))
+import           Grammar.Parser.GCase
+  ( VerbKey (AcquisitionKey, DivestmentKey, ImperativeKey, ImplicitStimulusKey)
+  )
 
 type Gbnf :: Type
 newtype Gbnf = Gbnf Text
@@ -59,24 +56,33 @@ newtype UnparsedSentence = UnparsedSentence Text
   deriving newtype (Eq, FromJSON, Ord, ToJSON)
   deriving anyclass (NFData)
 
-generateGbnf :: UnparsedSentence -> [PlayerName] -> Gbnf
-generateGbnf (UnparsedSentence sentence) playerNames = Gbnf (unlines (
-  [ "root ::= stimulus | acquisition | divestment"
-  , "stimulus ::= implicit-stimulus-verb | directional-stimulus-verb \" \" directional-stimulus-marker \" \" directional-stimulus | directional-stimulus-verb \" \" directional-stimulus-marker \" \" determiner \" \" directional-stimulus | directional-stimulus-verb \" \" directional-stimulus-marker \" \" adjective \" \" directional-stimulus | directional-stimulus-verb \" \" directional-stimulus-marker \" \" determiner \" \" adjective \" \" directional-stimulus" <> playerAlternative
-  , "acquisition ::=acquisition-verb \" \" object-phrase"
-  , "divestment ::= divestment-verb \" \" object-phrase"
-  , "object-phrase ::= objective | determiner \" \" objective | adjective \" \" objective | determiner \" \" adjective \" \" objective"
-  , "implicit-stimulus-verb ::= " <> wordAlternatives (toList implicitStimulusVerbs)
-  , "directional-stimulus-verb ::= " <> wordAlternatives (toList directionalStimulusVerbs)
-  , "directional-stimulus-marker ::= " <> wordAlternatives (narrowed (toList directionalStimulusMarkers))
-  , "directional-stimulus ::= " <> wordAlternatives (narrowed (toList directionalStimuli))
-  ] <> playerNameLines <>
-  [ "acquisition-verb ::= " <> wordAlternatives (toList acquisitionVerbs)
-  , "divestment-verb ::= " <> wordAlternatives (toList divestmentVerbs)
-  , "objective ::= " <> wordAlternatives (narrowed (toList objectives))
-  , "determiner ::= " <> wordAlternatives (narrowed (toList determiners))
-  , "adjective ::= " <> wordAlternatives (narrowed (toList adjectives))
-  ]))
+generateGbnf :: UnparsedSentence -> [PlayerName] -> [VerbKey] -> Gbnf
+generateGbnf (UnparsedSentence sentence) playerNames verbKeys = Gbnf (unlines (
+  case (namedPlayers, objectWords) of
+    (_ : _, False) ->
+      [ "root ::= directional-look"
+      , "directional-look ::= directional-verb \" \" directional-marker \" \" agent-name"
+      , "directional-verb ::= " <> wordAlternatives actorDirectionalVerbs
+      , "directional-marker ::= " <> wordAlternatives (narrowed (toList directionalStimulusMarkers))
+      , "agent-name ::= " <> playerNameAlternatives
+      ]
+    _ ->
+      [ "root ::= stimulus | acquisition | divestment"
+      , "stimulus ::= implicit-stimulus-verb | directional-stimulus-verb \" \" directional-stimulus-marker \" \" directional-stimulus | directional-stimulus-verb \" \" directional-stimulus-marker \" \" determiner \" \" directional-stimulus | directional-stimulus-verb \" \" directional-stimulus-marker \" \" adjective \" \" directional-stimulus | directional-stimulus-verb \" \" directional-stimulus-marker \" \" determiner \" \" adjective \" \" directional-stimulus" <> playerAlternative
+      , "acquisition ::= acquisition-verb \" \" object-phrase"
+      , "divestment ::= divestment-verb \" \" object-phrase"
+      , "object-phrase ::= objective | determiner \" \" objective | adjective \" \" objective | determiner \" \" adjective \" \" objective"
+      , "implicit-stimulus-verb ::= " <> wordAlternatives actorImplicitVerbs
+      , "directional-stimulus-verb ::= " <> wordAlternatives actorDirectionalVerbs
+      , "directional-stimulus-marker ::= " <> wordAlternatives (narrowed (toList directionalStimulusMarkers))
+      , "directional-stimulus ::= " <> wordAlternatives (narrowed (toList directionalStimuli))
+      ] <> playerNameLines <>
+      [ "acquisition-verb ::= " <> wordAlternatives actorAcquisitionVerbs
+      , "divestment-verb ::= " <> wordAlternatives actorDivestmentVerbs
+      , "objective ::= " <> wordAlternatives (narrowed (toList objectives))
+      , "determiner ::= " <> wordAlternatives (narrowed (toList determiners))
+      , "adjective ::= " <> wordAlternatives (narrowed (toList adjectives))
+      ]))
   where
     lexemes :: [Lexeme]
     lexemes = case lexify tokens sentence of
@@ -115,6 +121,24 @@ generateGbnf (UnparsedSentence sentence) playerNames = Gbnf (unlines (
 
     quote :: Text -> Text
     quote txt = "\"" <> txt <> "\""
+
+    objectWords :: Bool
+    objectWords = any recognized (toList directionalStimuli)
+               || any recognized (toList objectives)
+               || any recognized (toList adjectives)
+               || any recognized (toList determiners)
+
+    actorImplicitVerbs :: [ImplicitStimulusVerb]
+    actorImplicitVerbs = [verb | ImplicitStimulusKey verb <- verbKeys]
+
+    actorDirectionalVerbs :: [DirectionalStimulusVerb]
+    actorDirectionalVerbs = [verb | ImperativeKey verb <- verbKeys]
+
+    actorAcquisitionVerbs :: [AcquisitionVerb]
+    actorAcquisitionVerbs = [verb | AcquisitionKey verb <- verbKeys]
+
+    actorDivestmentVerbs :: [DivestmentVerb]
+    actorDivestmentVerbs = [verb | DivestmentKey verb <- verbKeys]
 
 derivingTypeScriptDefinition ''Gbnf
 derivingTypeScriptDefinition ''UnparsedSentence

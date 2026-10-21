@@ -114,7 +114,10 @@ import           Grammar.Parser.Atomics.Nouns
   )
 import           Grammar.Parser.Composites.Model (Sentence)
 import           Grammar.Parser.Composites.Nouns (PlayerName (PlayerName))
-import           Grammar.Parser.GCase (NounKey (DirectionalStimulusPlayerKey))
+import           Grammar.Parser.GCase
+  ( NounKey (DirectionalStimulusPlayerKey)
+  , VerbKey (AcquisitionKey, DivestmentKey, ImperativeKey, ImplicitStimulusKey)
+  )
 import           Grammar.Sentence (parseTokens)
 import           Lens.Micro.Platform
   ( at
@@ -129,7 +132,8 @@ import           Lens.Micro.Platform
   , (?~)
   )
 import           Model.Core
-  ( Agent
+  ( ActionManagement (AVSupportManagementKey, AVTargetManagementKey, DSAManagementKey, DSATargetManagementKey, DVManagementKey, DVSurfaceManagementKey, ISAManagementKey, ISATargetManagementKey)
+  , Agent
   , AgentKey (AgentKey)
   , AgentKind (Denizen)
   , Entity (AgentEntity)
@@ -141,6 +145,8 @@ import           Model.Core
   , Narration (Narration, _actionConsequence, _actionEpilogue, _playerAction, _presenceListing)
   , NarrationMap (NarrationMap)
   , SceneLabel (SceneLabel)
+  , actionManagementFunctions
+  , agentActionManagement
   , agentKind
   , agentLocationMap
   , agentMap
@@ -160,6 +166,7 @@ import           Model.Core
   , sceneAgents
   , sceneMap
   , sceneObjects
+  , sharedActionManagement
   , sharedWitnessManagement
   , unNarrationMap
   , world
@@ -333,11 +340,12 @@ playerTickBlock = constMCl $ do
   case result of
     Left err ->
       liftIO $ hPutStrLn stderr ("Tick computation failed: " <> unpack err)
-    Right narrations -> do
+    Right (narrations, repairReplies) -> do
       -- IO: execute join effects (session promotion, welcome messages)
       liftIO $ forM_ joinResults (executeJoinIO appCtx)
       -- IO: deliver narrations to clients
       liftIO $ deliverNarrationIO appCtx narrations
+      liftIO . forM_ repairReplies $ atomically . writeTChan (acOutbound appCtx)
 
   liftIO $ do
     liveSessions <- readMVar (acSessions appCtx)
@@ -352,18 +360,19 @@ playerTickBlock = constMCl $ do
 
 composeTick :: GameComputation Identity ()
             -> GameComputation Identity ()
-            -> GameComputation Identity ()
+            -> GameComputation Identity [Routed MessageFrom]
             -> [GID Agent]
-            -> GameComputation Identity (Map AgentKey Narration)
+            -> GameComputation Identity (Map AgentKey Narration, [Routed MessageFrom])
 composeTick leavesComp joinComp commandComp joinedGids = do
   leavesComp
   joinComp
-  commandComp
+  repairReplies <- commandComp
   forM_ joinedGids $ \gid ->
     case lexify tokens "look" >>= parseTokens of
       Left err       -> throwError err
       Right sentence -> runEvalFor gid sentence
-  extractNarration
+  narrations <- extractNarration
+  pure (narrations, repairReplies)
 
 processLeavesPure :: Map SessionId SessionPhase
                   -> GameComputation Identity ()
@@ -517,10 +526,10 @@ resolveCommands :: Map SessionId SessionPhase
                    , [(SessionId, Maybe PendingRepair)]
                    , [(SessionId, UnparsedSentence, ParseFailure, [RepairAttempt], SlmName)]
                    , [(SessionId, UnparsedSentence, Text, SlmName)]
-                   , GameComputation Identity ()
+                   , GameComputation Identity [Routed MessageFrom]
                    )
 resolveCommands sessions pending playerLookup msgs =
-  (pings, replies, updates, exhausted, successRows, mapM_ commandComputation sentences)
+  (pings, replies, updates, exhausted, successRows, commandsAndRepairs)
   where
     found = case playerLookup of
       PlayerWordsFound playerNames -> playerNames
@@ -562,10 +571,8 @@ resolveCommands sessions pending playerLookup msgs =
       <> [Routed sid (AnalysisData [(Parser, attemptView <> [plain "=== Outcome ===", plain "  parsed, the sentence runs"] <> parseLines (Right sentence))]) | (sid, _, _, _, attemptView, sentence) <- repairedSentences]
       <> [Routed sid (AnalysisData [(Parser, attemptView <> [plain "=== Outcome ===", plain "  no repair pending"])]) | (sid, attemptView, _) <- unpending]
       <> [Routed sid (AnalysisData [(Parser, judgedView)]) | (sid, _, _, _, _, judgedView, _) <- judged]
-      <> [Routed sid (RepairRequest unparsed failure (generateGbnf unparsed names) []) | (sid, unparsed, failure) <- unparsedCmds]
       <> [Routed sid (SystemMessage err) | (sid, _, err) <- unpending]
       <> [Routed sid (SystemMessage origText) | (sid, _, ParseFailure origText, _, _) <- exhausted]
-      <> [Routed sid (RepairRequest unparsed origErr (generateGbnf unparsed names) attempts) | (sid, unparsed, origErr, attempts) <- retries]
     updates =
       [(sid, Just (PendingRepair unparsed failure [])) | (sid, unparsed, failure) <- unparsedCmds]
       <> [(sid, Nothing) | (sid, _, _, _, _, _) <- repairedSentences]
@@ -580,6 +587,51 @@ resolveCommands sessions pending playerLookup msgs =
       case lookup sid sessions >>= sessionGid of
         Nothing  -> throwError ("Programmer Error: no InGame session for " <> pack (show sid))
         Just gid -> runEvalFor gid sentence
+    commandsAndRepairs = do
+      firstRequests <- mapM firstRepairRequest unparsedCmds
+      retryRequests <- mapM retryRepairRequest retries
+      mapM_ commandComputation sentences
+      pure (firstRequests <> retryRequests)
+    firstRepairRequest (sid, unparsed, failure) = do
+      verbs <- actorVerbs sid
+      pure (Routed sid (RepairRequest unparsed failure (generateGbnf unparsed names verbs) []))
+    retryRepairRequest (sid, unparsed, origErr, attempts) = do
+      verbs <- actorVerbs sid
+      pure (Routed sid (RepairRequest unparsed origErr (generateGbnf unparsed names verbs) attempts))
+    actorVerbs sid = do
+      aMap <- use (world . agentMap . getAgentMap)
+      sharedTables <- use (world . sharedActionManagement)
+      let actor = do
+            gid <- lookup sid sessions >>= sessionGid
+            lookup gid aMap
+      case actor of
+        Nothing    -> throwError ("Programmer Error: no agent for " <> pack (show sid))
+        Just agent -> pure (verbsFor sharedTables agent)
+    verbsFor sharedTables agent =
+      fill [key | key@(ImplicitStimulusKey _) <- own] [key | key@(ImplicitStimulusKey _) <- shared]
+      <> fill [key | key@(ImperativeKey _) <- own] [key | key@(ImperativeKey _) <- shared]
+      <> fill [key | key@(AcquisitionKey _) <- own] [key | key@(AcquisitionKey _) <- shared]
+      <> fill [key | key@(DivestmentKey _) <- own] [key | key@(DivestmentKey _) <- shared]
+      where
+        own = [key | action <- Set.toList (view (agentActionManagement . actionManagementFunctions) agent), Just key <- [verbKeyOf action]]
+        shared =
+          [ key
+          | entityTables <- elems sharedTables
+          , Just functions <- [lookup AgentEntity entityTables]
+          , action <- Set.toList (view actionManagementFunctions functions)
+          , Just key <- [verbKeyOf action]
+          ]
+    fill [] fallback = fallback
+    fill keys _      = keys
+    verbKeyOf = \case
+      ISAManagementKey verb _      -> Just (ImplicitStimulusKey verb)
+      DSAManagementKey verb _      -> Just (ImperativeKey verb)
+      AVTargetManagementKey verb _ -> Just (AcquisitionKey verb)
+      DVManagementKey verb _       -> Just (DivestmentKey verb)
+      ISATargetManagementKey _ _   -> Nothing
+      DSATargetManagementKey _ _   -> Nothing
+      AVSupportManagementKey _ _   -> Nothing
+      DVSurfaceManagementKey _ _   -> Nothing
     lexemeLines = \case
       Left err      -> fmap plain (lines err)
       Right lexemes -> [plain ("  " <> pack (show lexemes))]

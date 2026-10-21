@@ -1,7 +1,8 @@
 module Test.Gbnf (spec) where
 
-import           Data.Bool (Bool)
+import           Data.Bool (Bool, (||))
 import           Data.Foldable (all)
+import           Data.Functor (fmap)
 import           Data.HashSet (toList)
 import           Data.Semigroup ((<>))
 import           Data.Text (Text, isInfixOf, pack, toLower)
@@ -34,6 +35,9 @@ import           Grammar.Parser.Atomics.Semantics.Verbs.ImplicitStimulus
   ( implicitStimulusVerbs
   )
 import           Grammar.Parser.Composites.Nouns (PlayerName (PlayerName))
+import           Grammar.Parser.GCase
+  ( VerbKey (AcquisitionKey, DivestmentKey, ImperativeKey, ImplicitStimulusKey)
+  )
 import           Test.Hspec
   ( Spec
   , describe
@@ -73,9 +77,9 @@ spec = describe "generateGbnf" (do
   it "writes look at an adjective noun"
     (gbnf `shouldSatisfy` isInfixOf "| directional-stimulus-verb \" \" directional-stimulus-marker \" \" adjective \" \" directional-stimulus |")
   it "writes look at a determiner adjective noun"
-    (named `shouldSatisfy` isInfixOf "| directional-stimulus-verb \" \" directional-stimulus-marker \" \" determiner \" \" adjective \" \" directional-stimulus |")
+    (named `shouldSatisfy` isInfixOf "root ::= directional-look\n")
   it "writes look at a player"
-    (named `shouldSatisfy` isInfixOf "| directional-stimulus-verb \" \" directional-stimulus-marker \" \" player-name\n")
+    (named `shouldSatisfy` isInfixOf "directional-look ::= directional-verb \" \" directional-marker \" \" agent-name\n")
   it "writes get with an object phrase"
     (gbnf `shouldSatisfy` isInfixOf "acquisition ::= acquisition-verb \" \" object-phrase\n")
   it "writes drop with an object phrase"
@@ -113,25 +117,37 @@ spec = describe "generateGbnf" (do
   it "keeps the divestment verb"
     (narrowed `shouldSatisfy` isInfixOf "divestment-verb ::= \"drop\"\n")
   it "keeps the player the sentence names"
-    (named `shouldSatisfy` isInfixOf "player-name ::= \"raj\"\n")
+    (named `shouldSatisfy` isInfixOf "agent-name ::= \"raj\"\n")
   it "leaves out the player name rule when the sentence names no player"
-    (unnamed `shouldNotSatisfy` isInfixOf "player-name"))
+    (unnamed `shouldNotSatisfy` isInfixOf "player-name")
+  it "never offers look at red ball for show me raj"
+    (showMeRaj `shouldNotSatisfy` (\txt -> "\"ball\"" `isInfixOf` txt || "\"red\"" `isInfixOf` txt)))
   where
     gbnf :: Text
-    gbnf = case generateGbnf (UnparsedSentence "") [PlayerName "raj"] of
+    gbnf = case generateGbnf (UnparsedSentence "") [PlayerName "raj"] verbKeys of
       Gbnf txt -> txt
 
     narrowed :: Text
-    narrowed = case generateGbnf (UnparsedSentence "pick up the red ball") [PlayerName "raj"] of
+    narrowed = case generateGbnf (UnparsedSentence "pick up the red ball") [PlayerName "raj"] verbKeys of
       Gbnf txt -> txt
 
     named :: Text
-    named = case generateGbnf (UnparsedSentence "look at raj") [PlayerName "raj", PlayerName "bob"] of
+    named = case generateGbnf (UnparsedSentence "look at raj") [PlayerName "raj", PlayerName "bob"] verbKeys of
       Gbnf txt -> txt
 
     unnamed :: Text
-    unnamed = case generateGbnf (UnparsedSentence "look at the ball") [PlayerName "raj", PlayerName "bob"] of
+    unnamed = case generateGbnf (UnparsedSentence "look at the ball") [PlayerName "raj", PlayerName "bob"] verbKeys of
       Gbnf txt -> txt
+
+    showMeRaj :: Text
+    showMeRaj = case generateGbnf (UnparsedSentence "show me raj") [PlayerName "raj"] verbKeys of
+      Gbnf txt -> txt
+
+    verbKeys :: [VerbKey]
+    verbKeys = fmap ImplicitStimulusKey (toList implicitStimulusVerbs)
+            <> fmap ImperativeKey (toList directionalStimulusVerbs)
+            <> fmap AcquisitionKey (toList acquisitionVerbs)
+            <> fmap DivestmentKey (toList divestmentVerbs)
 
     listed :: (HasLexeme a) => a -> Bool
     listed w = ("\"" <> toLower (pack (show (toLexeme w))) <> "\"") `isInfixOf` gbnf
