@@ -19,6 +19,7 @@ import           API.Types
 import           Control.Concurrent (modifyMVar_, readMVar)
 import           Control.Concurrent.Async (race_)
 import           Control.Concurrent.STM (atomically, readTChan, writeTChan)
+import           Control.Concurrent.STM.TMVar (putTMVar)
 import           Control.Exception (Handler (Handler), SomeException, catches)
 import           Control.Monad (forever)
 import           Control.Monad.Except (throwError)
@@ -27,6 +28,7 @@ import qualified Data.ByteString.Char8 (pack)
 import           Data.Map.Strict (delete, lookup)
 import           Data.Pool (defaultPoolConfig, newPool, withResource)
 import           Data.String (fromString)
+import qualified Data.Text.IO (writeFile)
 import           Database.PostgreSQL.Simple
   ( Only (Only)
   , close
@@ -68,11 +70,12 @@ import           Servant
   )
 import           Servant.Server.Internal.Handler (runHandler)
 import           Server.App
-  ( AppCtx (acDSLChan, acDbPool, acGameLog, acOutbound, acSessions)
+  ( AppCtx (acDSLChan, acDbPool, acGameLog, acLoginGate, acOutbound, acSessions)
   , AppM (..)
   , Environment (Development, Production)
   , GameLog (GameLog)
   , OidcConfig (OidcConfig)
+  , ScriptMessage (WorldReady)
   , newAppCtx
   , sessionSend
   )
@@ -93,6 +96,8 @@ import           Server.Validator (PlayerNameVAL (PlayerNameVAL))
 import           Server.World (mintBootstrapToken)
 import           System.Environment (lookupEnv)
 import           System.Exit (exitFailure)
+import           System.Posix.Process (getProcessID)
+import           System.Posix.Signals (Handler (Catch), installHandler, sigUSR1)
 import           Text.Read (readMaybe)
 
 app :: AppCtx -> Application
@@ -148,7 +153,8 @@ deliverOutbound ctx = forever $ do
 
 startServer :: WorldBuilderResult -> IO ()
 startServer result = do
-  port <- maybe 8081 readPort <$> lookupEnv "SASHA_WEB_PORT"
+  let pidFile = "sasha-server.pid"
+  port <-maybe 8081 readPort <$> lookupEnv "SASHA_WEB_PORT"
   environment <- maybe Production readEnvironment <$> lookupEnv "SASHA_ENVIRONMENT"
   connStr <- fromMaybe "dbname=sashamud" <$> lookupEnv "SASHA_DB_CONNSTR"
   migrationsDir <- fromMaybe "migrations" <$> lookupEnv "SASHA_MIGRATIONS_DIR"
@@ -172,6 +178,10 @@ startServer result = do
   let logCfg = GameLog stderr Nothing
   ctx <- newAppCtx logCfg pool oidcConfig manager (resultCounters result)
   bootstrapTokenFile <- lookupEnv "SASHA_BOOTSTRAP_TOKEN_FILE"
+  pidPath <- fromMaybe pidFile <$> lookupEnv "SASHA_PID_FILE"
+  pid <- getProcessID
+  Data.Text.IO.writeFile pidPath (pack (show pid))
+  _ <- installHandler sigUSR1 (Catch (atomically (putTMVar (acLoginGate ctx) WorldReady))) Nothing
   case bootstrapTokenFile of
     Nothing -> pure ()
     Just path -> do

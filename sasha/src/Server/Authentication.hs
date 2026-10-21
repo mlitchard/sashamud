@@ -21,6 +21,8 @@ import           API.Types
   , SessionId (SessionId)
   )
 import           Control.Concurrent (modifyMVar, modifyMVar_)
+import           Control.Concurrent.STM (atomically)
+import           Control.Concurrent.STM.TMVar (tryReadTMVar)
 import           Control.Exception (throwIO, try)
 import           Control.Monad.Reader (ask)
 import           Crypto.Hash (SHA256 (SHA256), hashWith)
@@ -121,9 +123,10 @@ import           Servant.Server.Internal.DelayedIO
   )
 import           Servant.Server.Internal.Handler (runHandler)
 import           Server.App
-  ( AppCtx (acDbPool, acGameLog, acHttpManager, acOidcConfig, acOidcStates, acSessions)
+  ( AppCtx (acDbPool, acGameLog, acHttpManager, acLoginGate, acOidcConfig, acOidcStates, acSessions)
   , AppM
   , OidcConfig (OidcConfig)
+  , ScriptMessage (WorldReady)
   , SessionPhase (SessionPhase)
   , SessionState (AwaitingSocket)
   )
@@ -277,6 +280,10 @@ authCallback (AuthCode code) state = do
   (CodeVerifier verifier, PlayerNameVAL name, mode) <- case entry of
     Just (created, v, n, m) | diffUTCTime now created <= 600 -> pure (v, n, m)
     _                                                        -> throwError err401
+  gate <- liftIO (atomically (tryReadTMVar (acLoginGate ctx)))
+  case gate of
+    Nothing         -> throwError err500
+    Just WorldReady -> pure ()
   tokenReq <- liftIO (parseRequest (unpack base <> "/application/o/token/"))
   tokenResp <- liftIO $ httpLbs
     (setRequestCheckStatus (urlEncodedBody

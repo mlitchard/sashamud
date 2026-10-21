@@ -8,6 +8,7 @@ module Server.App
   , GameLog (..)
   , OidcConfig (..)
   , PendingRepair (PendingRepair)
+  , ScriptMessage (WorldReady)
   , SessionPhase (SessionPhase)
   , SessionState (AwaitingSocket, AwaitingJoin, InGame)
   , newAppCtx
@@ -28,6 +29,7 @@ import           API.Types
   )
 import           Control.Concurrent (MVar, newMVar)
 import           Control.Concurrent.STM (TChan, newTChanIO)
+import           Control.Concurrent.STM.TMVar (TMVar, newEmptyTMVarIO)
 import           Control.Monad.Except (MonadError)
 import           Control.Monad.Reader (MonadReader, ReaderT)
 import           Data.IORef (IORef, newIORef)
@@ -103,11 +105,17 @@ data OidcConfig = OidcConfig
   , ocRedirectUri  :: RedirectUri
   }
 
+type ScriptMessage :: Type
+data ScriptMessage
+  = WorldReady
+  deriving stock (Eq, Generic, Ord, Show)
+
 data AppCtx = AppCtx
   { acInbound :: TChan (Routed MessageTo)
   , acOutbound :: TChan (Routed MessageFrom)
   , acJoinChan :: TChan PlayerJoined
   , acDSLChan :: TChan (Routed (SashaLambdaDSL GameState))
+  , acLoginGate :: TMVar ScriptMessage
   , acSessions :: MVar (Map SessionId SessionPhase)
   , acBuilderCounters :: IORef BuilderCounters
   , acDbPool :: Pool Connection
@@ -125,6 +133,7 @@ newAppCtx logCfg pool oidcConfig manager counters = do
   outChan  <- newTChanIO
   joinChan <- newTChanIO
   dslChan  <- newTChanIO
+  loginGate <- newEmptyTMVarIO
   sessions <- newMVar mempty
   builderCounters <- newIORef counters
   oidcStates <- newMVar mempty
@@ -135,6 +144,7 @@ newAppCtx logCfg pool oidcConfig manager counters = do
     , acOutbound     = outChan
     , acJoinChan     = joinChan
     , acDSLChan      = dslChan
+    , acLoginGate    = loginGate
     , acSessions     = sessions
     , acBuilderCounters = builderCounters
     , acDbPool       = pool

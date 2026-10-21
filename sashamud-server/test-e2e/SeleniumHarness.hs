@@ -16,7 +16,10 @@ import           API.TSClient (client)
 import           API.Types (SessionId (SessionId))
 import           Control.Concurrent (threadDelay)
 import           Control.Concurrent.Async (mapConcurrently_, race_)
+import           Control.Concurrent.STM (atomically)
+import           Control.Concurrent.STM.TMVar (putTMVar)
 import           Control.Monad.Logger (runStdoutLoggingT)
+import           Control.Monad.Trans.Reader (runReaderT)
 import           Data.Aeson (Object, encode, object, (.=))
 import           Data.Aeson.Key (fromString)
 import           Data.Aeson.KeyMap (fromList)
@@ -63,16 +66,19 @@ import           Network.HTTP.Client
   )
 import           Network.HTTP.Types.Status (statusIsSuccessful)
 import           Network.Wai.Handler.Warp (testWithApplication)
+import           Servant.Server.Internal.Handler (runHandler)
 import           Server.App
-  ( AppCtx (acDbPool)
+  ( AppCtx (acDbPool, acLoginGate)
+  , AppM (unAppM)
   , GameLog (GameLog)
   , OidcConfig (OidcConfig)
+  , ScriptMessage (WorldReady)
   , newAppCtx
   )
 import           Server.Migration (buildCommand)
 import           Server.Server (app, appWithStaticFiles, deliverOutbound)
 import           Server.Validator (PlayerNameVAL (PlayerNameVAL))
-import           Server.World (worldPrograms)
+import           Server.World (mintBootstrapToken, worldPrograms)
 import           System.Directory
   ( createDirectoryIfMissing
   , doesFileExist
@@ -84,10 +90,18 @@ import           System.Exit (ExitCode (ExitFailure), exitFailure)
 import           System.FilePath ((<.>), (</>))
 import           System.IO
   ( BufferMode (LineBuffering)
+  , hClose
   , hSetBuffering
   , hSetEncoding
+  , openTempFile
   , stdout
   , utf8
+  )
+import           System.Posix.Signals
+  ( Handler (Catch)
+  , installHandler
+  , raiseSignal
+  , sigUSR1
   )
 import           System.Process (readProcessWithExitCode)
 import           System.Random (randomIO)
@@ -154,12 +168,23 @@ withServer action = do
           (ClientSecret "sashamud-dev")
           (RedirectUri "http://127.0.0.1/api/auth/callback")
     ctx <- newAppCtx logCfg pool oidcConfig manager initialCounters
+    _ <- installHandler sigUSR1 (Catch (atomically (putTMVar (acLoginGate ctx) WorldReady))) Nothing
     race_
       (race_ (gameLoop ctx defaultGameState) (deliverOutbound ctx))
       (do
         testWithApplication (pure (app ctx)) $ \port -> do
           seedAccount (acDbPool ctx) Wizard (PlayerNameVAL "bootstrap")
-          SessionId token <- loginThroughFake manager port "bootstrap"
+          tmpDir <- getTemporaryDirectory
+          (tokenPath, tokenHandle) <- openTempFile tmpDir "bootstrap-token"
+          hClose tokenHandle
+          minted <- runHandler (runReaderT (unAppM (mintBootstrapToken (PlayerNameVAL "bootstrap") tokenPath)) ctx)
+          case minted of
+            Left err -> error ("mint failed: " <> show err)
+            Right () -> pure ()
+          tokenBytes <- BS.readFile tokenPath
+          token <- case decodeUtf8' tokenBytes of
+            Left err -> error ("token file is not UTF-8: " <> show err)
+            Right t  -> pure t
           paths <- worldPrograms dir
           forM_ paths $ \path -> do
             bytes <- BS.readFile path
@@ -182,6 +207,7 @@ withServer action = do
             } manager
           when (not (statusIsSuccessful (responseStatus logoutResp))) $
             error ("bootstrap logout failed: " <> show (responseStatus logoutResp) <> " " <> show (responseBody logoutResp))
+          raiseSignal sigUSR1
         action ctx)
 
 indexhtml :: FilePath -> String

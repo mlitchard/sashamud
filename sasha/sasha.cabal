@@ -117,6 +117,7 @@ library
     , text
     , time
     , transformers
+    , unix
     , uuid
     , wai
     , warp
@@ -221,6 +222,7 @@ executable sasha-tests
     , text
     , time
     , transformers
+    , unix
     , uuid
     , wai
     , warp

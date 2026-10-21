@@ -240,6 +240,11 @@ branch's work is lost.
   withServer, LoginLogoutSpec withTestServer) log the wizard in through
   mintBootstrapToken, the production path, post the world, log out, then
   raiseSignal sigUSR1.
+- RULED (user, 2026-10-21): the in-process harnesses install the same
+  sigUSR1 handler startServer installs, right after newAppCtx, so the
+  raise lands in the test process. run-end-to-end's VM script has no
+  logout step; the USR1 line after logout applies to run-deploy-tests.
+  Both VM tests set SASHA_PID_FILE.
 - RULED (user, 2026-10-21): the server writes its pid at startup to a
   pid file. Let binding pidFile = "sasha-server.pid"; env override
   SASHA_PID_FILE. Same shape as the bootstrap token file.

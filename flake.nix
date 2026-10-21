@@ -159,6 +159,7 @@
           migrationsDir = ./migrations;
           worldDir = ./sashamud-world/src;
           bootstrapTokenFile = "bootstrap-token";
+          pidFile = "sasha-server.pid";
           bootstrapWizard = "wizard";
           oidcBaseUrl = "http://127.0.0.1:9000";
           oidcClientId = "sashamud";
@@ -449,6 +450,7 @@
                           fi
                         done
                         ${pkgs.curl}/bin/curl --fail-with-body -sS -X DELETE ${dslServerUrl}/api/game/logout -H "BEARER: $SASHA_TOKEN"
+                        kill -USR1 "$(cat ${pidFile})"
                         rm -f ${bootstrapTokenFile}
                         echo "sashamud is ready at https://localhost:8080"
                       '';
@@ -470,6 +472,7 @@
                       pkill -f 'tail -F server.log' || true
                       pkill -f authentik-local.qcow2 || true
                       rm -f ${bootstrapTokenFile}
+                      rm -f ${pidFile}
                       stop-slm-model
                       db-server-stop
                     '';
@@ -804,6 +807,7 @@
                   environment = {
                     SASHA_WEB_PORT = "8081";
                     SASHA_BOOTSTRAP_TOKEN_FILE = "/root/bootstrap-token";
+                    SASHA_PID_FILE = "/root/sasha-server.pid";
                   };
                   serviceConfig = {
                     ExecStart = lib.getExe inputs.self.packages.${system}.sasha-server;
@@ -828,6 +832,7 @@
                 print(machine.succeed(f"${lib.getExe deployDsl} local ${./sashamud-server/test-e2e/study.dsl} {token}"))
                 print(machine.succeed(f"${lib.getExe deployDsl} local ${./sashamud-server/test-e2e/amend-lobby.dsl} {token}"))
                 machine.succeed(f"${pkgs.curl}/bin/curl --fail-with-body -sS -X DELETE ${dslServerUrl}/api/game/logout -H 'BEARER: {token}'")
+                machine.succeed("kill -USR1 $(cat /root/sasha-server.pid)")
                 machine.succeed("rm -f /root/bootstrap-token")
               '';
             };
@@ -919,6 +924,7 @@
                     environment = {
                       SASHA_WEB_PORT = "8081";
                       SASHA_BOOTSTRAP_TOKEN_FILE = "/root/bootstrap-token";
+                      SASHA_PID_FILE = "/root/sasha-server.pid";
                     };
                     serviceConfig = {
                       ExecStart = lib.getExe inputs.self.packages.${system}.sasha-server;

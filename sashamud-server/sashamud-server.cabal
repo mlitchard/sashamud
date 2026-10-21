@@ -96,9 +96,12 @@ executable sasha-e2e-tests
     , sasha
     , servant
     , servant-server
+    , stm
     , string-interpolate
     , text
     , time
+    , transformers
+    , unix
     , uuid
     , warp
     , webdriver
@@ -135,9 +138,11 @@ executable sashamud-integration-tests
     , servant-client-core
     , servant-server
     , servant-websockets
+    , stm
     , text
     , time
     , transformers
+    , unix
     , uuid
     , warp
     , websockets

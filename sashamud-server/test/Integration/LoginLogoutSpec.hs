@@ -35,6 +35,8 @@ import           API.Types
   )
 import           Control.Concurrent (readMVar, threadDelay)
 import           Control.Concurrent.Async (async, cancel, race_, wait)
+import           Control.Concurrent.STM (atomically)
+import           Control.Concurrent.STM.TMVar (putTMVar)
 import           Control.Exception (SomeException, finally, try)
 import           Control.Monad.Trans.Reader (runReaderT)
 import qualified Data.ByteString (readFile)
@@ -149,10 +151,11 @@ import           Servant.Client.Core
   )
 import           Servant.Server.Internal.Handler (runHandler)
 import           Server.App
-  ( AppCtx (acDbPool, acGameLog, acSessions)
+  ( AppCtx (acDbPool, acGameLog, acLoginGate, acSessions)
   , AppM (unAppM)
   , GameLog (GameLog, logPath)
   , OidcConfig (OidcConfig)
+  , ScriptMessage (WorldReady)
   , SessionPhase (SessionPhase)
   , SessionState (AwaitingJoin, AwaitingSocket, InGame)
   , newAppCtx
@@ -170,6 +173,12 @@ import           System.IO
   , hClose
   , hSetBuffering
   , openTempFile
+  )
+import           System.Posix.Signals
+  ( Handler (Catch)
+  , installHandler
+  , raiseSignal
+  , sigUSR1
   )
 import           System.Timeout (timeout)
 import           Test.Hspec
@@ -245,29 +254,42 @@ withTestServer action = do
             (ClientSecret "sashamud-dev")
             (RedirectUri ("http://127.0.0.1:" <> pack (show testPort) <> "/api/auth/callback"))
       ctx <- newAppCtx logCfg pool oidcConfig manager initialCounters
+      _ <- installHandler sigUSR1 (Catch (atomically (putTMVar (acLoginGate ctx) WorldReady))) Nothing
       serverThread <- async $ race_
         (race_ (gameLoop ctx defaultGameState) (deliverOutbound ctx))
         (race_ (run testPort (app ctx)) (run fakePort (fakeApp fakeState)))
       threadDelay 500000
       (do
-          sid <- loginAs ctx Wizard "Bootstrap"
-          env <- testClientEnv
-          paths <- worldPrograms dir
-          forM_ paths $ \path -> do
-            bytes <- Data.ByteString.readFile path
-            case decodeUtf8' bytes of
-              Left err -> expectationFailure ("lobby file is not UTF-8: " <> path <> " " <> show err)
-              Right source -> do
-                delivered <- runClientM (dslClient (makeAuthRequest sid) (DSLSource source)) env
-                case delivered of
-                  Left err        -> expectationFailure ("lobby delivery failed: " <> show err)
-                  Right NoContent -> pure ()
-          threadDelay 6000000
-          loggedOut <- runClientM (logoutClient (makeAuthRequest sid)) env
-          case loggedOut of
-            Left err        -> expectationFailure ("bootstrap logout failed: " <> show err)
-            Right NoContent -> pure ()
-          action (testPort, ctx))
+          seedAccount (acDbPool ctx) Wizard (PlayerNameVAL "Bootstrap")
+          (tokenPath, tokenHandle) <- openTempFile tmpDir "bootstrap-token"
+          hClose tokenHandle
+          minted <- runHandler (runReaderT (unAppM (mintBootstrapToken (PlayerNameVAL "Bootstrap") tokenPath)) ctx)
+          case minted of
+            Left err -> expectationFailure ("mint failed: " <> show err)
+            Right () -> do
+              tokenBytes <- Data.ByteString.readFile tokenPath
+              case decodeUtf8' tokenBytes of
+                Left err -> expectationFailure ("token file is not UTF-8: " <> show err)
+                Right token -> do
+                  let sid = SessionId token
+                  env <- testClientEnv
+                  paths <- worldPrograms dir
+                  forM_ paths $ \path -> do
+                    bytes <- Data.ByteString.readFile path
+                    case decodeUtf8' bytes of
+                      Left err -> expectationFailure ("lobby file is not UTF-8: " <> path <> " " <> show err)
+                      Right source -> do
+                        delivered <- runClientM (dslClient (makeAuthRequest sid) (DSLSource source)) env
+                        case delivered of
+                          Left err        -> expectationFailure ("lobby delivery failed: " <> show err)
+                          Right NoContent -> pure ()
+                  threadDelay 6000000
+                  loggedOut <- runClientM (logoutClient (makeAuthRequest sid)) env
+                  case loggedOut of
+                    Left err        -> expectationFailure ("bootstrap logout failed: " <> show err)
+                    Right NoContent -> pure ()
+                  raiseSignal sigUSR1
+                  action (testPort, ctx))
         `finally` cancel serverThread
 
 loginAs :: AppCtx -> RoleName -> Text -> IO SessionId
