@@ -34,6 +34,20 @@ module Model.Core
   , PossibilityGraph (..)
     -- * GameComputation
   , GameComputation (GameComputation, runGameComputation)
+    -- * Counters
+  , PInt
+  , succPInt
+  , unPInt
+  , firstGID
+  , BuilderCounters (BuilderCounters)
+  , initialCounters
+  , nextSceneId
+  , nextObjectId
+  , nextImplicitStimulusId
+  , nextDirectionalStimulusId
+  , nextAcquisitionId
+  , nextDivestmentId
+  , nextWitnessId
     -- * Action Management
   , ActionManagement (DSAManagementKey, ISAManagementKey, DSATargetManagementKey, ISATargetManagementKey, AVTargetManagementKey, AVSupportManagementKey, DVManagementKey, DVSurfaceManagementKey)
   , ActionManagementFunctions (ActionManagementFunctions)
@@ -580,6 +594,39 @@ defaultGameState = GameState
       }
   }
 
+newtype PInt = PInt Int
+  deriving stock (Eq, Ord, Show)
+
+succPInt :: PInt -> PInt
+succPInt (PInt n) = PInt (n + 1)
+
+unPInt :: PInt -> Int
+unPInt (PInt n) = n
+
+firstGID :: PInt
+firstGID = PInt 0
+
+data BuilderCounters = BuilderCounters
+  { _nextSceneId               :: PInt
+  , _nextObjectId              :: PInt
+  , _nextImplicitStimulusId    :: PInt
+  , _nextDirectionalStimulusId :: PInt
+  , _nextAcquisitionId         :: PInt
+  , _nextDivestmentId          :: PInt
+  , _nextWitnessId             :: PInt
+  }
+
+initialCounters :: BuilderCounters
+initialCounters = BuilderCounters
+  { _nextSceneId               = firstGID
+  , _nextObjectId              = firstGID
+  , _nextImplicitStimulusId    = firstGID
+  , _nextDirectionalStimulusId = firstGID
+  , _nextAcquisitionId         = firstGID
+  , _nextDivestmentId          = firstGID
+  , _nextWitnessId             = firstGID
+  }
+
 -- Template Haskell (single stage — all types visible)
 
 derivingTypeScriptDefinition ''SessionId
@@ -598,6 +645,7 @@ makeLenses ''Evaluator
 makeLenses ''GameState
 makeLenses ''ActionMaps
 makeLenses ''PossibilityGraph
+makeLenses ''BuilderCounters
 
 #ifdef TESTING
 deriving newtype instance Arbitrary SessionId

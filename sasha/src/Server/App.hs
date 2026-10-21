@@ -4,29 +4,16 @@
 module Server.App
   ( AppCtx (..)
   , AppM (..)
-  , BuilderCounters (BuilderCounters)
   , Environment (Development, Production)
   , GameLog (..)
   , OidcConfig (..)
-  , PInt
   , PendingRepair (PendingRepair)
   , SessionPhase (SessionPhase)
   , SessionState (AwaitingSocket, AwaitingJoin, InGame)
-  , firstGID
-  , initialCounters
   , newAppCtx
-  , nextAcquisitionId
-  , nextDirectionalStimulusId
-  , nextDivestmentId
-  , nextImplicitStimulusId
-  , nextObjectId
-  , nextSceneId
-  , nextWitnessId
   , sessionGid
   , sessionPlayerName
   , sessionSend
-  , succPInt
-  , unPInt
   ) where
 
 import           SashaPrelude
@@ -51,7 +38,6 @@ import           Database.PostgreSQL.Simple (Connection)
 import           DSL.Model.EDSL.SashaLambdaDSL (SashaLambdaDSL)
 import           GHC.IO (FilePath)
 import           Grammar.Gbnf (UnparsedSentence)
-import           Lens.Micro.Platform (makeLenses)
 import           Model.Account
   ( ClientId
   , ClientSecret
@@ -61,7 +47,7 @@ import           Model.Account
   , RedirectUri
   , StartMode
   )
-import           Model.Core (Agent, GameState)
+import           Model.Core (Agent, BuilderCounters, GameState)
 import           Model.GID (GID)
 import           Model.RichText (RichText)
 import           Model.WireProtocol (MessageFrom)
@@ -73,39 +59,6 @@ import           Server.Validator (PlayerNameVAL)
 data GameLog = GameLog
   { logHandle :: Handle
   , logPath   :: Maybe FilePath
-  }
-
-newtype PInt = PInt Int
-  deriving stock (Eq, Ord, Show)
-
-succPInt :: PInt -> PInt
-succPInt (PInt n) = PInt (n + 1)
-
-unPInt :: PInt -> Int
-unPInt (PInt n) = n
-
-firstGID :: PInt
-firstGID = PInt 0
-
-data BuilderCounters = BuilderCounters
-  { _nextSceneId               :: PInt
-  , _nextObjectId              :: PInt
-  , _nextImplicitStimulusId    :: PInt
-  , _nextDirectionalStimulusId :: PInt
-  , _nextAcquisitionId         :: PInt
-  , _nextDivestmentId          :: PInt
-  , _nextWitnessId             :: PInt
-  }
-
-initialCounters :: BuilderCounters
-initialCounters = BuilderCounters
-  { _nextSceneId               = firstGID
-  , _nextObjectId              = firstGID
-  , _nextImplicitStimulusId    = firstGID
-  , _nextDirectionalStimulusId = firstGID
-  , _nextAcquisitionId         = firstGID
-  , _nextDivestmentId          = firstGID
-  , _nextWitnessId             = firstGID
   }
 
 data SessionPhase = SessionPhase PlayerNameVAL (GID Agent) SessionState
@@ -192,5 +145,3 @@ newAppCtx logCfg pool oidcConfig manager counters = do
     , acLastStateViews = lastStateViews
     , acGameLog      = logCfg
     }
-
-makeLenses ''BuilderCounters

@@ -49,7 +49,7 @@ import           Model.Account
   , RedirectUri (RedirectUri)
   )
 import           Model.Authorization (RoleName (Wizard))
-import           Model.Core (defaultGameState)
+import           Model.Core (defaultGameState, initialCounters)
 import           Network.HTTP.Client
   ( Request (method, requestBody, requestHeaders)
   , RequestBody (RequestBodyLBS)
@@ -67,7 +67,6 @@ import           Server.App
   ( AppCtx (acDbPool)
   , GameLog (GameLog)
   , OidcConfig (OidcConfig)
-  , initialCounters
   , newAppCtx
   )
 import           Server.Migration (buildCommand)

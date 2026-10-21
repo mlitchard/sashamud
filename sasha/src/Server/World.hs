@@ -43,7 +43,7 @@ import           DSL.Reify (reifyDSL)
 import           GHC.IO (FilePath)
 import           Language.Haskell.Interpreter (InterpreterError)
 import           Model.Account (AccessToken (AccessToken), AuthentikUserId)
-import           Model.Core (defaultGameState)
+import           Model.Core (defaultGameState, initialCounters)
 import           Model.GID (GID (GID))
 import           Model.Jwt
   ( Credentials (Credentials)
@@ -59,7 +59,6 @@ import           Server.App
   , AppM
   , SessionPhase (SessionPhase)
   , SessionState (AwaitingSocket)
-  , initialCounters
   )
 import           Server.Validator (PlayerNameVAL (PlayerNameVAL))
 import           System.Directory (doesDirectoryExist, listDirectory)

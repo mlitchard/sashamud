@@ -178,6 +178,318 @@ Step rule: every step builds and is green on its own. Any fix a step needs — i
    - **4h. Tests.** `SignalNetworkSpec` drops the witness field. `ArbitraryOrphans` gains `Arbitrary` for `PlayerName` and `PlayerNamePhrase`. `lookAtPlayerWitnessTest` fails if sasha's socket receives "A player." (ruling 58). Green: `LookAtPlayerSpec`, `LookAtBallSpec`, `LoginLogoutSpec`, `MigrationSpec`, `JSONSpec`, the Gbnf and parser tests.
 5. **Remove `acKnownPlayers`.** `processJoinsPure` decides new/returning by `agentMap` membership; `processLeavesPure` uses `user_id` with no live session. Remove the field, its write at :628, and update `LoginLogoutSpec`.
 6. **Shared tables per kind.** Folded into step 4 (ruling 43). Replace `_sharedActionManagement` with the three tables (ruling 9); DSL constructors, `Builder` cases, `Reify` entries. `1-get-drop.dsl` → `sharedAgentBehavior`. Get/drop gates: own table, shared table, `throwMaybeM`.
-7. **Scene overlays.** Quote old `mergeOverlay` first. Add `_sceneAgentOverlays` to `Scene`; port `fetchSceneActions` to `Helpers.hs`, overlay merged over base.
+7. **Scene overlays.** Folded into step 4 (RULED user, 2026-10-20). `_sceneAgentOverlays` was never added to sashamud; nothing to write.
 8. **Target keys and look dispatch.** Folded into step 4 (ruling 43). Quote old `validateObjectLook` first. Add `DSATargetManagementKey`, `ISATargetManagementKey`, the two lookups, the two DSL wrappers, `Builder`/`Reify` entries. Remove the scene's `DSAManagementKey`/`ISAManagementKey`. `Look.hs` becomes pure `runActionProtocol` delegation. `ImplicitStimulusF`: agent, scene (`ISATargetManagementKey`). `DirectionalStimulusF`: agent, scene, target (object, or agent found via `sceneAgents` + `agentShortName`). Each gate: own table, shared table, `throwMaybeM`. `1-lobby.dsl`, `2-floor.dsl`, `3-ball.dsl` move to target keys; player template target key gets its own GID. `LookAtPlayerSpec` and `LookAtBallSpec` green.
-9. **Narrowed repair grammar.** `generateGbnf` narrows to `LOOK AT <player-name>` when the sentence holds a `PLAYERNAME` and no object words. `resolveCommands` passes the actor's verbs (own table, then shared agent table). Targets stay vocabulary-wide. A test asserts `show me raj` never yields `look at red ball`.
+9. **Narrowed repair grammar.** `generateGbnf :: UnparsedSentence -> [PlayerName] -> [VerbKey] -> Gbnf` (RULED user, 2026-10-20). The verb list is the actor's own `_agentActionManagement` actor keys; for each verb kind the actor lacks, the shared agent table's `AgentEntity` entries fill it (RULED). Actor keys: `ISAManagementKey` → `ImplicitStimulusKey`, `DSAManagementKey` → `ImperativeKey`, `AVTargetManagementKey` → `AcquisitionKey`, `DVManagementKey` → `DivestmentKey`. `ISATargetManagementKey`, `DSATargetManagementKey`, `AVSupportManagementKey` and `DVSurfaceManagementKey` are scene, target and object gates and stay out (RULED). The actor is in `agentMap` by construction; the lookup throws on a miss (RULED). When the sentence holds an `AGENTNAME` and no object words (directional stimuli, objectives, adjectives, determiners), the grammar is `root ::= directional-look` and `directional-look ::= directional-verb " " agent-name`, with the actor's directional verbs and the named player (RULED). `resolveCommands` takes `view world gs`; the caller at `SignalNetwork.hs:293` changes in the same step. The four existing verb-list tests pass VerbKeys built from the vocabulary lists. `Gbnf.hs:66` gains the space after `::=` (RULED). Targets stay vocabulary-wide. A test asserts `show me raj` never yields `look at red ball`.
+
+## Step 10: one writer for GameState
+
+### Goal
+GameState has one writer. dslTickSF and playerTickBlock stop looking and
+adding. A writer on its own clock is the only caller of lookGameState and
+addGameState. A failed player tick adopts nothing and tells the player in
+the main view. A failed DSL write ends the process through journald.
+
+### The fault
+dslTickSF (DSLTick, 5 s) and playerTickBlock (PlayerTick, 1 s) each look
+and add on separate clocks. monad-schedule resumes a branch with the
+state it started with (AccumT . const). The last add wins and the other
+branch's work is lost.
+
+### Rulings
+- RULED (user, 2026-10-21): one writer signal function on a WriterTick
+  clock of 100 ms, inside RhineM, the sole looker and adder.
+- RULED (user, 2026-10-21): one TChan, acWriteChan :: TChan Sender, with
+  the writer as its only reader. dslTickSF and playerTickBlock send
+  Sender values and never look or add.
+- RULED (user, 2026-10-21): two answer slots in AppCtx, one per sender:
+  acDslAnswer :: TMVar (WriteAnswer DslResult) and
+  acPlayerAnswer :: TMVar (WriteAnswer PlayerResult). The writer puts
+  into the slot for the sender it served. A sender takes from its own
+  slot after sending.
+- RULED (user, 2026-10-21): WriteAnswer a = Proceed a | TryAgain Text.
+- RULED (user, 2026-10-21): Try = TryOne | TryTwo | TryThree | TryFailed,
+  carried in the request. The writer reads it on every request. A sender
+  sends TryOne; on TryAgain it sends TryTwo, then TryThree, then one
+  TryFailed request so the writer takes the failure action. After that
+  the sender carries on with its ticks.
+- RULED (user, 2026-10-21): on DslSender TryFailed the writer sends the
+  error to journald with priority Emergency and ends the process. No
+  world means no mud. Anything that causes a shutdown is Emergency.
+- RULED (user, 2026-10-21): on PlayerSender TryFailed the writer sends
+  the player whose command failed a SystemMessage and a GameNarration
+  with the error text in actionConsequence, so the message appears in
+  the main view, and writes a log line. The request carries the Agent
+  GID. The writer finds the session by GID through acSessions, as
+  deliverNarrationIO does.
+- RULED (user, 2026-10-21): the error carries the GID. GameComputation's
+  ExceptT Text becomes ExceptT GameError. GameError has a constructor
+  ActorError (GID Agent) GameError. runEvalFor and joinComputation catch
+  with catchError and rethrow wrapped in ActorError. The computation
+  fails, so the writer adopts nothing.
+- RULED (user, 2026-10-21): the old code's catch (TopLevel.hs:157)
+  narrates the error and keeps the partial state. That is the broken
+  part. sashamud rethrows.
+- RULED (user, 2026-10-21): login gate. acLoginGate :: TMVar
+  ScriptMessage with ScriptMessage = WorldReady. A sigUSR1 handler puts
+  WorldReady. authCallback reads the gate before the OIDC exchange and
+  answers err500 while it is empty. Scripts and VM tests send sigUSR1
+  after the last preliminary step. In-process harnesses use raiseSignal.
+  No polling anywhere.
+- RULED (user, 2026-10-21): the in-process harnesses (SeleniumHarness
+  withServer, LoginLogoutSpec withTestServer) log the wizard in through
+  mintBootstrapToken, the production path, post the world, log out, then
+  raiseSignal sigUSR1.
+- RULED (user, 2026-10-21): the server writes its pid at startup to a
+  pid file. Let binding pidFile = "sasha-server.pid"; env override
+  SASHA_PID_FILE. Same shape as the bootstrap token file.
+- RULED (user, 2026-10-21): the writer types live in Server.App.
+  BuilderCounters, PInt, succPInt, unPInt, firstGID, initialCounters
+  and the seven counter lenses move to Model.Core so DSL.Builder stops
+  importing Server.App.
+- RULED (user, 2026-10-21): the libsystemd C dependency in nix is
+  sashamud-9b's task. This plan adds the Haskell dependency and the call.
+- RULED (user, 2026-10-21): the journald priority is the Emergency
+  constructor of hsyslog's Priority type, per the hsyslog documentation
+  the user supplied.
+- Pinned: mailing errors to Michael.
+
+### What exists today
+- RhineM = AccumT (Last GameState) (ReaderT AppCtx IO)
+  (SignalNetwork.hs:206). Pipeline at :236.
+- dslTickSF :253-273. playerTickBlock :275-359, runPureComputation at
+  :306, Left branch prints "Tick computation failed" to stderr at :340,
+  addGameState gs' unconditionally at :359. composeTick :361.
+  runEvalFor :502. lookupEvaluatorOrThrow :507. runPureComputation :514.
+  drainChan :790 (tryReadTChan loop). deliverNarrationIO :780 filters
+  acSessions by sessionGid and writes Routed sid (GameNarration narr) to
+  acOutbound. executeJoinIO :758.
+- Clocks.hs: HeartbeatTick = Millisecond 5000, PlayerTick = Millisecond
+  1000, DSLTick = Millisecond 5000, with `type X :: Type` kind
+  signatures.
+- Server/App.hs: AppCtx :153-167, newAppCtx :169-194 (newTChanIO,
+  newMVar, newIORef). sessionGid :122, sessionSend :127. BuilderCounters
+  :90 with seven PInt fields.
+- Server/Server.hs: deliverOutbound :133. startServer env reads :174;
+  the SASHA_BOOTSTRAP_WIZARD failure at :178 prints to stderr and calls
+  exitFailure (import System.Exit (exitFailure) at :95).
+- Server/World.hs mintBootstrapToken :106 writes the token file with
+  Data.Text.IO.writeFile.
+- Server/Authentication.hs authCallback :270; the OIDC exchange begins
+  at the parseRequest for /application/o/token/.
+- Model/Core.hs: GameStateT :483, GameComputation :499 derives
+  MonadError Text. Error.hs:8 throwMaybeM :: MonadError Text m => Text
+  -> Maybe a -> m a.
+- DSL/Builder.hs imports Server.App for BuilderCounters, the counter
+  lenses, succPInt, unPInt (:93-104). Server/Log.hs imports DSL.Builder
+  and Server.App (:8-11).
+- Grammar: lexify (Lexer.hs:107) and parseTokens (Sentence.hs:20) return
+  Either Text.
+- Harnesses: sashamud-server/test-e2e/SeleniumHarness.hs withServer :129
+  and sashamud-server/test/Integration/LoginLogoutSpec.hs withTestServer
+  :225 log the wizard in with loginThroughFake (fake-oidc
+  FakeProvider.hs:178), which lands in authCallback. LoginLogoutSpec
+  :831 already runs mintBootstrapToken in-process with
+  runHandler (runReaderT (unAppM (mintBootstrapToken name tokenPath)) ctx),
+  reads the token file, posts DSL with it and logs out.
+- Throw sites in GameComputation: SignalNetwork.hs composeTick :361,
+  joinComputation :421-460, lookupEvaluatorOrThrow :507,
+  commandComputation and actorVerbs :586-609; ActionManagement.hs
+  modifySceneM/modifyObjectM/modifyAgentM :186-202, processWorldOutcome
+  :205, processSpatialRelationshipEffect :213, processNarrationEffect
+  :284-355, processWitnesses :358, processWitnessEffects :389-438;
+  Perception.hs youSeeM :51; Instances.hs runActionProtocol instances
+  :113, :150, :264, handleAcquisition :296, DivestmentF :364,
+  objectMatchesAdjective :456; Protocol.hs fetchAction :85,
+  fetchAgentAction :93, fetchSceneAction :109, fetchTargetAction :124.
+
+### Sanctioned sources
+- stm 2.5.3.1 (/home/mlitchard/github/stm): TMVar.hs newEmptyTMVarIO
+  :80, takeTMVar :89 (retries on empty), putTMVar :110 (retries on
+  full), tryReadTMVar. TChan.hs newTChanIO :70, writeTChan :117,
+  readTChan :125, tryReadTChan :136.
+- unix 2.8.8.0 (/home/mlitchard/github/unix): Signals.hsc sigUSR1 :211,
+  installHandler :480 with Catch (IO ()), raiseSignal :409.
+  Process/Common.hsc:104 getProcessID :: IO ProcessID, exported from
+  System.Posix.Process (Process.hsc:29).
+- rhine checkout: Millisecond.hs:31-49, Realtime.hs waitUTC :62-76. A
+  late tick sleeps zero and fires at once with a lag tag. A long writer
+  tick delays the next one; nothing is skipped and nothing runs
+  concurrently with it.
+- libsystemd-journal 1.4.6.0 (/home/mlitchard/github/libsystemd-journal):
+  Systemd.Journal sendMessageWith :: Text -> JournalFields -> IO ()
+  (Journal.hsc:166-193), priority :: Syslog.Priority -> JournalFields,
+  JournalFields is a Monoid. pkgconfig-depends libsystemd >= 209.
+- hsyslog Priority, from the documentation the user supplied: data
+  Priority with constructors Emergency, Alert, Critical, Error, Warning,
+  Notice, Info, Debug, in module System.Posix.Syslog.
+- Old code: TopLevel.hs:157 `eval input `catchError` \err -> ...`,
+  import Control.Monad.Error.Class (catchError) at :22. Old
+  GameComputation threw Text and had no error sum type. sashamud's
+  JoinFailure and WorldBuilderError are the sum type precedent.
+
+### Types
+In Model.Core, beside GameComputation:
+
+    type GameError :: Type
+    data GameError
+      = ActorError (GID Agent) GameError
+      | AgentMissing (GID Agent)
+      | AgentLocationMissing (GID Agent)
+      | SceneMissing (GID Scene)
+      | ObjectMissing (GID Object)
+      | WitnessFunctionMissing (GID WitnessF)
+      | SpatialRelationshipsMissing (GID Object)
+      | SupportMissing (GID Object)
+      | ObjectActionMissing (GID Object)
+      | ActionMissing Text
+      | ActionGIDMissing Text
+      | NoFloorHere (GID Scene)
+      | SharedWitnessMissing
+      | NewUserStartSceneMissing
+      | NewUserTemplateMissing
+      | EvaluatorMissing (GID Agent)
+      | SessionMissing SessionId
+      | ActorNotAgent ActorKey
+      | TargetNotAgent TargetKey
+      | ObjectInScene (GID Scene)
+      | ParseFailed Text
+      deriving stock (Eq, Generic, Show)
+
+    gameErrorText :: GameError -> Text
+
+Constructor sources: AgentMissing, AgentLocationMissing, SceneMissing,
+ObjectMissing are the "not found" lookups (target, support, spatial ref
+and floor misses are ObjectMissing or AgentMissing by the GID's type).
+WitnessFunctionMissing: processWitnesses. SpatialRelationshipsMissing,
+SupportMissing: handleAcquisition and processNarrationEffect.
+ObjectActionMissing: the four "has no acquisition/divestment action"
+sites. ActionMissing: fetchAction's noActionError. ActionGIDMissing: the
+"Agent: ", "Scene: ", "Target: " noGIDError sites in Protocol.hs.
+NoFloorHere: "There's nowhere to drop that here." SharedWitnessMissing,
+NewUserStartSceneMissing, NewUserTemplateMissing: joinComputation.
+EvaluatorMissing: lookupEvaluatorOrThrow. SessionMissing:
+commandComputation and actorVerbs. ActorNotAgent, TargetNotAgent: the
+"non-agent actor" and "target is not an agent" branches. ObjectInScene:
+"supported by a scene" and "contained in a scene". ParseFailed:
+composeTick's auto-look parse; its payload becomes a grammar sum type in
+the approved grammar-error cut, a separate commit.
+
+In Server.App:
+
+    type Try :: Type
+    data Try = TryOne | TryTwo | TryThree | TryFailed
+      deriving stock (Eq, Generic, Ord, Show)
+
+    type WriteAnswer :: Type -> Type
+    data WriteAnswer a = Proceed a | TryAgain Text
+      deriving stock (Eq, Generic, Ord, Show)
+
+    type DslResult :: Type
+    data DslResult = DslResult
+      { dslResultCounters :: BuilderCounters
+      , dslResultReports  :: [Routed (Either WorldBuilderError [WorldChange])]
+      }
+
+    type PlayerResult :: Type
+    data PlayerResult = PlayerResult
+      { playerResultNarrations    :: Map AgentKey Narration
+      , playerResultRepairReplies :: [Routed MessageFrom]
+      }
+
+    type Sender :: Type
+    data Sender
+      = DslSender Try (GameState -> Either WorldBuilderError (GameState, DslResult))
+      | PlayerSender Try (GameState -> Either GameError (GameState, PlayerResult))
+
+    type ScriptMessage :: Type
+    data ScriptMessage = WorldReady
+      deriving stock (Eq, Generic, Ord, Show)
+
+AppCtx gains, after acDSLChan: acWriteChan :: TChan Sender,
+acDslAnswer :: TMVar (WriteAnswer DslResult),
+acPlayerAnswer :: TMVar (WriteAnswer PlayerResult),
+acLoginGate :: TMVar ScriptMessage. newAppCtx makes them with newTChanIO
+and newEmptyTMVarIO.
+
+Clocks.hs gains `type WriterTick :: Type` and
+`type WriterTick = Millisecond 100`.
+
+Server.Log LogEntry gains TickFailed GameError, rendered with
+gameErrorText.
+
+### Steps
+Step rule: every step builds and is green on its own. Any fix a step
+needs, including imports, exports, callers, instances and tests, lands
+in that step.
+
+10.1 Move the counters. BuilderCounters, PInt, succPInt, unPInt,
+firstGID, initialCounters and the seven counter lenses move from
+Server.App to Model.Core unchanged. Every importer (DSL.Builder,
+Server.Log, SignalNetwork, World, Server, tests) imports them from
+Model.Core. Server.App imports what it still uses from Model.Core.
+
+10.2 GameError. Add GameError and gameErrorText to Model.Core.
+GameComputation derives MonadError GameError. throwMaybeM in Error.hs
+takes a GameError. Every throw site listed above throws its constructor.
+runEvalFor wraps the evaluator call with catchError and rethrows
+ActorError gid err; joinComputation wraps each join the same way.
+composeTick's Left err becomes throwError (ParseFailed err).
+runPureComputation returns Either GameError a. playerTickBlock's Left
+branch prints gameErrorText err. Imports: Control.Monad.Error.Class
+(catchError) as in old TopLevel.hs:22. Tests that match on a Left Text
+match the constructor.
+
+10.3 Pid file and login gate. Server.hs startServer: let binding
+pidFile = "sasha-server.pid", env override SASHA_PID_FILE read beside
+the other env reads at :174; after the AppCtx exists, getProcessID and
+Data.Text.IO.writeFile the pid, the mintBootstrapToken file pattern.
+AppCtx gains acLoginGate, newAppCtx makes it with newEmptyTMVarIO.
+startServer calls installHandler sigUSR1 (Catch (atomically (putTMVar
+(acLoginGate ctx) WorldReady))) Nothing. authCallback calls
+tryReadTMVar on the gate before the OIDC exchange and answers err500
+while it is Nothing. start-sashamud sends `kill -USR1 "$(cat
+"$pidFile")"` after the logout step; stop-sashamud removes the pid file
+with the token file; flake.nix let binding pidFile; VM tests set
+SASHA_PID_FILE under the state directory and send USR1 after their
+logout. SeleniumHarness withServer and LoginLogoutSpec withTestServer
+replace loginThroughFake for the wizard with the mint path of
+LoginLogoutSpec :831: seedAccount, mintBootstrapToken through
+runHandler and runReaderT over AppM into a temp token file, read the
+token, post the world files with it, log out, then raiseSignal sigUSR1.
+All of this is one step so every login path stays green.
+
+10.4 The writer. Server.App gains Try, WriteAnswer, DslResult,
+PlayerResult, Sender, and AppCtx gains acWriteChan, acDslAnswer,
+acPlayerAnswer. Clocks.hs gains WriterTick. SignalNetwork gains
+writerSF :: ClSF RhineM (IOClock RhineM WriterTick) () (), composed into
+the pipeline with |@|. Each tick it drains acWriteChan in order with the
+tryReadTChan loop of drainChan. For each Sender it looks, runs the
+function on the state, and: on Right (gs', result) adds gs' and puts
+Proceed result into that sender's slot; on Left with TryOne, TryTwo or
+TryThree puts TryAgain (rendered error) into that sender's slot; on Left
+with TryFailed takes the failure action, then puts TryAgain (rendered
+error). DslSender failure action: sendMessageWith (worldBuilderErrorText
+err) (priority Emergency), with import Systemd.Journal (priority,
+sendMessageWith) and import System.Posix.Syslog (Priority (Emergency)),
+then exitFailure. PlayerSender failure action: for Left (ActorError gid
+err), the sessions with sessionGid == Just gid each get Routed sid
+(SystemMessage text) and Routed sid (GameNarration narr) with
+gameErrorText err in actionConsequence on acOutbound, and writeLog
+(TickFailed (ActorError gid err)); for any other Left, writeLog
+(TickFailed err) alone. dslTickSF and playerTickBlock lose every
+lookGameState and addGameState call. Each builds its function from the
+drained inputs, writes DslSender TryOne f or PlayerSender TryOne f to
+acWriteChan, takes its slot; on Proceed it does its IO (executeJoinIO,
+deliverNarrationIO, repair replies, DSL reports, counter write-back)
+from the result; on TryAgain it resends with the next Try, and after
+TryThree's TryAgain sends TryFailed, takes the slot, and carries on. Any
+other lookGameState or addGameState call site outside writerSF is
+removed in this step. sasha.cabal build-depends gains libsystemd-journal
+and hsyslog. sashamud-9b adds the C side to the nix: libsystemd in the
+package set and what satisfies libsystemd-journal's pkgconfig-depends.
+That nix lands before this step. Tests for the writer: a DslSender and
+a PlayerSender write in the same tick both land in the adopted state; a
+Left player function leaves the state unchanged. SlmRepairSpec's "an
+unparseable sentence is repaired by the model and runs" goes back from
+xit to it in this step and must pass.

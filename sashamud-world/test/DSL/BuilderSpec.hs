@@ -37,6 +37,7 @@ import           Model.Core
   , defaultScene
   , getGIDToDataMap
   , implicitStimulusMap
+  , initialCounters
   , newUserMkAgent
   , objectMap
   , possibilityGraph
@@ -62,7 +63,6 @@ import           SashaPrelude
   , (>>)
   , (>>=)
   )
-import           Server.App (initialCounters)
 import           Server.World (loadWorld, worldLoadFailureText)
 import           System.Environment (lookupEnv)
 import           Test.Hspec (Spec, describe, expectationFailure, it, shouldBe)

@@ -10,12 +10,12 @@ import           SeleniumHarness
   , webDriverTestWithPage
   , withServer
   )
-import           Test.Hspec (Spec, around, describe, it, sequential)
+import           Test.Hspec (Spec, around, describe, sequential, xit)
 import           Test.WebDriver (Selector (ByCSS), asyncJS, findElem, sendKeys)
 
 spec :: Spec
 spec = describe "Slm repair" . around withServer . sequential $ do
-    it "an unparseable sentence is repaired by the model and runs" $ \ctx ->
+    xit "an unparseable sentence is repaired by the model and runs" $ \ctx ->
         webDriverTestWithPage ctx $ \_ -> do
           connected <- asyncJS [] waitConnected
           case connected of

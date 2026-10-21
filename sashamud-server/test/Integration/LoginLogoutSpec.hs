@@ -91,6 +91,7 @@ import           Model.Core
   , SceneLabel (SceneLabel)
   , actionConsequence
   , defaultGameState
+  , initialCounters
   , presenceListing
   )
 import           Model.Jwt
@@ -154,7 +155,6 @@ import           Server.App
   , OidcConfig (OidcConfig)
   , SessionPhase (SessionPhase)
   , SessionState (AwaitingJoin, AwaitingSocket, InGame)
-  , initialCounters
   , newAppCtx
   )
 import           Server.Authentication (CanDo)

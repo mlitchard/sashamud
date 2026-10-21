@@ -45,6 +45,7 @@ import           Model.Core
   , ActionManagementFunctions (ActionManagementFunctions)
   , ActorKey
   , Agent
+  , BuilderCounters
   , Entity
   , EntityActionRegistry
   , GameState
@@ -74,6 +75,13 @@ import           Model.Core
   , implicitStimulusMap
   , newUserMkAgent
   , newUserStartScene
+  , nextAcquisitionId
+  , nextDirectionalStimulusId
+  , nextDivestmentId
+  , nextImplicitStimulusId
+  , nextObjectId
+  , nextSceneId
+  , nextWitnessId
   , objectActionManagement
   , objectMap
   , objectSemanticMap
@@ -88,27 +96,17 @@ import           Model.Core
   , sharedWorldOutcomeEffects
   , shortName
   , spatialRelationshipMap
+  , succPInt
   , targetEntityActionEffects
   , targetWorldOutcomeEffects
   , unObjectLabel
+  , unPInt
   , unSceneLabel
   , unSpatialRelationshipMap
   , witnessMap
   , world
   )
 import           Model.GID (GID (GID))
-import           Server.App
-  ( BuilderCounters
-  , nextAcquisitionId
-  , nextDirectionalStimulusId
-  , nextDivestmentId
-  , nextImplicitStimulusId
-  , nextObjectId
-  , nextSceneId
-  , nextWitnessId
-  , succPInt
-  , unPInt
-  )
 
 data BuilderState = BuilderState
   { bsGameState :: GameState
