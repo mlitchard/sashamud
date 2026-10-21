@@ -17,6 +17,7 @@ import           Model.Core
   , AgentKind (Denizen)
   , EntityKey (EntityObject)
   , GameComputation
+  , GameError (AgentLocationMissing, ObjectMissing, SceneMissing)
   , Narration
   , Object
   , SpatialRelationship (ContainedIn, SupportedBy, Supports)
@@ -53,10 +54,10 @@ youSeeM actorGid = do
   aMap <- use (world . agentMap . getAgentMap)
   oMap <- use (world . objectMap . getGIDToDataMap)
   locMap <- use agentLocationMap
-  sceneGid <- throwMaybeM ("Agent location not found: " <> pack (show actorGid))
+  sceneGid <- throwMaybeM (AgentLocationMissing actorGid)
                 (lookup actorGid locMap)
   sMap <- use (world . sceneMap . getGIDToDataMap)
-  scene <- throwMaybeM ("Scene not found: " <> pack (show sceneGid))
+  scene <- throwMaybeM (SceneMissing sceneGid)
              (lookup sceneGid sMap)
   modifyAgentNarration (AgentKey actorGid) (over playerAction (<> [colored White "You look around."]))
   let desc = view sceneDescription scene
@@ -72,7 +73,7 @@ youSeeM actorGid = do
       topLevelEntities = concatMap (getDirectlySupported spatialMap) anchorObjects
   let topLevelObjectGids = [oid | EntityObject oid <- topLevelEntities]
   topLevelNames <- forM topLevelObjectGids $ \oid -> do
-    obj <- throwMaybeM ("Object not found: " <> pack (show oid))
+    obj <- throwMaybeM (ObjectMissing oid)
              (lookup oid oMap)
     pure (view shortName obj)
   when (not (null topLevelNames)) $ do

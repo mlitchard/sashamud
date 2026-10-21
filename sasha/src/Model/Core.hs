@@ -34,6 +34,8 @@ module Model.Core
   , PossibilityGraph (..)
     -- * GameComputation
   , GameComputation (GameComputation, runGameComputation)
+  , GameError (ActorError, AgentMissing, AgentLocationMissing, SceneMissing, ObjectMissing, WitnessFunctionMissing, SpatialRelationshipsMissing, SupportMissing, ObjectActionMissing, ActionMissing, ActionGIDMissing, NoFloorHere, SharedWitnessMissing, NewUserStartSceneMissing, NewUserTemplateMissing, EvaluatorMissing, SessionMissing, ActorNotAgent, TargetNotAgent, ObjectInScene, ParseFailed)
+  , gameErrorText
     -- * Counters
   , PInt
   , succPInt
@@ -511,17 +513,65 @@ instance MonadTrans GameStateT where
 -- GameComputation
 
 type GameComputation :: (Type -> Type) -> Type -> Type
-newtype GameComputation m a = GameComputation { runGameComputation :: ExceptT Text (GameStateT m) a }
+newtype GameComputation m a = GameComputation { runGameComputation :: ExceptT GameError (GameStateT m) a }
   deriving newtype
     ( Applicative
     , Functor
     , Monad
-    , MonadError Text
+    , MonadError GameError
     , MonadState GameState
     )
 
 instance MonadTrans GameComputation where
   lift = GameComputation . lift . lift
+
+type GameError :: Type
+data GameError = ActorError (GID Agent) GameError
+               | AgentMissing (GID Agent)
+               | AgentLocationMissing (GID Agent)
+               | SceneMissing (GID Scene)
+               | ObjectMissing (GID Object)
+               | WitnessFunctionMissing (GID WitnessF)
+               | SpatialRelationshipsMissing (GID Object)
+               | SupportMissing (GID Object)
+               | ObjectActionMissing (GID Object)
+               | ActionMissing Text
+               | ActionGIDMissing Text
+               | NoFloorHere (GID Scene)
+               | SharedWitnessMissing
+               | NewUserStartSceneMissing
+               | NewUserTemplateMissing
+               | EvaluatorMissing (GID Agent)
+               | SessionMissing SessionId
+               | ActorNotAgent ActorKey
+               | TargetNotAgent TargetKey
+               | ObjectInScene (GID Scene)
+               | ParseFailed Text
+  deriving stock (Eq, Generic, Show)
+
+gameErrorText :: GameError -> Text
+gameErrorText = \case
+  ActorError _ err                -> gameErrorText err
+  AgentMissing gid                -> "Agent not found: " <> pack (show gid)
+  AgentLocationMissing gid        -> "Agent location not found: " <> pack (show gid)
+  SceneMissing gid                -> "Scene not found: " <> pack (show gid)
+  ObjectMissing gid               -> "Object not found: " <> pack (show gid)
+  WitnessFunctionMissing gid      -> "Witness function not found: " <> pack (show gid)
+  SpatialRelationshipsMissing gid -> "Object not found in spatial relationships: " <> pack (show gid)
+  SupportMissing gid              -> "Object has no support: " <> pack (show gid)
+  ObjectActionMissing gid         -> "Object has no action: " <> pack (show gid)
+  ActionMissing t                 -> t
+  ActionGIDMissing t              -> t
+  NoFloorHere _                   -> "There's nowhere to drop that here."
+  SharedWitnessMissing            -> "Programmer Error: world declared no shared AgentEntity witness"
+  NewUserStartSceneMissing        -> "Programmer Error: world declared no newUser start scene"
+  NewUserTemplateMissing          -> "Programmer Error: world declared no newUser agent template"
+  EvaluatorMissing gid            -> "Programmer Error: no evaluator for " <> pack (show gid)
+  SessionMissing sid              -> "Programmer Error: no InGame session for " <> pack (show sid)
+  ActorNotAgent key               -> "Programmer Error: non-agent actor: " <> pack (show key)
+  TargetNotAgent key              -> "Programmer Error: LookAtAgentNarration target is not an agent: " <> pack (show key)
+  ObjectInScene gid               -> "Programmer Error: object in a scene: " <> pack (show gid)
+  ParseFailed t                   -> t
 
 -- PossibilityGraph
 

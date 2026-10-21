@@ -34,6 +34,7 @@ import           Control.Concurrent.STM
   )
 import           Control.Exception (try)
 import           Control.Monad (foldM)
+import           Control.Monad.Error.Class (catchError)
 import           Control.Monad.Except (runExceptT, throwError)
 import           Control.Monad.Schedule.Class (MonadSchedule (schedule))
 import           Control.Monad.State (get, put, runStateT)
@@ -140,6 +141,7 @@ import           Model.Core
   , EntityKey (EntityAgent)
   , Evaluator (Evaluator)
   , GameComputation (runGameComputation)
+  , GameError (ActorError, AgentLocationMissing, AgentMissing, EvaluatorMissing, NewUserStartSceneMissing, NewUserTemplateMissing, ParseFailed, SceneMissing, SessionMissing, SharedWitnessMissing)
   , GameState
   , GameStateT (runGameStateT)
   , Narration (Narration, _actionConsequence, _actionEpilogue, _playerAction, _presenceListing)
@@ -155,6 +157,7 @@ import           Model.Core
   , agentWitnessMap
   , declaredSceneGIDs
   , evaluation
+  , gameErrorText
   , getAgentMap
   , getGIDToDataMap
   , narrationMap
@@ -339,7 +342,7 @@ playerTickBlock = constMCl $ do
   -- ERROR EVALUATION: after execution
   case result of
     Left err ->
-      liftIO $ hPutStrLn stderr ("Tick computation failed: " <> unpack err)
+      liftIO $ hPutStrLn stderr ("Tick computation failed: " <> unpack (gameErrorText err))
     Right (narrations, repairReplies) -> do
       -- IO: execute join effects (session promotion, welcome messages)
       liftIO $ forM_ joinResults (executeJoinIO appCtx)
@@ -369,7 +372,7 @@ composeTick leavesComp joinComp commandComp joinedGids = do
   repairReplies <- commandComp
   forM_ joinedGids $ \gid ->
     case lexify tokens "look" >>= parseTokens of
-      Left err       -> throwError err
+      Left err       -> throwError (ParseFailed err)
       Right sentence -> runEvalFor gid sentence
   narrations <- extractNarration
   pure (narrations, repairReplies)
@@ -418,19 +421,19 @@ processJoinsPure aMap joins = (joinResults, mapM_ joinComputation joinResults)
       case lookup accountGid aMap of
         Just _  -> ReturningPlayerJoined sid accountGid
         Nothing -> NewPlayerJoined sid name accountGid
-    joinComputation (ReturningPlayerJoined _sid gid) = do
+    joinComputation (ReturningPlayerJoined _sid gid) = (do
       gs <- get
       case lookup gid (view (world . agentMap . getAgentMap) gs) of
-        Nothing -> throwError ("Programmer Error: returning player agent not found: " <> pack (show gid))
+        Nothing -> throwError (AgentMissing gid)
         Just agent ->
           case lookup gid (view agentLocationMap gs) of
-            Nothing -> throwError ("Programmer Error: returning player location not found: " <> pack (show gid))
+            Nothing -> throwError (AgentLocationMissing gid)
             Just sceneGid ->
               case lookup sceneGid (view (world . sceneMap . getGIDToDataMap) gs) of
-                Nothing -> throwError ("Programmer Error: returning player scene not found: " <> pack (show sceneGid))
+                Nothing -> throwError (SceneMissing sceneGid)
                 Just scene ->
                   case lookup AgentEntity (view (world . sharedWitnessManagement) gs) of
-                    Nothing -> throwError "Programmer Error: world declared no shared AgentEntity witness"
+                    Nothing -> throwError SharedWitnessMissing
                     Just witnessGid -> do
                       let currentAMap = view (world . agentMap . getAgentMap) gs
                           key = DirectionalStimulusPlayerKey (DirectionalStimulusPlayer (AGENTNAME (toPlainText (view agentShortName agent))))
@@ -443,20 +446,20 @@ processJoinsPure aMap joins = (joinResults, mapM_ joinComputation joinResults)
                             & agentWitnessMap . at (AgentKey gid) ?~ fromList [(EntityAgent g, witnessGid) | g <- others]
                             & over agentWitnessMap (flip (unionWith (<>)) (fromList [(AgentKey g, fromList [(EntityAgent gid, witnessGid)]) | g <- others]))
                             & announceToDenizens currentAMap others announceNarration
-                      put gs'
-    joinComputation (NewPlayerJoined _sid name gid) = do
+                      put gs') `catchError` \err -> throwError (ActorError gid err)
+    joinComputation (NewPlayerJoined _sid name gid) = (do
       gs <- get
       case view (possibilityGraph . newUserStartScene) gs of
-        Nothing -> throwError "Programmer Error: world declared no newUser start scene"
+        Nothing -> throwError NewUserStartSceneMissing
         Just sceneGid ->
           case view (possibilityGraph . newUserMkAgent) gs of
-            Nothing -> throwError "Programmer Error: world declared no newUser agent template"
+            Nothing -> throwError NewUserTemplateMissing
             Just mkAgent ->
               case lookup AgentEntity (view (world . sharedWitnessManagement) gs) of
-                Nothing -> throwError "Programmer Error: world declared no shared AgentEntity witness"
+                Nothing -> throwError SharedWitnessMissing
                 Just witnessGid ->
                   case lookup sceneGid (view (world . sceneMap . getGIDToDataMap) gs) of
-                    Nothing -> throwError ("Programmer Error: new player start scene not found: " <> pack (show sceneGid))
+                    Nothing -> throwError (SceneMissing sceneGid)
                     Just scene -> do
                       let agent = mkAgent (view unPlayerNameVAL name)
                           currentAMap = view (world . agentMap . getAgentMap) gs
@@ -473,7 +476,7 @@ processJoinsPure aMap joins = (joinResults, mapM_ joinComputation joinResults)
                             & over agentWitnessMap (flip (unionWith (<>)) (fromList [(AgentKey g, fromList [(EntityAgent gid, witnessGid)]) | g <- others]))
                             & announceToDenizens currentAMap others announceNarration
                             & evaluation . at gid ?~ Evaluator eval
-                      put gs'
+                      put gs') `catchError` \err -> throwError (ActorError gid err)
 
 consequenceNarration :: RichText -> Narration
 consequenceNarration line = Narration
@@ -502,18 +505,18 @@ joinGIDs = fmap $ \case
 runEvalFor :: GID Agent -> Sentence -> GameComputation Identity ()
 runEvalFor gid sentence = do
   evaluator <- lookupEvaluatorOrThrow gid
-  view runEvaluator evaluator gid sentence
+  view runEvaluator evaluator gid sentence `catchError` \err -> throwError (ActorError gid err)
 
 lookupEvaluatorOrThrow :: GID Agent -> GameComputation Identity Evaluator
 lookupEvaluatorOrThrow gid = do
   evals <- use evaluation
   case lookup gid evals of
-    Nothing        -> throwError ("Programmer Error: no evaluator for " <> pack (show gid))
+    Nothing        -> throwError (EvaluatorMissing gid)
     Just evaluator -> pure evaluator
 
 runPureComputation :: GameComputation Identity a
                    -> GameState
-                   -> (Either Text a, GameState)
+                   -> (Either GameError a, GameState)
 runPureComputation comp gs =
   runIdentity (runStateT (runGameStateT (runExceptT (runGameComputation comp))) gs)
 
@@ -585,7 +588,7 @@ resolveCommands sessions pending playerLookup msgs =
       <> [(sid, sentence) | (sid, _, _, _, _, sentence) <- repairedSentences]
     commandComputation (sid, sentence) =
       case lookup sid sessions >>= sessionGid of
-        Nothing  -> throwError ("Programmer Error: no InGame session for " <> pack (show sid))
+        Nothing  -> throwError (SessionMissing sid)
         Just gid -> runEvalFor gid sentence
     commandsAndRepairs = do
       firstRequests <- mapM firstRepairRequest unparsedCmds
@@ -605,7 +608,7 @@ resolveCommands sessions pending playerLookup msgs =
             gid <- lookup sid sessions >>= sessionGid
             lookup gid aMap
       case actor of
-        Nothing    -> throwError ("Programmer Error: no agent for " <> pack (show sid))
+        Nothing    -> throwError (SessionMissing sid)
         Just agent -> pure (verbsFor sharedTables agent)
     verbsFor sharedTables agent =
       fill [key | key@(ImplicitStimulusKey _) <- own] [key | key@(ImplicitStimulusKey _) <- shared]

@@ -358,6 +358,20 @@ In Model.Core, beside GameComputation:
 
     gameErrorText :: GameError -> Text
 
+RULED (user, 2026-10-21): gameErrorText renders one text per
+constructor, the payload shown after it with pack (show _):
+AgentMissing "Agent not found: ", AgentLocationMissing "Agent location
+not found: ", SceneMissing "Scene not found: ", ObjectMissing "Object
+not found: ", ObjectActionMissing "Object has no action: ",
+ActorNotAgent "Programmer Error: non-agent actor: ", ObjectInScene
+"Programmer Error: object in a scene: ", SessionMissing "Programmer
+Error: no InGame session for ", NoFloorHere "There's nowhere to drop
+that here." with no payload shown. Each remaining constructor keeps
+the single text its site throws today with the payload appended.
+ActorError gid err renders gameErrorText err. ParseFailed t renders t.
+processNarrationEffect has no SupportMissing site; that source maps to
+nothing. No test matches a Left from runPureComputation.
+
 Constructor sources: AgentMissing, AgentLocationMissing, SceneMissing,
 ObjectMissing are the "not found" lookups (target, support, spatial ref
 and floor misses are ObjectMissing or AgentMissing by the GID's type).

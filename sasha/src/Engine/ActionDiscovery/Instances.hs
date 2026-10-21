@@ -68,6 +68,7 @@ import           Model.Core
   , DivestmentTargetType (DivestToSurface')
   , EntityKey (EntityAgent, EntityObject, EntityScene)
   , GameComputation
+  , GameError (AgentLocationMissing, NoFloorHere, ObjectActionMissing, ObjectMissing, SceneMissing, SpatialRelationshipsMissing, SupportMissing)
   , ImplicitStimulusF (ImplicitNoStimulusF, ImplicitStimulusF)
   , Object
   , SpatialRelationship (ContainedIn, Inventory, SupportedBy)
@@ -113,7 +114,7 @@ instance ActionProtocol ImplicitStimulusF where
   runActionProtocol actorGid verb = do
     actionMap <- gets (getActionMap @ImplicitStimulusF . view actionMaps)
     locMap <- use agentLocationMap
-    sceneGid <- throwMaybeM ("Agent location not found: " <> pack (show actorGid))
+    sceneGid <- throwMaybeM (AgentLocationMissing actorGid)
                   (lookup actorGid locMap)
     let actorKey = ActorKey (EntityAgent actorGid)
         targetKey = TargetKey (EntityScene sceneGid)
@@ -150,10 +151,10 @@ instance ActionProtocol DirectionalStimulusF where
   runActionProtocol actorGid (verb, nounPhrase@(DirectionalStimulusNounPhrase _ np)) = do
     let nounKey = extractDirectionalNoun nounPhrase
     locMap <- use agentLocationMap
-    sceneGid <- throwMaybeM ("Agent location not found: " <> pack (show actorGid))
+    sceneGid <- throwMaybeM (AgentLocationMissing actorGid)
                   (lookup actorGid locMap)
     sMap <- use (world . sceneMap . getGIDToDataMap)
-    scene <- throwMaybeM ("Scene not found: " <> pack (show sceneGid))
+    scene <- throwMaybeM (SceneMissing sceneGid)
                (lookup sceneGid sMap)
     objGIDMaybe <- case lookup nounKey (view objectSemanticMap scene) of
                      Nothing -> pure Nothing
@@ -200,10 +201,10 @@ instance ActionProtocol DirectionalStimulusF where
     let nounKey = extractDirectionalNoun nounPhrase
         actorKey = ActorKey (EntityAgent actorGid)
     locMap <- use agentLocationMap
-    sceneGid <- throwMaybeM ("Agent location not found: " <> pack (show actorGid))
+    sceneGid <- throwMaybeM (AgentLocationMissing actorGid)
                   (lookup actorGid locMap)
     sMap <- use (world . sceneMap . getGIDToDataMap)
-    scene <- throwMaybeM ("Scene not found: " <> pack (show sceneGid))
+    scene <- throwMaybeM (SceneMissing sceneGid)
                (lookup sceneGid sMap)
     case toList (fromMaybe mempty (lookup nounKey (view agentSemanticMap scene))) of
       [] -> do
@@ -269,10 +270,10 @@ instance ActionProtocol AcquisitionF where
     -- Resolve object in the actor's scene
     let nounKey = parseObjectPhrase objectPhrase
     locMap <- use agentLocationMap
-    sceneGid <- throwMaybeM ("Agent location not found: " <> pack (show actorGid))
+    sceneGid <- throwMaybeM (AgentLocationMissing actorGid)
                   (lookup actorGid locMap)
     sMap <- use (world . sceneMap . getGIDToDataMap)
-    scene <- throwMaybeM ("Scene not found: " <> pack (show sceneGid))
+    scene <- throwMaybeM (SceneMissing sceneGid)
                (lookup sceneGid sMap)
     case lookup nounKey (view objectSemanticMap scene) of
       Nothing -> modifyAgentNarration (AgentKey actorGid) (over actionConsequence (<> [colored White "You don't see that here."]))
@@ -308,23 +309,23 @@ handleAcquisition actorGid avp (AcquisitionF (ActionEffectKeyF ps)) playerKey ve
       targetKey = TargetKey (EntityObject objectGID)
   -- Support the object rests on
   spatialMap <- use (world . spatialRelationshipMap . unSpatialRelationshipMap)
-  rels <- throwMaybeM ("Object not found in spatial relationships: " <> pack (show objectGID))
+  rels <- throwMaybeM (SpatialRelationshipsMissing objectGID)
             (lookup (EntityObject objectGID) spatialMap)
-  supportGID <- throwMaybeM ("Object has no support: " <> pack (show objectGID))
+  supportGID <- throwMaybeM (SupportMissing objectGID)
                   (listToMaybe ([oid | ContainedIn (EntityObject oid) <- toList rels]
                                 <> [oid | SupportedBy (EntityObject oid) <- toList rels]))
 
   -- Fetch actions from scene, support, object
   oMap <- use (world . objectMap . getGIDToDataMap)
-  obj <- throwMaybeM ("Object not found: " <> pack (show objectGID))
+  obj <- throwMaybeM (ObjectMissing objectGID)
            (lookup objectGID oMap)
-  support <- throwMaybeM ("Support not found: " <> pack (show supportGID))
+  support <- throwMaybeM (ObjectMissing supportGID)
                (lookup supportGID oMap)
   (sceneActionGID, sceneAction) <- fetchSceneAction @AcquisitionF avp actionMap actorGid
-  supportActionGID <- throwMaybeM "Support has no acquisition action"
+  supportActionGID <- throwMaybeM (ObjectActionMissing supportGID)
                         (findAVSupportKey verb (view objectActionManagement support))
   supportAction <- fetchAction @AcquisitionF actionMap supportActionGID
-  objectActionGID <- throwMaybeM "Object has no acquisition action"
+  objectActionGID <- throwMaybeM (ObjectActionMissing objectGID)
                        (findAVKey verb (view objectActionManagement obj))
   objectAction <- fetchAction @AcquisitionF actionMap objectActionGID
 
@@ -400,29 +401,29 @@ instance ActionProtocol DivestmentF where
           DivestmentF (ActionEffectKeyF ps) -> do
             -- Target is the floor of the actor's scene
             locMap <- use agentLocationMap
-            sceneGid <- throwMaybeM ("Agent location not found: " <> pack (show actorGid))
+            sceneGid <- throwMaybeM (AgentLocationMissing actorGid)
                           (lookup actorGid locMap)
             sMap <- use (world . sceneMap . getGIDToDataMap)
-            scene <- throwMaybeM ("Scene not found: " <> pack (show sceneGid))
+            scene <- throwMaybeM (SceneMissing sceneGid)
                        (lookup sceneGid sMap)
-            floorSet <- throwMaybeM "There's nowhere to drop that here."
+            floorSet <- throwMaybeM (NoFloorHere sceneGid)
                           (lookup (ObjectiveKey floorOB) (view objectSemanticMap scene))
-            floorGID <- throwMaybeM "There's nowhere to drop that here."
+            floorGID <- throwMaybeM (NoFloorHere sceneGid)
                           (listToMaybe (toList floorSet))
 
             -- Fetch actions from object, scene, target
             oMap <- use (world . objectMap . getGIDToDataMap)
-            obj <- throwMaybeM ("Object not found: " <> pack (show objectGID))
+            obj <- throwMaybeM (ObjectMissing objectGID)
                      (lookup objectGID oMap)
-            target <- throwMaybeM ("Target not found: " <> pack (show floorGID))
+            target <- throwMaybeM (ObjectMissing floorGID)
                         (lookup floorGID oMap)
             let objectActions = view objectActionManagement obj
                 targetActions = view objectActionManagement target
-            objectActionGID <- throwMaybeM "Object has no divestment action"
+            objectActionGID <- throwMaybeM (ObjectActionMissing objectGID)
                                  (findDVSurfaceKey verb objectActions <|> findDVKey verb objectActions)
             objectAction <- fetchAction @DivestmentF actionMap objectActionGID
             (sceneActionGID, sceneAction) <- fetchSceneAction @DivestmentF dvp actionMap actorGid
-            targetActionGID <- throwMaybeM "Target has no divestment action"
+            targetActionGID <- throwMaybeM (ObjectActionMissing floorGID)
                                  (findDVSurfaceKey verb targetActions <|> findDVKey verb targetActions)
             targetAction <- fetchAction @DivestmentF actionMap targetActionGID
 
@@ -456,7 +457,7 @@ parseObjectPhrase (ObjectPhrase np) = case np of
 objectMatchesAdjective :: Adjective -> GID Object -> GameComputation Identity Bool
 objectMatchesAdjective adj oid = do
   oMap <- use (world . objectMap . getGIDToDataMap)
-  obj <- throwMaybeM ("Object not found: " <> pack (show oid))
+  obj <- throwMaybeM (ObjectMissing oid)
            (lookup oid oMap)
   let objDescriptives = view descriptives obj
   pure $ any matchesAdjective (toList objDescriptives)

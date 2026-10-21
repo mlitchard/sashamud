@@ -49,6 +49,7 @@ import           Model.Core
   , Entity (AgentEntity, ObjectEntity, SceneEntity)
   , EntityKey (EntityAgent, EntityObject, EntityScene)
   , GameComputation
+  , GameError (ActorNotAgent, AgentLocationMissing, AgentMissing, ObjectInScene, ObjectMissing, SceneMissing, SpatialRelationshipsMissing, TargetNotAgent, WitnessFunctionMissing)
   , ImplicitStimulusF
   , NarrationComputation (LookAtAgentNarration, LookAtNarration, LookNarration, StaticNarration)
   , Object
@@ -186,19 +187,19 @@ processAgentActionEffect aid op =
 modifySceneM :: GID Scene -> (Scene -> Scene) -> GameComputation Identity ()
 modifySceneM sid sceneF = do
   sMap <- use (world . sceneMap . getGIDToDataMap)
-  scene <- throwMaybeM ("Scene not found: " <> pack (show sid)) (lookup sid sMap)
+  scene <- throwMaybeM (SceneMissing sid) (lookup sid sMap)
   world . sceneMap . getGIDToDataMap . at sid .= Just (sceneF scene)
 
 modifyObjectM :: GID Object -> (Object -> Object) -> GameComputation Identity ()
 modifyObjectM oid objectF = do
   oMap <- use (world . objectMap . getGIDToDataMap)
-  obj <- throwMaybeM ("Object not found: " <> pack (show oid)) (lookup oid oMap)
+  obj <- throwMaybeM (ObjectMissing oid) (lookup oid oMap)
   world . objectMap . getGIDToDataMap . at oid .= Just (objectF obj)
 
 modifyAgentM :: GID Agent -> (Agent -> Agent) -> GameComputation Identity ()
 modifyAgentM aid agentF = do
   aMap <- use (world . agentMap . getAgentMap)
-  agent <- throwMaybeM ("Agent not found: " <> pack (show aid)) (lookup aid aMap)
+  agent <- throwMaybeM (AgentMissing aid) (lookup aid aMap)
   world . agentMap . getAgentMap . at aid .= Just (agentF agent)
 
 -- | Dispatch on WorldOutcome constructors
@@ -208,7 +209,7 @@ processWorldOutcome actorKey targetKey (NarrationEffect narrationComp) =
 processWorldOutcome (ActorKey (EntityAgent actorGid)) _ (SpatialRelationshipEffect spatialComp) =
   processSpatialRelationshipEffect actorGid spatialComp
 processWorldOutcome actorKey _ (SpatialRelationshipEffect _) =
-  throwError ("Programmer Error: spatial relationship effect for non-agent actor: " <> pack (show actorKey))
+  throwError (ActorNotAgent actorKey)
 
 processSpatialRelationshipEffect :: GID Agent -> SpatialRelationshipComputation -> GameComputation Identity ()
 processSpatialRelationshipEffect actorGid (Acquisition acquireableGID supportGID) = do
@@ -226,7 +227,7 @@ processSpatialRelationshipEffect actorGid (Acquisition acquireableGID supportGID
     ) relationships
   modifySpatialRelationshipsM acquireableGID (Data.Set.insert (Inventory actorGid))
   locMap <- use agentLocationMap
-  sceneGid <- throwMaybeM ("Agent location not found: " <> pack (show actorGid))
+  sceneGid <- throwMaybeM (AgentLocationMissing actorGid)
                 (lookup actorGid locMap)
   case acquireableGID of
     EntityObject oid -> removeObjectFromScene sceneGid oid
@@ -246,7 +247,7 @@ processSpatialRelationshipEffect actorGid (Divestiture divestedGID targetGID tar
             withoutOldSupports = Data.Set.filter (\case Supports _ -> False; _ -> True) relationships
         in Data.Set.insert (Supports (Data.Set.insert (EntityObject divestedGID) existingSupports)) withoutOldSupports
   locMap <- use agentLocationMap
-  sceneGid <- throwMaybeM ("Agent location not found: " <> pack (show actorGid))
+  sceneGid <- throwMaybeM (AgentLocationMissing actorGid)
                 (lookup actorGid locMap)
   addObjectToScene sceneGid divestedGID
 
@@ -284,44 +285,44 @@ findNounKeysForObject oid = do
 processNarrationEffect :: ActorKey -> TargetKey -> NarrationComputation -> GameComputation Identity ()
 processNarrationEffect (ActorKey (EntityAgent actorGid)) _ (LookAtNarration objGID) = do
   oMap <- use (world . objectMap . getGIDToDataMap)
-  obj <- throwMaybeM ("Object not found: " <> pack (show objGID))
+  obj <- throwMaybeM (ObjectMissing objGID)
            (lookup objGID oMap)
   modifyAgentNarration (AgentKey actorGid) (over actionConsequence (<> [view description obj]))
   spatialMap <- use (world . spatialRelationshipMap . unSpatialRelationshipMap)
   case lookup (EntityObject objGID) spatialMap of
     Nothing ->
-      throwError ("Object not found in spatial relationships: " <> pack (show objGID))
+      throwError (SpatialRelationshipsMissing objGID)
     Just relationships ->
       forM_ (toList relationships) $ \case
         SupportedBy (EntityObject refGID) -> do
-          refObj <- throwMaybeM ("Spatial ref not found: " <> pack (show refGID))
+          refObj <- throwMaybeM (ObjectMissing refGID)
                      (lookup refGID oMap)
           modifyAgentNarration (AgentKey actorGid)
             (over actionConsequence (<> [colored White ("It is on the " <> view shortName refObj <> ".")]))
         SupportedBy (EntityAgent refGID) -> do
           aMap <- use (world . agentMap . getAgentMap)
-          agent <- throwMaybeM ("Agent not found: " <> pack (show refGID))
+          agent <- throwMaybeM (AgentMissing refGID)
                      (lookup refGID aMap)
           modifyAgentNarration (AgentKey actorGid)
             (over actionConsequence (<> [colored White ("It is on " <> toPlainText (view agentShortName agent) <> ".")]))
         ContainedIn (EntityObject containerGID) -> do
-          container <- throwMaybeM ("Spatial ref not found: " <> pack (show containerGID))
+          container <- throwMaybeM (ObjectMissing containerGID)
                          (lookup containerGID oMap)
           modifyAgentNarration (AgentKey actorGid)
             (over actionConsequence (<> [colored White (view shortName obj <> " is inside " <> view shortName container)]))
         ContainedIn (EntityAgent agentGID) -> do
           aMap <- use (world . agentMap . getAgentMap)
-          agent <- throwMaybeM ("Agent not found: " <> pack (show agentGID))
+          agent <- throwMaybeM (AgentMissing agentGID)
                      (lookup agentGID aMap)
           modifyAgentNarration (AgentKey actorGid)
             (over actionConsequence (<> [colored White (view shortName obj <> " is carried by " <> toPlainText (view agentShortName agent))]))
         SupportedBy (EntityScene sid) ->
-          throwError ("Programmer Error: object supported by a scene: " <> pack (show sid))
+          throwError (ObjectInScene sid)
         ContainedIn (EntityScene sid) ->
-          throwError ("Programmer Error: object contained in a scene: " <> pack (show sid))
+          throwError (ObjectInScene sid)
         Inventory agentGID -> do
           aMap <- use (world . agentMap . getAgentMap)
-          agent <- throwMaybeM ("Agent not found: " <> pack (show agentGID))
+          agent <- throwMaybeM (AgentMissing agentGID)
                      (lookup agentGID aMap)
           modifyAgentNarration (AgentKey actorGid)
             (over actionConsequence (<> [colored White (view shortName obj <> " is carried by " <> toPlainText (view agentShortName agent))]))
@@ -329,7 +330,7 @@ processNarrationEffect (ActorKey (EntityAgent actorGid)) _ (LookAtNarration objG
           let oids = [oid | EntityObject oid <- toList eidSet]
           when (not (null oids)) $ do
             supportedNames <- mapM (\oid -> do
-              o <- throwMaybeM ("Object not found: " <> pack (show oid)) (lookup oid oMap)
+              o <- throwMaybeM (ObjectMissing oid) (lookup oid oMap)
               pure (view shortName o)) oids
             modifyAgentNarration (AgentKey actorGid)
               (over actionConsequence (<> [colored White ("On it you see: " <> intercalate ", " supportedNames)]))
@@ -337,31 +338,31 @@ processNarrationEffect (ActorKey (EntityAgent actorGid)) _ (LookAtNarration objG
           let oids = [oid | EntityObject oid <- toList eidSet]
           when (not (null oids)) $ do
             containedNames <- mapM (\oid -> do
-              o <- throwMaybeM ("Object not found: " <> pack (show oid)) (lookup oid oMap)
+              o <- throwMaybeM (ObjectMissing oid) (lookup oid oMap)
               pure (view shortName o)) oids
             modifyAgentNarration (AgentKey actorGid)
               (over actionConsequence (<> [colored White ("Inside it you see: " <> intercalate ", " containedNames)]))
 processNarrationEffect (ActorKey (EntityAgent actorGid)) _ LookNarration = youSeeM actorGid
 processNarrationEffect (ActorKey (EntityAgent actorGid)) (TargetKey (EntityAgent targetGid)) LookAtAgentNarration = do
   aMap <- use (world . agentMap . getAgentMap)
-  target <- throwMaybeM ("Agent not found: " <> pack (show targetGid))
+  target <- throwMaybeM (AgentMissing targetGid)
               (lookup targetGid aMap)
   modifyAgentNarration (AgentKey actorGid) (over actionConsequence (<> [view agentDescription target]))
 processNarrationEffect (ActorKey (EntityAgent _)) targetKey LookAtAgentNarration =
-  throwError ("Programmer Error: LookAtAgentNarration target is not an agent: " <> pack (show targetKey))
+  throwError (TargetNotAgent targetKey)
 processNarrationEffect (ActorKey (EntityAgent actorGid)) _ (StaticNarration text) =
   modifyAgentNarration (AgentKey actorGid) (over actionConsequence (<> [colored White text]))
 processNarrationEffect actorKey _ _ =
-  throwError ("Programmer Error: narration effect for non-agent actor: " <> pack (show actorKey))
+  throwError (ActorNotAgent actorKey)
 
 -- | Process witnesses (sashamud witness system)
 processWitnesses :: ActorKey -> WitnessContext -> GameComputation Identity ()
 processWitnesses actorKey@(ActorKey (EntityAgent actorGid)) witnessCtx = do
   locMap <- use agentLocationMap
-  sceneGid <- throwMaybeM ("Agent location not found: " <> pack (show actorGid))
+  sceneGid <- throwMaybeM (AgentLocationMissing actorGid)
                 (lookup actorGid locMap)
   sMap <- use (world . sceneMap . getGIDToDataMap)
-  scene <- throwMaybeM ("Scene not found: " <> pack (show sceneGid))
+  scene <- throwMaybeM (SceneMissing sceneGid)
              (lookup sceneGid sMap)
   witnessEntries <- use agentWitnessMap
   wMap <- use (possibilityGraph . witnessMap)
@@ -379,63 +380,63 @@ processWitnesses actorKey@(ActorKey (EntityAgent actorGid)) witnessCtx = do
         , Just witnessFGid <- [lookup AgentEntity shared]
         ]
   forM_ (entryWitnesses <> sceneWitnesses) $ \(witnessKey, witnessFGid) -> do
-    witnessFn <- throwMaybeM ("Witness function not found: " <> pack (show witnessFGid))
+    witnessFn <- throwMaybeM (WitnessFunctionMissing witnessFGid)
                    (lookup witnessFGid wMap)
     case witnessFn of
       WitnessF (WitnessEffectF wf) -> wf witnessKey actorKey witnessCtx
 processWitnesses actorKey _ =
-  throwError ("Programmer Error: witness for non-agent actor: " <> pack (show actorKey))
+  throwError (ActorNotAgent actorKey)
 
 processWitnessEffects :: AgentKey -> ActorKey -> WitnessContext -> GameComputation Identity ()
 processWitnessEffects witnessKey (ActorKey (EntityAgent actorGid))ImplicitWitnessContext = do
   aMap <- use (world . agentMap . getAgentMap)
-  actor <- throwMaybeM ("Actor not found: " <> pack (show actorGid))
+  actor <- throwMaybeM (AgentMissing actorGid)
              (lookup actorGid aMap)
   modifyAgentNarration witnessKey
     (over actionConsequence (<> [colored White (toPlainText (view agentShortName actor) <> " looks around.")]))
 processWitnessEffects witnessKey (ActorKey (EntityAgent actorGid))(DirectedWitnessContext objGID) = do
   aMap <- use (world . agentMap . getAgentMap)
   oMap <- use (world . objectMap . getGIDToDataMap)
-  actor <- throwMaybeM ("Actor not found: " <> pack (show actorGid))
+  actor <- throwMaybeM (AgentMissing actorGid)
              (lookup actorGid aMap)
-  obj <- throwMaybeM ("Object not found: " <> pack (show objGID))
+  obj <- throwMaybeM (ObjectMissing objGID)
            (lookup objGID oMap)
   modifyAgentNarration witnessKey
     (over actionConsequence (<> [colored White (toPlainText (view agentShortName actor) <> " looks at the " <> view shortName obj <> ".")]))
 processWitnessEffects witnessKey (ActorKey (EntityAgent actorGid))(AgentWitnessContext targetGid) = do
   aMap <- use (world . agentMap . getAgentMap)
-  actor <- throwMaybeM ("Actor not found: " <> pack (show actorGid))
+  actor <- throwMaybeM (AgentMissing actorGid)
              (lookup actorGid aMap)
-  target <- throwMaybeM ("Agent not found: " <> pack (show targetGid))
+  target <- throwMaybeM (AgentMissing targetGid)
               (lookup targetGid aMap)
   modifyAgentNarration witnessKey
     (over actionConsequence (<> [colored White (toPlainText (view agentShortName actor) <> " looks at " <> toPlainText (view agentShortName target) <> ".")]))
 processWitnessEffects witnessKey (ActorKey (EntityAgent actorGid))FailedAgentLookContext = do
   aMap <- use (world . agentMap . getAgentMap)
-  actor <- throwMaybeM ("Actor not found: " <> pack (show actorGid))
+  actor <- throwMaybeM (AgentMissing actorGid)
              (lookup actorGid aMap)
   modifyAgentNarration witnessKey
     (over actionConsequence (<> [colored White (toPlainText (view agentShortName actor) <> " looks around for someone not here.")]))
 processWitnessEffects witnessKey (ActorKey (EntityAgent actorGid))(AcquisitionWitnessContext objGID) = do
   aMap <- use (world . agentMap . getAgentMap)
   oMap <- use (world . objectMap . getGIDToDataMap)
-  actor <- throwMaybeM ("Actor not found: " <> pack (show actorGid))
+  actor <- throwMaybeM (AgentMissing actorGid)
              (lookup actorGid aMap)
-  obj <- throwMaybeM ("Object not found: " <> pack (show objGID))
+  obj <- throwMaybeM (ObjectMissing objGID)
            (lookup objGID oMap)
   modifyAgentNarration witnessKey
     (over actionConsequence (<> [colored White (toPlainText (view agentShortName actor) <> " picks up the " <> view shortName obj <> ".")]))
 processWitnessEffects witnessKey (ActorKey (EntityAgent actorGid))(DivestmentWitnessContext objGID) = do
   aMap <- use (world . agentMap . getAgentMap)
   oMap <- use (world . objectMap . getGIDToDataMap)
-  actor <- throwMaybeM ("Actor not found: " <> pack (show actorGid))
+  actor <- throwMaybeM (AgentMissing actorGid)
              (lookup actorGid aMap)
-  obj <- throwMaybeM ("Object not found: " <> pack (show objGID))
+  obj <- throwMaybeM (ObjectMissing objGID)
            (lookup objGID oMap)
   modifyAgentNarration witnessKey
     (over actionConsequence (<> [colored White (toPlainText (view agentShortName actor) <> " drops the " <> view shortName obj <> ".")]))
 processWitnessEffects _ actorKey _ =
-  throwError ("Programmer Error: witness effect for non-agent actor: " <> pack (show actorKey))
+  throwError (ActorNotAgent actorKey)
 
 -- | Lookup functions
 lookupImplicitStimulus :: ImplicitStimulusVerb
