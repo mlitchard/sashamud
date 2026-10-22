@@ -126,7 +126,7 @@
               in
               final.callCabal2nix "monoid-extras" src { };
             Earley = final.callHackage "Earley" "0.13.0.1" { };
-            libsystemd-journal = final.callHackage "libsystemd-journal" "1.4.6.0" { inherit (pkgs) systemd; };
+            libsystemd-journal = final.callHackage "libsystemd-journal" "1.4.6.0" { systemd = inputs.horizon-platform.inputs.nixpkgs.legacyPackages.${system}.systemd; };
             # TypeScript codegen
             aeson-typescript = hlib.dontCheck (hlib.doJailbreak
               (final.callCabal2nix "aeson-typescript"
