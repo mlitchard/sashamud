@@ -93,10 +93,12 @@ library
     , generic-arbitrary
     , hashable
     , hint
+    , hsyslog
     , http-client
     , http-client-tls
     , http-types
     , jose-jwt
+    , libsystemd-journal
     , memory
     , microlens-platform
     , mmorph
@@ -198,10 +200,12 @@ executable sasha-tests
     , hspec
     , hspec-core
     , hspec-discover
+    , hsyslog
     , http-client
     , http-client-tls
     , http-types
     , jose-jwt
+    , libsystemd-journal
     , memory
     , microlens-platform
     , mmorph

@@ -5,6 +5,7 @@ import           SashaPrelude
   , Eq ((==))
   , Maybe (Just)
   , Monoid (mconcat, mempty)
+  , Show (show)
   , const
   , fmap
   , pure
@@ -31,6 +32,7 @@ import           Engine.Simulation.SignalNetwork
   , formatState
   , prettyShowSentence
   , resolveCommands
+  , runPureComputation
   )
 import           Grammar.Gbnf (UnparsedSentence (UnparsedSentence))
 import           Grammar.Lexer (lexify, tokens)
@@ -58,12 +60,12 @@ import           Model.GID (GID (GID))
 import           Model.RichText (plain)
 import           Model.WireProtocol
   ( AnalysisViewport (Parser)
-  , MessageFrom (AnalysisData)
+  , MessageFrom (AnalysisData, RepairRequest)
   )
 import           Server.App
   ( PendingRepair (PendingRepair)
   , SessionPhase (SessionPhase)
-  , SessionState (InGame)
+  , SessionState (AwaitingJoin, InGame)
   )
 import           Server.Validator (PlayerNameVAL (PlayerNameVAL))
 import           Test.Hspec
@@ -76,6 +78,23 @@ import           Test.Hspec
 
 spec :: Spec
 spec = do
+  let playerGid = GID 1
+      otherGid = GID 2
+      objectGid = GID 3
+      sceneGid = GID 0
+      mkAgent name = Agent
+        { _agentShortName         = plain name
+        , _agentDescription       = mempty
+        , _agentTitle             = mempty
+        , _agentActionManagement  = ActionManagementFunctions mempty
+        , _agentKind              = Denizen
+        }
+      scene = defaultScene
+        & set sceneAgents (insert otherGid (singleton playerGid))
+      gs = defaultGameState
+        & set (world . agentMap . getAgentMap) (fromList [(playerGid, mkAgent "tester"), (otherGid, mkAgent "other")])
+        & set (world . sceneMap . getGIDToDataMap) (fromList [(sceneGid, scene)])
+        & set agentLocationMap (fromList [(playerGid, sceneGid)])
   describe "resolveCommands" $ do
     let sid = SessionId "session-1"
         sessions = fromList [(sid, SessionPhase (PlayerNameVAL "tester") (GID 0) (InGame (const (pure ()))))]
@@ -83,14 +102,14 @@ spec = do
         case lexify tokens "look" >>= parseTokens of
             Left err -> expectationFailure (unpack err)
             Right sentence -> do
-                let (_, replies, _, _, _, _) = resolveCommands sessions mempty (PlayerWordsFound mempty) [Routed sid (GameCommand "look")]
+                let (_, replies, _, _, _, _) = resolveCommands sessions mempty mempty (PlayerWordsFound mempty) [Routed sid (GameCommand "look")]
                     parserLines = mconcat [viewLines | Routed target (AnalysisData viewports) <- replies, target == sid, Just viewLines <- [lookup Parser viewports]]
                 parserLines `shouldContain` ([plain "=== Sentence ==="] <> fmap plain (lines (prettyShowSentence sentence)))
     it "shows the parse error and the repair request for a GameCommand that fails to parse" $
         case lexify tokens "look look" >>= parseTokens of
             Right _ -> expectationFailure "expected a parse failure"
             Left err -> do
-                let (_, replies, _, _, _, _) = resolveCommands sessions mempty (PlayerWordsFound mempty) [Routed sid (GameCommand "look look")]
+                let (_, replies, _, _, _, _) = resolveCommands sessions mempty mempty (PlayerWordsFound mempty) [Routed sid (GameCommand "look look")]
                     parserLines = mconcat [viewLines | Routed target (AnalysisData viewports) <- replies, target == sid, Just viewLines <- [lookup Parser viewports]]
                 parserLines `shouldContain` ([plain "=== Sentence ==="] <> fmap plain (lines err))
                 parserLines `shouldContain` [plain "=== Repair ===", plain "  repair requested"]
@@ -100,27 +119,18 @@ spec = do
             Right sentence -> do
                 let unparsed = UnparsedSentence "luk"
                     pending = fromList [(sid, PendingRepair unparsed (ParseFailure "Nonsense in parsed tokens UNKNOWN \"luk\"") [])]
-                    (_, replies, _, _, _, _) = resolveCommands sessions pending (PlayerWordsFound mempty) [Routed sid (RepairedCommand unparsed "look" (SlmName "qwen-Qwen3-1.7B-Q8_0"))]
+                    (_, replies, _, _, _, _) = resolveCommands sessions mempty pending (PlayerWordsFound mempty) [Routed sid (RepairedCommand unparsed "look" (SlmName "qwen-Qwen3-1.7B-Q8_0"))]
                     parserLines = mconcat [viewLines | Routed target (AnalysisData viewports) <- replies, target == sid, Just viewLines <- [lookup Parser viewports]]
                 parserLines `shouldContain` ([plain "=== Outcome ===", plain "  parsed, the sentence runs"] <> fmap plain (lines (prettyShowSentence sentence)))
+    it "resolves a command from a session whose join lands in the same tick" $ do
+        let joiningSessions = fromList [(sid, SessionPhase (PlayerNameVAL "tester") playerGid (AwaitingJoin (const (pure ()))))]
+            joining = fromList [(sid, playerGid)]
+            (_, _, _, _, _, comp) = resolveCommands joiningSessions joining mempty (PlayerWordsFound mempty) [Routed sid (GameCommand "look look")]
+        case runPureComputation comp gs of
+            (Left err, _) -> expectationFailure (show err)
+            (Right [Routed target (RepairRequest {})], _) | target == sid -> pure ()
+            (Right _, _) -> expectationFailure "expected one repair request for the joining session"
   describe "formatState" $ do
-    let playerGid = GID 1
-        otherGid = GID 2
-        objectGid = GID 3
-        sceneGid = GID 0
-        mkAgent name = Agent
-          { _agentShortName         = plain name
-          , _agentDescription       = mempty
-          , _agentTitle             = mempty
-          , _agentActionManagement  = ActionManagementFunctions mempty
-          , _agentKind              = Denizen
-          }
-        scene = defaultScene
-          & set sceneAgents (insert otherGid (singleton playerGid))
-        gs = defaultGameState
-          & set (world . agentMap . getAgentMap) (fromList [(playerGid, mkAgent "tester"), (otherGid, mkAgent "other")])
-          & set (world . sceneMap . getGIDToDataMap) (fromList [(sceneGid, scene)])
-          & set agentLocationMap (fromList [(playerGid, sceneGid)])
     it "shows each agent and the object in the player's scene" $ do
         let stateLines = formatState playerGid
               (gs

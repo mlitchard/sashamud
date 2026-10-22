@@ -4,10 +4,13 @@
 module Server.App
   ( AppCtx (..)
   , AppM (..)
+  , DslResult (DslResult, dslResultState, dslResultCounters, dslResultReports)
   , Environment (Development, Production)
   , GameLog (..)
+  , JoinResult (NewPlayerJoined, ReturningPlayerJoined)
   , OidcConfig (..)
   , PendingRepair (PendingRepair)
+  , PlayerResult (PlayerResult, playerResultNarrations, playerResultRepairReplies, playerResultJoins, playerResultState)
   , ScriptMessage (WorldReady)
   , SessionPhase (SessionPhase)
   , SessionState (AwaitingSocket, AwaitingJoin, InGame)
@@ -37,6 +40,7 @@ import           Data.Map.Strict (Map)
 import           Data.Pool (Pool)
 import           Data.Time.Clock (UTCTime)
 import           Database.PostgreSQL.Simple (Connection)
+import           DSL.Builder (WorldBuilderError, WorldChange)
 import           DSL.Model.EDSL.SashaLambdaDSL (SashaLambdaDSL)
 import           GHC.IO (FilePath)
 import           Grammar.Gbnf (UnparsedSentence)
@@ -49,7 +53,13 @@ import           Model.Account
   , RedirectUri
   , StartMode
   )
-import           Model.Core (Agent, BuilderCounters, GameState)
+import           Model.Core
+  ( Agent
+  , AgentKey
+  , BuilderCounters
+  , GameState
+  , Narration
+  )
 import           Model.GID (GID)
 import           Model.RichText (RichText)
 import           Model.WireProtocol (MessageFrom)
@@ -70,6 +80,9 @@ data SessionState = AwaitingSocket
                   | InGame ([MessageFrom] -> IO ())
 
 data PendingRepair = PendingRepair UnparsedSentence ParseFailure [RepairAttempt]
+
+data JoinResult = NewPlayerJoined SessionId PlayerNameVAL (GID Agent)
+                | ReturningPlayerJoined SessionId (GID Agent)
 
 sessionPlayerName :: SessionPhase -> PlayerNameVAL
 sessionPlayerName (SessionPhase name _ _) = name
@@ -109,6 +122,21 @@ type ScriptMessage :: Type
 data ScriptMessage
   = WorldReady
   deriving stock (Eq, Generic, Ord, Show)
+
+type DslResult :: Type
+data DslResult = DslResult
+  { dslResultState    :: GameState
+  , dslResultCounters :: BuilderCounters
+  , dslResultReports  :: [Routed (Either WorldBuilderError [WorldChange])]
+  }
+
+type PlayerResult :: Type
+data PlayerResult = PlayerResult
+  { playerResultNarrations    :: Map AgentKey Narration
+  , playerResultRepairReplies :: [Routed MessageFrom]
+  , playerResultJoins         :: [JoinResult]
+  , playerResultState         :: GameState
+  }
 
 data AppCtx = AppCtx
   { acInbound :: TChan (Routed MessageTo)

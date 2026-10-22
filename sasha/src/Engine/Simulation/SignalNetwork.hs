@@ -10,6 +10,7 @@ module Engine.Simulation.SignalNetwork
   , insertRepairSuccess
   , prettyShowSentence
   , resolveCommands
+  , runPureComputation
   ) where
 
 import           SashaPrelude
@@ -33,7 +34,6 @@ import           Control.Concurrent.STM
   , writeTChan
   )
 import           Control.Exception (try)
-import           Control.Monad (foldM)
 import           Control.Monad.Error.Class (catchError)
 import           Control.Monad.Except (runExceptT, throwError)
 import           Control.Monad.Schedule.Class (MonadSchedule (schedule))
@@ -84,7 +84,7 @@ import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.SqlQQ (sql)
 import           Database.PostgreSQL.Simple.Types (PGArray (PGArray))
 import           DSL.Builder
-  ( WorldBuilderResult (WorldBuilderResult, resultChanges, resultCounters, resultGameState)
+  ( WorldBuilderResult (resultChanges, resultCounters, resultGameState)
   , initialBuilderState
   , interpretDSL
   , runWorldBuilder
@@ -189,19 +189,22 @@ import           Model.WireProtocol
   )
 import           Server.App
   ( AppCtx (acBuilderCounters, acDSLChan, acDbPool, acGameLog, acInbound, acJoinChan, acLastStateViews, acOutbound, acPendingRepairs, acSessions)
+  , DslResult (DslResult, dslResultCounters, dslResultReports, dslResultState)
+  , JoinResult (NewPlayerJoined, ReturningPlayerJoined)
   , PendingRepair (PendingRepair)
+  , PlayerResult (PlayerResult, playerResultJoins, playerResultNarrations, playerResultRepairReplies, playerResultState)
   , SessionPhase (SessionPhase)
   , SessionState (AwaitingJoin, AwaitingSocket, InGame)
   , sessionGid
   )
 import           Server.Log
-  ( LogEntry (DSLBuildFailed, DSLBuildSucceeded)
+  ( LogEntry (DSLBuildFailed, DSLBuildSucceeded, TickFailed)
   , writeLog
   )
-import           Server.Validator (PlayerNameVAL, unPlayerNameVAL)
-
-data JoinResult = NewPlayerJoined SessionId PlayerNameVAL (GID Agent)
-                | ReturningPlayerJoined SessionId (GID Agent)
+import           Server.Validator (unPlayerNameVAL)
+import           System.Exit (exitFailure)
+import           System.Posix.Syslog (Priority (Emergency))
+import           Systemd.Journal (priority, sendMessageWith)
 
 data PlayerLookup = PlayerWordsFound (Set PlayerName)
                   | PlayerLookupFailed SqlError
@@ -258,32 +261,39 @@ dslTickSF = constMCl $ do
   appCtx <- askAppCtx
   submissions <- liftIO $ drainChan (acDSLChan appCtx)
   when (not (null submissions)) $ do
-    gs <- lookGameState
     counters <- liftIO $ readIORef (acBuilderCounters appCtx)
-    let runSubmission prev (Routed sid dsl) =
+    let runSubmission acc (Routed sid dsl) =
           case runWorldBuilder (interpretDSL dsl)
-                 (initialBuilderState (resultGameState prev) (resultCounters prev)) of
-            Left err -> do
-              liftIO $ writeLog (acGameLog appCtx) (DSLBuildFailed err)
-              liftIO . atomically $ writeTChan (acOutbound appCtx) (Routed sid (GameNarration (mempty { _actionConsequence = [plain (worldBuilderErrorText err)] })))
-              pure prev
-            Right next -> do
-              liftIO $ writeLog (acGameLog appCtx) (DSLBuildSucceeded (resultChanges next))
-              liftIO . atomically $ writeTChan (acOutbound appCtx) (Routed sid (GameNarration (mempty { _actionConsequence = fmap (plain . worldChangeText) (resultChanges next) })))
-              pure next
-    result <- foldM runSubmission (WorldBuilderResult gs counters []) submissions
-    liftIO $ writeIORef (acBuilderCounters appCtx) (resultCounters result)
-    addGameState (resultGameState result)
+                 (initialBuilderState (dslResultState acc) (dslResultCounters acc)) of
+            Left err   -> DslResult (dslResultState acc) (dslResultCounters acc) (dslResultReports acc <> [Routed sid (Left err)])
+            Right next -> DslResult (resultGameState next) (resultCounters next) (dslResultReports acc <> [Routed sid (Right (resultChanges next))])
+        f gs = Right (foldl' runSubmission (DslResult gs counters []) submissions)
+    gs <- lookGameState
+    case f gs of
+      Left err -> liftIO $ do
+        sendMessageWith (worldBuilderErrorText err) (priority Emergency)
+        exitFailure
+      Right result -> do
+        addGameState (dslResultState result)
+        liftIO $ do
+          writeIORef (acBuilderCounters appCtx) (dslResultCounters result)
+          forM_ (dslResultReports result) $ \case
+            Routed sid (Left err) -> do
+              writeLog (acGameLog appCtx) (DSLBuildFailed err)
+              atomically $ writeTChan (acOutbound appCtx) (Routed sid (GameNarration (mempty { _actionConsequence = [plain (worldBuilderErrorText err)] })))
+            Routed sid (Right changes) -> do
+              writeLog (acGameLog appCtx) (DSLBuildSucceeded changes)
+              atomically $ writeTChan (acOutbound appCtx) (Routed sid (GameNarration (mempty { _actionConsequence = fmap (plain . worldChangeText) changes })))
 
 playerTickBlock :: ClSF RhineM (IOClock RhineM PlayerTick) () ()
 playerTickBlock = constMCl $ do
-  gs <- lookGameState
   appCtx <- askAppCtx
 
   -- IO: gather inputs
   sessions <- liftIO $ readMVar (acSessions appCtx)
   joins <- liftIO $ drainChan (acJoinChan appCtx)
   msgs <- liftIO $ drainChan (acInbound appCtx)
+  let joining = fromList [(sid, gid) | PlayerJoined sid _ gid <- joins]
   pending <- liftIO $ readMVar (acPendingRepairs appCtx)
   let sentenceTexts = [cmdText | Routed _ (GameCommand cmdText) <- msgs]
                    <> [rewrite | Routed _ (RepairedCommand _ rewrite _) <- msgs]
@@ -300,19 +310,15 @@ playerTickBlock = constMCl $ do
         Right rows  -> pure (PlayerWordsFound (Set.fromList [playerName | (_, playerName) <- rows]))
 
   -- GENERATE: compose one big GameComputation
-  let (pings, replies, updates, failureRows, successRows, commandComp) = resolveCommands sessions pending playerLookup msgs
-      (joinResults, joinComp) = processJoinsPure (view (world . agentMap . getAgentMap) gs) joins
+  let (pings, replies, updates, failureRows, successRows, commandComp) = resolveCommands sessions joining pending playerLookup msgs
       leavesComp = processLeavesPure sessions
-      tickComp = composeTick leavesComp joinComp commandComp (joinGIDs joinResults)
-
-      -- EXECUTE: run once
-      (result, gs') = runPureComputation tickComp gs
-      rowContext sid = do
-        gid <- lookup sid sessions >>= sessionGid
-        sceneGid <- lookup gid (view agentLocationMap gs)
-        case [label | (label, declared) <- assocs (view (world . declaredSceneGIDs) gs), declared == sceneGid] of
-          [label] -> Just (label, Mid (unGID gid))
-          _       -> Nothing
+      f gs =
+        let (joinResults, joinComp) = processJoinsPure (view (world . agentMap . getAgentMap) gs) joins
+            tickComp = composeTick leavesComp joinComp commandComp (joinGIDs joinResults)
+            (result, gs') = runPureComputation tickComp gs
+        in case result of
+             Left err -> Left err
+             Right (narrations, repairReplies) -> Right (PlayerResult narrations repairReplies joinResults gs')
 
   -- IO: protocol replies (delivered regardless of tick result)
   liftIO . forM_ pings $ \sid ->
@@ -320,46 +326,57 @@ playerTickBlock = constMCl $ do
   liftIO . forM_ replies $ atomically . writeTChan (acOutbound appCtx)
   liftIO . modifyMVar_ (acPendingRepairs appCtx) $ \pendingMap ->
     pure (foldl' (\acc (sid, update) -> alter (const update) sid acc) pendingMap updates)
-  liftIO . forM_ failureRows $ \(sid, unparsed, failure, attempts, slm) ->
-    case rowContext sid of
-      Nothing -> hPutStrLn stderr ("Repair failure row skipped, no actor scene for " <> show sid)
-      Just (label, actor) -> do
-        written :: Either SqlError () <- try . withResource (acDbPool appCtx) $ \conn ->
-          insertRepairFailure conn label actor unparsed failure attempts slm
-        case written of
-          Left err -> hPutStrLn stderr ("Repair failure row not written: " <> show err)
-          Right () -> pure ()
-  liftIO . forM_ successRows $ \(sid, unparsed, rewrite, slm) ->
-    case rowContext sid of
-      Nothing -> hPutStrLn stderr ("Repair success row skipped, no actor scene for " <> show sid)
-      Just (label, actor) -> do
-        written :: Either SqlError () <- try . withResource (acDbPool appCtx) $ \conn ->
-          insertRepairSuccess conn label actor unparsed rewrite slm
-        case written of
-          Left err -> hPutStrLn stderr ("Repair success row not written: " <> show err)
-          Right () -> pure ()
 
-  -- ERROR EVALUATION: after execution
-  case result of
-    Left err ->
-      liftIO $ hPutStrLn stderr ("Tick computation failed: " <> unpack (gameErrorText err))
-    Right (narrations, repairReplies) -> do
+  gs <- lookGameState
+  case f gs of
+    Right result -> do
+      addGameState (playerResultState result)
+      let gs' = playerResultState result
+          rowContext sid = do
+            gid <- lookup sid sessions >>= sessionGid
+            sceneGid <- lookup gid (view agentLocationMap gs')
+            case [label | (label, declared) <- assocs (view (world . declaredSceneGIDs) gs'), declared == sceneGid] of
+              [label] -> Just (label, Mid (unGID gid))
+              _       -> Nothing
+      liftIO . forM_ failureRows $ \(sid, unparsed, failure, attempts, slm) ->
+        case rowContext sid of
+          Nothing -> hPutStrLn stderr ("Repair failure row skipped, no actor scene for " <> show sid)
+          Just (label, actor) -> do
+            written :: Either SqlError () <- try . withResource (acDbPool appCtx) $ \conn ->
+              insertRepairFailure conn label actor unparsed failure attempts slm
+            case written of
+              Left err -> hPutStrLn stderr ("Repair failure row not written: " <> show err)
+              Right () -> pure ()
+      liftIO . forM_ successRows $ \(sid, unparsed, rewrite, slm) ->
+        case rowContext sid of
+          Nothing -> hPutStrLn stderr ("Repair success row skipped, no actor scene for " <> show sid)
+          Just (label, actor) -> do
+            written :: Either SqlError () <- try . withResource (acDbPool appCtx) $ \conn ->
+              insertRepairSuccess conn label actor unparsed rewrite slm
+            case written of
+              Left err -> hPutStrLn stderr ("Repair success row not written: " <> show err)
+              Right () -> pure ()
       -- IO: execute join effects (session promotion, welcome messages)
-      liftIO $ forM_ joinResults (executeJoinIO appCtx)
+      liftIO $ forM_ (playerResultJoins result) (executeJoinIO appCtx)
       -- IO: deliver narrations to clients
-      liftIO $ deliverNarrationIO appCtx narrations
-      liftIO . forM_ repairReplies $ atomically . writeTChan (acOutbound appCtx)
-
-  liftIO $ do
-    liveSessions <- readMVar (acSessions appCtx)
-    let views = fromList [(sid, formatState gid gs') | (sid, phase) <- assocs liveSessions, Just gid <- [sessionGid phase]]
-    modifyMVar_ (acLastStateViews appCtx) $ \lastViews -> do
-      forM_ (assocs views) $ \(sid, stateView) ->
-        when (lookup sid lastViews /= Just stateView) . atomically $
-          writeTChan (acOutbound appCtx) (Routed sid (AnalysisData [(State, stateView)]))
-      pure views
-
-  addGameState gs'
+      liftIO $ deliverNarrationIO appCtx (playerResultNarrations result)
+      liftIO . forM_ (playerResultRepairReplies result) $ atomically . writeTChan (acOutbound appCtx)
+      liftIO $ do
+        liveSessions <- readMVar (acSessions appCtx)
+        let views = fromList [(sid, formatState gid gs') | (sid, phase) <- assocs liveSessions, Just gid <- [sessionGid phase]]
+        modifyMVar_ (acLastStateViews appCtx) $ \lastViews -> do
+          forM_ (assocs views) $ \(sid, stateView) ->
+            when (lookup sid lastViews /= Just stateView) . atomically $
+              writeTChan (acOutbound appCtx) (Routed sid (AnalysisData [(State, stateView)]))
+          pure views
+    Left err -> liftIO $ do
+      case err of
+        ActorError gid inner -> do
+          atomically . forM_ [sid | (sid, phase) <- assocs sessions, sessionGid phase == Just gid] $ \sid -> do
+            writeTChan (acOutbound appCtx) (Routed sid (SystemMessage (gameErrorText inner)))
+            writeTChan (acOutbound appCtx) (Routed sid (GameNarration (mempty { _actionConsequence = [plain (gameErrorText inner)] })))
+          writeLog (acGameLog appCtx) (TickFailed (ActorError gid inner))
+        _ -> writeLog (acGameLog appCtx) (TickFailed err)
 
 composeTick :: GameComputation Identity ()
             -> GameComputation Identity ()
@@ -521,6 +538,7 @@ runPureComputation comp gs =
   runIdentity (runStateT (runGameStateT (runExceptT (runGameComputation comp))) gs)
 
 resolveCommands :: Map SessionId SessionPhase
+                -> Map SessionId (GID Agent)
                 -> Map SessionId PendingRepair
                 -> PlayerLookup
                 -> [Routed MessageTo]
@@ -531,12 +549,15 @@ resolveCommands :: Map SessionId SessionPhase
                    , [(SessionId, UnparsedSentence, Text, SlmName)]
                    , GameComputation Identity [Routed MessageFrom]
                    )
-resolveCommands sessions pending playerLookup msgs =
+resolveCommands sessions joining pending playerLookup msgs =
   (pings, replies, updates, exhausted, successRows, commandsAndRepairs)
   where
     found = case playerLookup of
       PlayerWordsFound playerNames -> playerNames
       PlayerLookupFailed _         -> mempty
+    actorGid sid = case lookup sid sessions >>= sessionGid of
+      Just gid -> Just gid
+      Nothing  -> lookup sid joining
     names = Set.toList found
     promote = \case
       UNKNOWN w | Set.member (PlayerName w) found -> AGENTNAME w
@@ -587,7 +608,7 @@ resolveCommands sessions pending playerLookup msgs =
       [(sid, sentence) | (sid, _, _, Right sentence) <- cmds]
       <> [(sid, sentence) | (sid, _, _, _, _, sentence) <- repairedSentences]
     commandComputation (sid, sentence) =
-      case lookup sid sessions >>= sessionGid of
+      case actorGid sid of
         Nothing  -> throwError (SessionMissing sid)
         Just gid -> runEvalFor gid sentence
     commandsAndRepairs = do
@@ -605,7 +626,7 @@ resolveCommands sessions pending playerLookup msgs =
       aMap <- use (world . agentMap . getAgentMap)
       sharedTables <- use (world . sharedActionManagement)
       let actor = do
-            gid <- lookup sid sessions >>= sessionGid
+            gid <- actorGid sid
             lookup gid aMap
       case actor of
         Nothing    -> throwError (SessionMissing sid)

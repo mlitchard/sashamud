@@ -273,6 +273,11 @@ branch's work is lost.
   returns several values returns a record with named fields.
 - RULED (user, 2026-10-21): on a failed player tick the SystemMessage
   carries gameErrorText err, the same text as the narration.
+- RULED (user, 2026-10-21): the Sender functions return the result records
+  alone. DslResult gains dslResultState :: GameState. DslSender carries
+  GameState -> Either WorldBuilderError DslResult and PlayerSender carries
+  GameState -> Either GameError PlayerResult. serveSender takes the new
+  state from the result record on Right.
 - Pinned: mailing errors to Michael.
 
 ### What exists today
@@ -422,7 +427,8 @@ In Server.App:
 
     type DslResult :: Type
     data DslResult = DslResult
-      { dslResultCounters :: BuilderCounters
+      { dslResultState    :: GameState
+      , dslResultCounters :: BuilderCounters
       , dslResultReports  :: [Routed (Either WorldBuilderError [WorldChange])]
       }
 
@@ -435,9 +441,8 @@ In Server.App:
       }
 
     type Sender :: Type
-    data Sender
-      = DslSender Try (GameState -> Either WorldBuilderError (GameState, DslResult))
-      | PlayerSender Try (GameState -> Either GameError (GameState, PlayerResult))
+    data Sender = DslSender Try (GameState -> Either WorldBuilderError DslResult)
+                | PlayerSender Try (GameState -> Either GameError PlayerResult)
 
     data Served = DslServed Try (Either WorldBuilderError DslResult)
                 | PlayerServed Try (Either GameError PlayerResult)
@@ -512,7 +517,8 @@ gains WriterTick. SignalNetwork gains serveSender :: GameState ->
 Sender -> ServeResult, exported for the tests, and writerSF :: ClSF
 RhineM (IOClock RhineM WriterTick) () (), composed into the pipeline
 with |@|. serveSender runs the sender's function on the state: on Right
-(gs', result) it returns ServeResult gs' with DslServed try (Right
+result it returns ServeResult with the state taken from the result
+record, dslResultState or playerResultState, and DslServed try (Right
 result) or PlayerServed try (Right result); on Left err it returns the
 state it was given with DslServed try (Left err) or PlayerServed try
 (Left err). Each tick writerSF drains acWriteChan in order with the
@@ -547,5 +553,4 @@ lands before this step. Tests for the writer: a DslSender and a
 PlayerSender write in the same tick both land in the adopted state; a
 Left player function leaves the state unchanged. Both tests call
 serveSender. SlmRepairSpec's "an unparseable sentence is repaired by
-the model and runs" goes back from xit to it in this step and must
-pass.
+the model and runs" goes back from xit to it in this step and must pass.
