@@ -191,10 +191,17 @@ addGameState. A failed player tick adopts nothing and tells the player in
 the main view. A failed DSL write ends the process through journald.
 
 ### The fault
-dslTickSF (DSLTick, 5 s) and playerTickBlock (PlayerTick, 1 s) each look
-and add on separate clocks. monad-schedule resumes a branch with the
-state it started with (AccumT . const). The last add wins and the other
-branch's work is lost.
+Every signal-function step runs in the single flow thread, one at a
+time. rhine's eraseClock (rhine/src/FRP/Rhine/Type.hs) runs the running
+clock and then eraseClockSN in one proc; ParallelClock's initClock
+(rhine/src/FRP/Rhine/Schedule.hs) hands monad-schedule only the two
+clock waits; the parallel SN (rhine/src/FRP/Rhine/SN.hs) dispatches by
+tag. A step that blocks waiting on another step stops every clock. The
+writer design of 10.4 had playerTickBlock take a TMVar that the writer
+step would fill, and every e2e test timed out (2026-10-22). The
+"lost add" paragraph that stood here was unsupported: only the clock
+waits are resumed with AccumT . const; steps run in sequence and each
+look sees the newest add.
 
 ### Rulings
 - RULED (user, 2026-10-21): one writer signal function on a WriterTick
@@ -279,6 +286,17 @@ branch's work is lost.
   GameState -> Either GameError PlayerResult. serveSender takes the new
   state from the result record on Right.
 - Pinned: mailing errors to Michael.
+- RULED (user, 2026-10-22): the writer branch is removed. WriterTick,
+  acWriteChan, acDslAnswer, acPlayerAnswer, WriteAnswer, Try, Sender,
+  Served, ServeResult and serveSender are gone. Each clock branch
+  looks, runs its own function, adds on Right and acts on Left:
+  dslTickSF journals Emergency and exits on a Left of its tick
+  function; playerTickBlock sends the SystemMessage and GameNarration
+  on ActorError and writes TickFailed. This supersedes the WriterTick,
+  acWriteChan, answer-slot, WriteAnswer, Try, TryFailed failure-action,
+  serveSender and Sender rulings of 2026-10-21 above. GameError, the
+  login gate, the pid file, the counter move, PlayerResult, DslResult
+  and the hsyslog Emergency priority stand.
 
 ### What exists today
 - RhineM = AccumT (Last GameState) (ReaderT AppCtx IO)
@@ -508,6 +526,14 @@ LoginLogoutSpec :831: seedAccount, mintBootstrapToken through
 runHandler and runReaderT over AppM into a temp token file, read the
 token, post the world files with it, log out, then raiseSignal sigUSR1.
 All of this is one step so every login path stays green.
+
+10.4 as landed (user-ruled 2026-10-22): no writer. Server.App gains
+DslResult, PlayerResult and JoinResult (moved from SignalNetwork.hs).
+dslTickSF and playerTickBlock each look, run their own function, add
+on Right and act on Left, as the 2026-10-22 ruling says. SlmRepairSpec
+is enabled; its remaining failure was the same-tick join, fixed in
+.claude-plans/same-tick-join.md. The paragraph below is the superseded
+design, kept for the record.
 
 10.4 The writer. Server.App gains Try, WriteAnswer, DslResult,
 PlayerResult, Sender, Served, ServeResult, and JoinResult with
