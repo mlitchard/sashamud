@@ -14,16 +14,15 @@ IMPORTANT: No helpers, no abstractions, no conveniences that are not already in 
 
 IMPORTANT: Never write placeholder stubs, TODO comments, or fake implementations. If you cannot write the real code, STOP and say so. Do not fill a file with garbage.
 
-IMPORTANT: Always use explicit imports — list every name you import, no wildcards (..). When a qualified import is needed for name collisions, the qualifier is the module name — no aliases. If stuck on a collision, STOP and ask.
+IMPORTANT: Always use explicit imports — list every name you import, no wildcards (..). Never qualify imports; the user makes the call on qualified imports. If a name collision arises, STOP and ask.
 
 IMPORTANT: You are forbidden from second-guessing. When the user gives an instruction, apply it. Do not pre-debate whether it will compile — the user builds and returns the specific error as the next prompt.
 
 NEVER — specific prohibitions:
 - TVar for GameState — GameState lives in AccumT inside RhineM, never in a TVar
-- TMChan — use TChan (see old code: sasha-server/src/MUD/GameLoop.hs)
-- Direct record field access — use lenses (view, set, over) from Lens.Micro.Platform
+- Direct record field access — use lenses (view, set, over) from Lens.Micro.Platform; never _fieldName accessors
 - Mutate GameState outside the sequential PlayerTick chain — game state (scenes, agents, narration, evaluators) lives in GameState in AccumT with one writer: the chain. Server state (sessions, sockets, channels) lives in AppCtx MVars/TChans and never routes through the chain — disconnects are async
-- Answering a question from the wrong source — is-a-player: acKnownPlayers; is-connected-now: acSessions InGame phase; who-is-in-scene: sceneAgents; character-or-object: AgentKind. Never proxy one for another
+- Answering a question from the wrong source — is-a-player: the users table; is-connected-now: acSessions InGame phase; who-is-in-scene: sceneAgents; character-or-object: AgentKind. Never proxy one for another
 - head, [x] = expr, or any partial pattern match — handle all branches
 - Naked types — use newtypes for all domain values (session IDs, player names, commands), never raw Text/Int/String
 

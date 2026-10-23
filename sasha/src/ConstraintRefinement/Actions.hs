@@ -3,6 +3,10 @@ module ConstraintRefinement.Actions
   , lookAtDeniedF
   , lookF
   , lookDeniedF
+  , getF
+  , getDeniedF
+  , dropF
+  , dropDeniedF
   , witnessF
   ) where
 
@@ -11,22 +15,38 @@ import           Engine.Resolution.ActionManagement
   , processWitnessEffects
   )
 import           Model.Core
-  ( DirectionalStimulusF (DirectionalNoStimulusF, DirectionalStimulusF)
+  ( AcquisitionF (AcquisitionCannotF, AcquisitionF)
+  , ActionEffectKeyF (ActionEffectKeyF)
+  , DirectionalStimulusF (DirectionalNoStimulusF, DirectionalStimulusF)
+  , DivestmentF (DivestmentCannotF, DivestmentF)
   , ImplicitStimulusF (ImplicitNoStimulusF, ImplicitStimulusF)
+  , WitnessEffectF (WitnessEffectF)
   , WitnessF (WitnessF)
   )
 
 lookF :: ImplicitStimulusF
-lookF = ImplicitStimulusF processActionOutcomeRegistry
+lookF = ImplicitStimulusF (ActionEffectKeyF processActionOutcomeRegistry)
 
 lookDeniedF :: ImplicitStimulusF
-lookDeniedF = ImplicitNoStimulusF processActionOutcomeRegistry
+lookDeniedF = ImplicitNoStimulusF (ActionEffectKeyF processActionOutcomeRegistry)
 
 lookAtF :: DirectionalStimulusF
-lookAtF = DirectionalStimulusF processActionOutcomeRegistry
+lookAtF = DirectionalStimulusF (ActionEffectKeyF processActionOutcomeRegistry)
 
 lookAtDeniedF :: DirectionalStimulusF
-lookAtDeniedF = DirectionalNoStimulusF processActionOutcomeRegistry
+lookAtDeniedF = DirectionalNoStimulusF (ActionEffectKeyF processActionOutcomeRegistry)
+
+getF :: AcquisitionF
+getF = AcquisitionF (ActionEffectKeyF processActionOutcomeRegistry)
+
+getDeniedF :: AcquisitionF
+getDeniedF = AcquisitionCannotF (ActionEffectKeyF processActionOutcomeRegistry)
+
+dropF :: DivestmentF
+dropF = DivestmentF (ActionEffectKeyF processActionOutcomeRegistry)
+
+dropDeniedF :: DivestmentF
+dropDeniedF = DivestmentCannotF (ActionEffectKeyF processActionOutcomeRegistry)
 
 witnessF :: WitnessF
-witnessF = WitnessF processWitnessEffects
+witnessF = WitnessF (WitnessEffectF processWitnessEffects)

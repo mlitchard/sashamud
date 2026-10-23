@@ -1,9 +1,10 @@
 module Engine.ActionDiscovery.Protocol
-  ( ActionProtocol (getActionMap, mkEffectKey, lookupActionGID, runActionProtocol, noGIDError, noActionError, ActionInput)
+  ( ActionProtocol (getActionMap, mkEffectKey, mkVerbKey, lookupActionGID, lookupTargetActionGID, runActionProtocol, noGIDError, noActionError, ActionInput)
   , actionTypeName
   , fetchAction
   , fetchSceneAction
   , fetchAgentAction
+  , fetchTargetAction
   ) where
 
 import           SashaPrelude
@@ -12,20 +13,30 @@ import           Data.Functor.Identity (Identity)
 import           Data.Map.Strict (Map, lookup)
 import           Data.Typeable (Proxy (Proxy), Typeable, typeRep)
 import           Error (throwMaybeM)
+import           Grammar.Parser.GCase (VerbKey)
 import           Lens.Micro.Platform (use, view)
 import           Model.Core
   ( ActionEffectKey
   , ActionManagementFunctions
   , ActionMaps
+  , ActorKey
   , Agent
+  , Entity (AgentEntity, ObjectEntity, SceneEntity)
+  , EntityKey (EntityAgent, EntityObject, EntityScene)
   , GameComputation
+  , GameError (ActionGIDMissing, ActionMissing, AgentLocationMissing, AgentMissing, ObjectMissing, SceneMissing)
+  , TargetKey (TargetKey)
+  , actorTargetActionManagement
   , agentActionManagement
   , agentLocationMap
   , agentMap
   , getAgentMap
   , getGIDToDataMap
+  , objectActionManagement
+  , objectMap
   , sceneActionManagement
   , sceneMap
+  , sharedActionManagement
   , world
   )
 import           Model.GID (GID)
@@ -43,10 +54,16 @@ class (Typeable actionF) => ActionProtocol actionF where
   -- | Create the appropriate ActionEffectKey constructor
   mkEffectKey :: GID actionF -> ActionEffectKey
 
+  mkVerbKey :: ActionInput actionF -> VerbKey
+
   -- | Look up action GID from input and available actions
   lookupActionGID :: ActionInput actionF
                   -> ActionManagementFunctions
                   -> Maybe (GID actionF)
+
+  lookupTargetActionGID :: ActionInput actionF
+                        -> ActionManagementFunctions
+                        -> Maybe (GID actionF)
 
   -- | The coordination pattern - how to orchestrate actions across entities
   -- This is THE key abstraction - each action type defines how it coordinates
@@ -71,7 +88,7 @@ fetchAction :: forall actionF. ActionProtocol actionF
             -> GID actionF
             -> GameComputation Identity actionF
 fetchAction actionMap gid =
-  throwMaybeM (noActionError @actionF gid) (lookup gid actionMap)
+  throwMaybeM (ActionMissing (noActionError @actionF gid)) (lookup gid actionMap)
 
 -- | Fetch agent's action GID and action
 fetchAgentAction :: forall actionF. ActionProtocol actionF
@@ -81,9 +98,11 @@ fetchAgentAction :: forall actionF. ActionProtocol actionF
                  -> GameComputation Identity (GID actionF, actionF)
 fetchAgentAction input actionMap agentGID = do
   aMap <- use (world . agentMap . getAgentMap)
-  agent <- throwMaybeM ("Agent not found in agent map: " <> pack (show agentGID)) (lookup agentGID aMap)
-  gid <- throwMaybeM ("Agent: " <> noGIDError @actionF)
-           (lookupActionGID @actionF input (view agentActionManagement agent))
+  agent <- throwMaybeM (AgentMissing agentGID) (lookup agentGID aMap)
+  shared <- use (world . sharedActionManagement)
+  gid <- throwMaybeM (ActionGIDMissing ("Agent: " <> noGIDError @actionF))
+           (lookupActionGID @actionF input (view agentActionManagement agent)
+              <|> (lookup (mkVerbKey @actionF input) shared >>= lookup AgentEntity >>= lookupActionGID @actionF input))
   action <- fetchAction @actionF actionMap gid
   pure (gid, action)
 
@@ -95,10 +114,39 @@ fetchSceneAction :: forall actionF. ActionProtocol actionF
                  -> GameComputation Identity (GID actionF, actionF)
 fetchSceneAction input actionMap agentGID = do
   locMap <- use agentLocationMap
-  sceneGID <- throwMaybeM ("Agent location not found: " <> pack (show agentGID)) (lookup agentGID locMap)
+  sceneGID <- throwMaybeM (AgentLocationMissing agentGID) (lookup agentGID locMap)
   sMap <- use (world . sceneMap . getGIDToDataMap)
-  scene <- throwMaybeM ("Scene not found in scene map" <> pack (show sceneGID)) (lookup sceneGID sMap)
-  gid <- throwMaybeM ("Scene: " <> noGIDError @actionF)
-           (lookupActionGID @actionF input (view sceneActionManagement scene))
+  scene <- throwMaybeM (SceneMissing sceneGID) (lookup sceneGID sMap)
+  gid <- throwMaybeM (ActionGIDMissing ("Scene: " <> noGIDError @actionF))
+           (lookupTargetActionGID @actionF input (view sceneActionManagement scene))
+  action <- fetchAction @actionF actionMap gid
+  pure (gid, action)
+
+fetchTargetAction :: forall actionF. ActionProtocol actionF
+                  => ActionInput actionF
+                  -> Map (GID actionF) actionF
+                  -> ActorKey
+                  -> TargetKey
+                  -> GameComputation Identity (GID actionF, actionF)
+fetchTargetAction input actionMap actorKey targetKey@(TargetKey targetEntity) = do
+  actorTarget <- use (world . actorTargetActionManagement)
+  (entity, targetActions) <- case targetEntity of
+    EntityAgent agentGID -> do
+      aMap <- use (world . agentMap . getAgentMap)
+      agent <- throwMaybeM (AgentMissing agentGID) (lookup agentGID aMap)
+      pure (AgentEntity, view agentActionManagement agent)
+    EntityObject objectGID -> do
+      oMap <- use (world . objectMap . getGIDToDataMap)
+      obj <- throwMaybeM (ObjectMissing objectGID) (lookup objectGID oMap)
+      pure (ObjectEntity, view objectActionManagement obj)
+    EntityScene sceneGID -> do
+      sMap <- use (world . sceneMap . getGIDToDataMap)
+      scene <- throwMaybeM (SceneMissing sceneGID) (lookup sceneGID sMap)
+      pure (SceneEntity, view sceneActionManagement scene)
+  shared <- use (world . sharedActionManagement)
+  gid <- throwMaybeM (ActionGIDMissing ("Target: " <> noGIDError @actionF))
+           ((lookup actorKey actorTarget >>= lookup targetKey >>= lookupTargetActionGID @actionF input)
+              <|> lookupTargetActionGID @actionF input targetActions
+              <|> (lookup (mkVerbKey @actionF input) shared >>= lookup entity >>= lookupTargetActionGID @actionF input))
   action <- fetchAction @actionF actionMap gid
   pure (gid, action)

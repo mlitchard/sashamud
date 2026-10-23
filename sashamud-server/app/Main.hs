@@ -1,8 +1,10 @@
 module Main (main) where
 
-import           SashaMudWorld (gameState, possibilityGraph)
 import           SashaPrelude
+
+import           DSL.Builder (WorldBuilderResult (WorldBuilderResult))
+import           Model.Core (defaultGameState, initialCounters)
 import           Server.Server (startServer)
 
 main :: IO ()
-main = startServer gameState possibilityGraph
+main = startServer (WorldBuilderResult defaultGameState initialCounters [])

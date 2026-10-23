@@ -27,62 +27,122 @@ executable sasha-server
   hs-source-dirs: app
   ghc-options:    -threaded -rtsopts
   build-depends:
-    , base            >=4.7 && <5
+    , base   >=4.7 && <5
     , sasha
-    , sashamud-world
+
+executable sasha-fake-oidc
+  import:         shared
+  main-is:        Main.hs
+  hs-source-dirs: fake-oidc
+  ghc-options:    -threaded -rtsopts
+  other-modules:  FakeProvider
+  build-depends:
+    , base               >=4.7 && <5
+    , bytestring
+    , containers
+    , crypton
+    , http-api-data
+    , http-client
+    , http-types
+    , memory
+    , postgresql-simple
+    , resource-pool
+    , sasha
+    , servant
+    , servant-server
+    , text
+    , uuid
+    , warp
 
 executable sasha-e2e-tests
   import:             shared
   main-is:            Spec.hs
-  hs-source-dirs:     test-e2e
+  hs-source-dirs:     test-e2e fake-oidc
   ghc-options:        -threaded -rtsopts
   other-modules:
+    CopyTokenSpec
+    FakeProvider
     LoginSpec
     LookAtBallSpec
     LookAtPlayerSpec
     LookWitnessSpec
+    ParseFailureSpec
+    ParserViewSpec
     RoseSpec
     SeleniumHarness
+    SlmRepairSpec
 
   build-tool-depends: hspec-discover:hspec-discover
   build-depends:
+    , aeson
     , async
-    , base                >=4.7 && <5
+    , base                  >=4.7 && <5
     , bytestring
+    , containers
+    , crypton
     , directory
     , filepath
     , hspec
+    , http-api-data
     , http-client
+    , http-types
+    , memory
+    , monad-logger
+    , postgresql-migration
+    , postgresql-simple
     , process
     , random
+    , resource-pool
     , sasha
-    , sashamud-world
+    , servant
+    , servant-server
+    , stm
     , string-interpolate
     , text
     , time
+    , transformers
+    , unix
+    , uuid
     , warp
     , webdriver
 
-test-suite sashamud-integration-tests
-  import:             shared
-  type:               exitcode-stdio-1.0
-  main-is:            Spec.hs
-  hs-source-dirs:     test
-  ghc-options:        -threaded -rtsopts
-  other-modules:      Integration.LoginLogoutSpec
-  build-tool-depends: hspec-discover:hspec-discover
+executable sashamud-integration-tests
+  import:         shared
+  main-is:        Spec.hs
+  hs-source-dirs: test fake-oidc
+  ghc-options:    -threaded -rtsopts
+  other-modules:
+    FakeProvider
+    Integration.LoginLogoutSpec
+
   build-depends:
     , async
-    , base                 >=4.7 && <5
+    , base                  >=4.7 && <5
+    , bytestring
     , containers
+    , crypton
+    , directory
     , hspec
+    , hspec-discover
+    , http-api-data
     , http-client
+    , http-types
+    , memory
     , microlens-platform
+    , postgresql-migration
+    , postgresql-simple
+    , resource-pool
     , sasha
-    , sashamud-world
+    , servant
     , servant-client
     , servant-client-core
     , servant-server
+    , servant-websockets
+    , stm
     , text
+    , time
+    , transformers
+    , unix
+    , uuid
     , warp
     , websockets

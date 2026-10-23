@@ -15,26 +15,26 @@ import           Test.Hspec (Spec, around, describe, it, sequential)
 spec :: Spec
 spec = describe "Look At Player" . around withServer . sequential $ do
     it "look at player returns player description" $ \ctx ->
-        webDriverTestWithClient ctx lookAtPlayerTest id
+        webDriverTestWithClient ctx ["sasha"] lookAtPlayerTest id
 
     it "target player sees witness narration for look at player" $ \ctx ->
-        webDriverTestWithClient ctx lookAtPlayerWitnessTest id
+        webDriverTestWithClient ctx ["sasha"] lookAtPlayerWitnessTest id
 
     it "look at nonexistent player returns nobody-here narration" $ \ctx ->
-        webDriverTestWithClient ctx lookAtNobodyTest id
+        webDriverTestWithClient ctx ["sasha"] lookAtNobodyTest id
 
     it "witness sees failed agent look narration" $ \ctx ->
-        webDriverTestWithClient ctx lookAtNobodyWitnessTest id
+        webDriverTestWithClient ctx ["sasha"] lookAtNobodyWitnessTest id
 
     it "player can look at self" $ \ctx ->
-        webDriverTestWithClient ctx lookAtSelfTest id
+        webDriverTestWithClient ctx ["sasha"] lookAtSelfTest id
 
 lookAtPlayerTest :: String
 lookAtPlayerTest =
     [i|(sessionId, sock, resolve) => {
   const messages: any[] = [];
 
-  const sid2: string = await API["/api/game/login(PlayerNameUNV)"]("Sasha");
+  const sid2: string = tokens["sasha"];
   const sock2 = await API["/ws/game{Sec-WebSocket-Protocol}"](sid2);
   sock2.receive((msg: MessageFrom) => {});
   await new Promise(r => setTimeout(r, 2000));
@@ -79,7 +79,7 @@ lookAtNobodyTest =
       const conseq = narr._actionConsequence || [];
       for (const richText of conseq) {
         const text = richText.map(s => s._ssText).join("");
-        if (text.includes("Nobody called")) {
+        if (text.includes("That's not here. Try something else.")) {
           sock.raw.close();
           resolve("#{successToken}");
           return;
@@ -88,7 +88,7 @@ lookAtNobodyTest =
     }
   });
 
-  sock.send({tag: "GameCommand", contents: "look at googly"});
+  sock.send({tag: "GameCommand", contents: "look at bootstrap"});
 
   setTimeout(() => {
     sock.raw.close();
@@ -99,9 +99,9 @@ lookAtNobodyTest =
 lookAtPlayerWitnessTest :: String
 lookAtPlayerWitnessTest =
     [i|(sessionId, sock, resolve) => {
-  let gotWitness = false;
+  let settled = false;
 
-  const sid2: string = await API["/api/game/login(PlayerNameUNV)"]("Sasha");
+  const sid2: string = tokens["sasha"];
   const sock2 = await API["/ws/game{Sec-WebSocket-Protocol}"](sid2);
   sock2.receive((msg: MessageFrom) => {});
   await new Promise(r => setTimeout(r, 2000));
@@ -109,16 +109,21 @@ lookAtPlayerWitnessTest =
   sock2.receive((msg) => {
     if (msg.tag === "GameNarration") {
       const narr = msg.contents;
-      const conseq = narr._actionConsequence || [];
-      for (const richText of conseq) {
-        const text = richText.map(s => s._ssText).join("");
-        if (text.includes("looks at")) {
-          gotWitness = true;
-          sock2.raw.close();
-          sock.raw.close();
-          resolve("#{successToken}");
-          return;
-        }
+      const fields = [narr._playerAction, narr._actionConsequence, narr._presenceListing, narr._actionEpilogue];
+      const texts = fields.flatMap(field => (field || []).map(richText => richText.map(s => s._ssText).join("")));
+      if (texts.some(text => text.includes("A player."))) {
+        settled = true;
+        sock2.raw.close();
+        sock.raw.close();
+        resolve("target received the looked-at description: " + JSON.stringify(texts));
+        return;
+      }
+      if (texts.some(text => text.includes("looks at"))) {
+        settled = true;
+        sock2.raw.close();
+        sock.raw.close();
+        resolve("#{successToken}");
+        return;
       }
     }
   });
@@ -126,7 +131,7 @@ lookAtPlayerWitnessTest =
   sock.send({tag: "GameCommand", contents: "look at sasha"});
 
   setTimeout(() => {
-    if (!gotWitness) {
+    if (!settled) {
       sock2.raw.close();
       sock.raw.close();
       resolve("timeout: no witness narration within 10s");
@@ -139,7 +144,7 @@ lookAtNobodyWitnessTest =
     [i|(sessionId, sock, resolve) => {
   let gotWitness = false;
 
-  const sid2: string = await API["/api/game/login(PlayerNameUNV)"]("Sasha");
+  const sid2: string = tokens["sasha"];
   const sock2 = await API["/ws/game{Sec-WebSocket-Protocol}"](sid2);
   sock2.receive((msg: MessageFrom) => {});
   await new Promise(r => setTimeout(r, 2000));
@@ -161,7 +166,7 @@ lookAtNobodyWitnessTest =
     }
   });
 
-  sock.send({tag: "GameCommand", contents: "look at googly"});
+  sock.send({tag: "GameCommand", contents: "look at bootstrap"});
 
   setTimeout(() => {
     if (!gotWitness) {

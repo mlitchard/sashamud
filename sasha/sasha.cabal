@@ -47,7 +47,10 @@ library
     ConstraintRefinement.Actions
     DSL.Builder
     DSL.Model.EDSL.SashaLambdaDSL
+    DSL.Reify
     DSL.Vocabulary
+    Engine.ActionDiscovery.Divestment.Drop
+    Engine.ActionDiscovery.Get.Acquisition.Get
     Engine.ActionDiscovery.Instances
     Engine.ActionDiscovery.Percieve.Look
     Engine.ActionDiscovery.Protocol
@@ -57,8 +60,12 @@ library
     Engine.Simulation.Clocks
     Engine.Simulation.SignalNetwork
     Error
+    Model.Account
+    Model.Authorization
     Model.Core
     Model.GID
+    Model.Jwt
+    Model.Mid
     Model.RandomPool
     Model.RichText
     Model.WireProtocol
@@ -67,25 +74,41 @@ library
     Server.Authentication
     Server.GameWebSocket
     Server.Log
+    Server.Migration
     Server.Server
     Server.Validator
+    Server.World
 
   build-depends:
     , aeson
+    , aeson-pretty
     , aeson-typescript
     , async
     , base                      >=4.7 && <5
     , bytestring
     , containers
+    , crypton
     , deepseq
+    , directory
     , generic-arbitrary
     , hashable
+    , hint
+    , hsyslog
+    , http-client
+    , http-client-tls
+    , http-types
+    , jose-jwt
+    , libsystemd-journal
+    , memory
     , microlens-platform
     , mmorph
     , monad-schedule
     , mtl
+    , postgresql-migration
+    , postgresql-simple
     , QuickCheck
     , quickcheck-instances
+    , resource-pool
     , rhine                     >=1.6
     , sasha-grammar
     , servant
@@ -94,7 +117,9 @@ library
     , servant-websockets
     , stm
     , text
+    , time
     , transformers
+    , unix
     , uuid
     , wai
     , warp
@@ -118,10 +143,14 @@ executable sasha-tests
     API.Routes
     API.TSClient
     API.Types
+    ArbitraryOrphans
     ConstraintRefinement.Actions
     DSL.Builder
     DSL.Model.EDSL.SashaLambdaDSL
+    DSL.Reify
     DSL.Vocabulary
+    Engine.ActionDiscovery.Divestment.Drop
+    Engine.ActionDiscovery.Get.Acquisition.Get
     Engine.ActionDiscovery.Instances
     Engine.ActionDiscovery.Percieve.Look
     Engine.ActionDiscovery.Protocol
@@ -132,38 +161,61 @@ executable sasha-tests
     Engine.Simulation.SignalNetwork
     Error
     JSONSpec
+    MigrationSpec
+    Model.Account
+    Model.Authorization
     Model.Core
     Model.GID
+    Model.Jwt
+    Model.Mid
     Model.RandomPool
     Model.RichText
     Model.WireProtocol
+    ReifySpec
     SashaPrelude
     Server.App
     Server.Authentication
     Server.GameWebSocket
     Server.Log
+    Server.Migration
     Server.Server
     Server.Validator
+    Server.World
+    SignalNetworkSpec
 
   build-depends:
     , aeson
+    , aeson-pretty
     , aeson-typescript
     , async
     , base                      >=4.7 && <5
     , bytestring
     , containers
+    , crypton
     , deepseq
+    , directory
     , generic-arbitrary
     , hashable
+    , hint
     , hspec
     , hspec-core
     , hspec-discover
+    , hsyslog
+    , http-client
+    , http-client-tls
+    , http-types
+    , jose-jwt
+    , libsystemd-journal
+    , memory
     , microlens-platform
     , mmorph
     , monad-schedule
     , mtl
+    , postgresql-migration
+    , postgresql-simple
     , QuickCheck
     , quickcheck-instances
+    , resource-pool
     , rhine                     >=1.6
     , sasha-grammar
     , servant
@@ -172,7 +224,9 @@ executable sasha-tests
     , servant-websockets
     , stm
     , text
+    , time
     , transformers
+    , unix
     , uuid
     , wai
     , warp

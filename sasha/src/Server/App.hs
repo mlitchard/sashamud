@@ -4,69 +4,98 @@
 module Server.App
   ( AppCtx (..)
   , AppM (..)
+  , DslResult (DslResult, dslResultState, dslResultCounters, dslResultReports)
+  , Environment (Development, Production)
   , GameLog (..)
-  , PInt
+  , JoinResult (NewPlayerJoined, ReturningPlayerJoined)
+  , OidcConfig (..)
+  , PendingRepair (PendingRepair)
+  , PlayerResult (PlayerResult, playerResultNarrations, playerResultRepairReplies, playerResultJoins, playerResultState)
+  , ScriptMessage (WorldReady)
   , SessionPhase (SessionPhase)
   , SessionState (AwaitingSocket, AwaitingJoin, InGame)
-  , firstPlayerId
   , newAppCtx
   , sessionGid
   , sessionPlayerName
   , sessionSend
-  , succPInt
-  , unPInt
   ) where
 
 import           SashaPrelude
 
-import           API.Types (MessageTo, PlayerJoined, Routed, SessionId)
+import           API.Types
+  ( MessageTo
+  , ParseFailure
+  , PlayerJoined
+  , RepairAttempt
+  , Routed
+  , SessionId
+  )
 import           Control.Concurrent (MVar, newMVar)
 import           Control.Concurrent.STM (TChan, newTChanIO)
+import           Control.Concurrent.STM.TMVar (TMVar, newEmptyTMVarIO)
 import           Control.Monad.Except (MonadError)
 import           Control.Monad.Reader (MonadReader, ReaderT)
 import           Data.IORef (IORef, newIORef)
 import           Data.Map.Strict (Map)
-import           Model.Core (Agent)
+import           Data.Pool (Pool)
+import           Data.Time.Clock (UTCTime)
+import           Database.PostgreSQL.Simple (Connection)
+import           DSL.Builder (WorldBuilderError, WorldChange)
+import           DSL.Model.EDSL.SashaLambdaDSL (SashaLambdaDSL)
+import           GHC.IO (FilePath)
+import           Grammar.Gbnf (UnparsedSentence)
+import           Model.Account
+  ( ClientId
+  , ClientSecret
+  , CodeVerifier
+  , OidcBaseUrl
+  , OidcState
+  , RedirectUri
+  , StartMode
+  )
+import           Model.Core
+  ( Agent
+  , AgentKey
+  , BuilderCounters
+  , GameState
+  , Narration
+  )
 import           Model.GID (GID)
+import           Model.RichText (RichText)
 import           Model.WireProtocol (MessageFrom)
+import           Network.HTTP.Client (Manager)
 import           Servant (Handler)
 import           Servant.Server (ServerError)
 import           Server.Validator (PlayerNameVAL)
 
 data GameLog = GameLog
   { logHandle :: Handle
+  , logPath   :: Maybe FilePath
   }
 
-newtype PInt = PInt Int
-  deriving stock (Eq, Ord, Show)
-
-succPInt :: PInt -> PInt
-succPInt (PInt n) = PInt (n + 1)
-
-unPInt :: PInt -> Int
-unPInt (PInt n) = n
-
-firstPlayerId :: PInt
-firstPlayerId = PInt 1000
-
-data SessionPhase = SessionPhase PlayerNameVAL SessionState
+data SessionPhase = SessionPhase PlayerNameVAL (GID Agent) SessionState
 
 data SessionState = AwaitingSocket
                   | AwaitingJoin ([MessageFrom] -> IO ())
-                  | InGame ([MessageFrom] -> IO ()) (GID Agent)
+                  | InGame ([MessageFrom] -> IO ())
+
+data PendingRepair = PendingRepair UnparsedSentence ParseFailure [RepairAttempt]
+
+data JoinResult = NewPlayerJoined SessionId PlayerNameVAL (GID Agent)
+                | ReturningPlayerJoined SessionId (GID Agent)
 
 sessionPlayerName :: SessionPhase -> PlayerNameVAL
-sessionPlayerName (SessionPhase name _) = name
+sessionPlayerName (SessionPhase name _ _) = name
 
 sessionGid :: SessionPhase -> Maybe (GID Agent)
-sessionGid (SessionPhase _ AwaitingSocket)   = Nothing
-sessionGid (SessionPhase _ (AwaitingJoin _)) = Nothing
-sessionGid (SessionPhase _ (InGame _ gid))   = Just gid
+sessionGid (SessionPhase _ _ AwaitingSocket)   = Nothing
+sessionGid (SessionPhase _ _ (AwaitingJoin _)) = Nothing
+sessionGid (SessionPhase _ gid (InGame _))     = Just gid
 
 sessionSend :: SessionPhase -> Maybe ([MessageFrom] -> IO ())
-sessionSend (SessionPhase _ AwaitingSocket)      = Nothing
-sessionSend (SessionPhase _ (AwaitingJoin send)) = Just send
-sessionSend (SessionPhase _ (InGame send _))     = Just send
+sessionSend (SessionPhase _ _ AwaitingSocket)      = Nothing
+sessionSend (SessionPhase _ _ (AwaitingJoin send)) = Just send
+sessionSend (SessionPhase _ _ (InGame send))       = Just send
 
 newtype AppM a = AppM { unAppM :: ReaderT AppCtx Handler a }
   deriving newtype
@@ -78,30 +107,79 @@ newtype AppM a = AppM { unAppM :: ReaderT AppCtx Handler a }
     , MonadReader AppCtx
     )
 
-data AppCtx = AppCtx
-  { acInbound      :: TChan (Routed MessageTo)
-  , acOutbound     :: TChan (Routed MessageFrom)
-  , acJoinChan     :: TChan PlayerJoined
-  , acSessions     :: MVar (Map SessionId SessionPhase)
-  , acKnownPlayers :: MVar (Map PlayerNameVAL (GID Agent))
-  , acNextAgentId  :: IORef PInt
-  , acGameLog      :: GameLog
+data Environment
+  = Development
+  | Production
+
+data OidcConfig = OidcConfig
+  { ocBaseUrl      :: OidcBaseUrl
+  , ocClientId     :: ClientId
+  , ocClientSecret :: ClientSecret
+  , ocRedirectUri  :: RedirectUri
   }
 
-newAppCtx :: GameLog -> IO AppCtx
-newAppCtx logCfg = do
+type ScriptMessage :: Type
+data ScriptMessage
+  = WorldReady
+  deriving stock (Eq, Generic, Ord, Show)
+
+type DslResult :: Type
+data DslResult = DslResult
+  { dslResultState    :: GameState
+  , dslResultCounters :: BuilderCounters
+  , dslResultReports  :: [Routed (Either WorldBuilderError [WorldChange])]
+  }
+
+type PlayerResult :: Type
+data PlayerResult = PlayerResult
+  { playerResultNarrations    :: Map AgentKey Narration
+  , playerResultRepairReplies :: [Routed MessageFrom]
+  , playerResultJoins         :: [JoinResult]
+  , playerResultState         :: GameState
+  }
+
+data AppCtx = AppCtx
+  { acInbound :: TChan (Routed MessageTo)
+  , acOutbound :: TChan (Routed MessageFrom)
+  , acJoinChan :: TChan PlayerJoined
+  , acDSLChan :: TChan (Routed (SashaLambdaDSL GameState))
+  , acLoginGate :: TMVar ScriptMessage
+  , acSessions :: MVar (Map SessionId SessionPhase)
+  , acBuilderCounters :: IORef BuilderCounters
+  , acDbPool :: Pool Connection
+  , acOidcConfig :: OidcConfig
+  , acHttpManager :: Manager
+  , acOidcStates :: MVar (Map OidcState (UTCTime, CodeVerifier, PlayerNameVAL, StartMode))
+  , acPendingRepairs :: MVar (Map SessionId PendingRepair)
+  , acLastStateViews :: MVar (Map SessionId [RichText])
+  , acGameLog :: GameLog
+  }
+
+newAppCtx :: GameLog -> Pool Connection -> OidcConfig -> Manager -> BuilderCounters -> IO AppCtx
+newAppCtx logCfg pool oidcConfig manager counters = do
   inChan   <- newTChanIO
   outChan  <- newTChanIO
   joinChan <- newTChanIO
+  dslChan  <- newTChanIO
+  loginGate <- newEmptyTMVarIO
   sessions <- newMVar mempty
-  known    <- newMVar mempty
-  nextId   <- newIORef firstPlayerId
+  builderCounters <- newIORef counters
+  oidcStates <- newMVar mempty
+  pendingRepairs <- newMVar mempty
+  lastStateViews <- newMVar mempty
   pure AppCtx
     { acInbound      = inChan
     , acOutbound     = outChan
     , acJoinChan     = joinChan
+    , acDSLChan      = dslChan
+    , acLoginGate    = loginGate
     , acSessions     = sessions
-    , acKnownPlayers = known
-    , acNextAgentId  = nextId
+    , acBuilderCounters = builderCounters
+    , acDbPool       = pool
+    , acOidcConfig   = oidcConfig
+    , acHttpManager  = manager
+    , acOidcStates   = oidcStates
+    , acPendingRepairs = pendingRepairs
+    , acLastStateViews = lastStateViews
     , acGameLog      = logCfg
     }

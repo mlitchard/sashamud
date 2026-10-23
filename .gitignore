@@ -1,6 +1,10 @@
+.devpids
 attic
 dist-newstyle/
 result
+*.log
+local
+production
 *.eventlog
 *.hp
 web/node_modules/
@@ -12,3 +16,5 @@ web/packages/*/node_modules/
 *.o
 *.dyn_hi
 *.dyn_o
+.database*
+authentik-local.qcow2

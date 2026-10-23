@@ -15,10 +15,10 @@ import           Test.Hspec (Spec, around, describe, it, sequential)
 spec :: Spec
 spec = describe "Look At Ball" . around withServer . sequential $ do
     it "look at ball returns ball description" $ \ctx ->
-        webDriverTestWithClient ctx lookAtBallTest id
+        webDriverTestWithClient ctx [] lookAtBallTest id
 
     it "second player sees witness narration for look at ball" $ \ctx ->
-        webDriverTestWithClient ctx lookAtBallWitnessTest id
+        webDriverTestWithClient ctx ["looker"] lookAtBallWitnessTest id
 
 lookAtBallTest :: String
 lookAtBallTest =
@@ -33,7 +33,7 @@ lookAtBallTest =
       const conseq = narr._actionConsequence || [];
       for (const richText of conseq) {
         const text = richText.map(s => s._ssText).join("");
-        if (text.includes("A small red ball.")) {
+        if (text.includes("a red ball that you can get and drop")) {
           sock.raw.close();
           resolve("#{successToken}");
           return;
@@ -61,7 +61,7 @@ lookAtBallWitnessTest =
       const conseq = narr._actionConsequence || [];
       for (const richText of conseq) {
         const text = richText.map(s => s._ssText).join("");
-        if (text.includes("looks at the ball")) {
+        if (text.includes("looks at the red ball")) {
           gotWitness = true;
           sock.raw.close();
           resolve("#{successToken}");
@@ -71,8 +71,7 @@ lookAtBallWitnessTest =
     }
   });
 
-  const player2Name = "looker" + Math.random().toString(36).replace(/[^a-z]/g, "").substring(0, 6);
-  const sid2: string = await API["/api/game/login(PlayerNameUNV)"](player2Name);
+  const sid2: string = tokens["looker"];
   const sock2 = await API["/ws/game{Sec-WebSocket-Protocol}"](sid2);
   sock2.receive((msg: MessageFrom) => {});
   await new Promise(r => setTimeout(r, 2000));

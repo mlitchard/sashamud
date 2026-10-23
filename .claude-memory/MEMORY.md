@@ -1,24 +1,24 @@
 # SashaMud Project Memory
 
 ## CRITICAL RULES (re-read before every file write/edit)
-- Precedence when rules collide: user instruction > plan/critique resolutions > MEMORY.md > CLAUDE.md — rules constrain Claude's initiative, never the user
-- Workflow: Claude writes, user builds, user either approves or sends the compiler errors as the next prompt
-- The sashamud repo has authority — old code is single-player reference; multiplayer forces fundamental changes; sashamud plans/MEMORY/code win on divergence
 - NEVER invent constructor names, type names, or patterns not in old code
 - Old code constructor: `ImplicitStimulusVerb ImplicitStimulusVerb` in StimulusVerbPhrase — use it exactly
 - When tempted to "improve" a name from old code, STOP and ASK instead
-- NEVER run builds or tests unless user explicitly requests it
-- When user asks for a commit message, give them the message text — do not run git commit
 - Effects CONTRIBUTE to building GameState — never say "modify", "delta", or "read-only"
 - Do not invent bridging mechanisms between old and new code — when there's a gap, ASK
 - DSL GADT constructors are small composable pieces from old code — do not invent monolithic constructors
 - Do not add complication the user didn't ask for
-- NEVER use the auto memory directory with `-` prefix — use /home/mlitchard/gitlab/sashamud/.claude-memory/ instead
 - Write what things ARE. No contrastive framing ("not X", "NOT the Y"). State the positive. The negative is noise that carries confusion forward.
 - NEVER invent file names, module names, or function names — find them in old code or ASK
-- NEVER invent helper functions — if old code doesn't have it, you don't need it
 - The evaluator is PURE DISPATCH — pattern match and delegate. Lookup logic belongs elsewhere (old code: ActionDiscovery, ActionManagement)
 - Study old code THOROUGHLY before writing. Read the actual files. Do not summarize from memory and fill gaps with guesses.
+- Agent cost (user-ruled 2026-10-13): verbatim lookups in old code or reference checkouts go to the quote-source agent, or a general agent with `model: haiku`. One directory and the exact names to find. Only for text not already in context. Haskell is written by a general-purpose agent with `model: opus` from a spec the default model produces (file, old-code quote, names, shape); the default model reads the diff once. Hooks in .claude/settings.json enforce both. The CLAUDE.md persona leaks into agent reports; the prompt says to return quoted text only.
+- Old code is the source to build from (user-ruled 2026-10-13, refined 2026-10-16). It is broken in places, so a pattern taken from it is checked against sashamud's rulings and code before it is applied, and a broken part is raised with him. When old code or an existing sashamud convention settles a name, a shape, or a path, apply it. Follow the old main path only. Ask only where sashamud has no pattern and old code has none.
+- Scope is what was asked. World content, tests the user did not order, and docs reads the user did not order are out. "Mechanism" work means grammar, core types, DSL constructors, builder, engine; wiring a world object through the DSL is the author's job.
+- The old-code lookup rule covers Haskell shapes in grammar, core, DSL, builder and engine. It does not cover JavaScript in the e2e harness, cabal lines, nix, or a fix whose shape is already in context. Before any lookup, name the decision it would change. No decision, no lookup (user-corrected 2026-10-13).
+- Changes land on the current branch only, ever. Never switch branches, never touch main (user-ruled 2026-10-13).
+- Infrastructure ships as code; the DSL applies it (user-ruled 2026-10-15). Infrastructure is grammar, vocabulary, lexer, core types, DSL constructors, builder and engine. It is delivered as normal code in the codebase and reaches the live server through a server release. Applying infrastructure to the world happens in .dsl files delivered with deploy-dsl. Example: the RED adjective ships in sasha-grammar; a .dsl file puts it to use.
+- No naked products, ever (user-ruled 2026-10-21): a function that returns several values returns a record with named fields.
 
 ## Rhine Architecture (verified from source + koans)
 - Rhine source: /home/mlitchard/github/rhine
@@ -38,13 +38,12 @@
 - IX reference: `eGameState = GameState <$> bAgentMap <*> bPlanetMap <@ eTick` then `reactimate`
 - Signal functions: processLeavesSF >-> processJoinsSF >-> executeJoinsSF >-> gatherInputSF >-> processInputSF >-> deliverNarrationSF (one sequential PlayerTick branch — narration delivered at end of tick)
 - processInputSF bridge: lexify tokens → parseTokens → eval → unwrap GameComputation (StateT/ExceptT/ReaderT/Identity) → add gs'
-- No TVar for GameState — lives in AccumT
 - No naked domain identifiers — newtypes (SessionId, PlayerNameVAL). GameCommand carries raw Text on purpose: unparsed input, consumed at exactly one site (processInputSF → lexify). The typed command is Sentence — typing happens by parsing, not by wrapping
 - AppM is a newtype over ReaderT AppCtx Handler (like Quux)
 - Server.Session removed — acSessions phase map (SessionPhase sum type in Server.App) holds session lifecycle
 - deliverOutbound thread outside network reads acOutbound, routes via acSessions sessionSend
 - PlayerJoined fires at websocket attach (AwaitingSocket → AwaitingJoin promotion in gameWebSocket) — network decides new vs returning player
-- GID assignment: counter in AppCtx IORef (acNextAgentId :: IORef PInt), atomicModifyIORef' + succPInt in processOneJoin; PInt is a bare newtype, hidden constructor, only succPInt/unPInt/firstPlayerId exported — no subtraction by construction
+- GID counters: PInt is a bare newtype with a hidden constructor; only succPInt/unPInt/firstGID are exported, so counters only go up. BuilderCounters (one PInt per GID kind) seeds from firstGID, lives in AppCtx as acBuilderCounters, and the signal network reads it before a live DSL run and writes the result back. firstGID was renamed from firstPlayerId on 2026-10-13; the player-counter use it was named for is gone
 
 ## IX EventNetwork Pattern — GameState Construction
 - GameState is reconstructed each tick from current GameState + player input
@@ -68,7 +67,8 @@
 
 ## Nix/Flake
 - shelpers from gitlab:platonic/shelpers for dev commands
-- start-sashamud shelper: starts caddy + server
+- start-sashamud shelper: brings the lpg database up, exports SASHA_DB_CONNSTR, then starts caddy + server
+- Local authentik VM (nixosConfigurations.authentik-local): secrets for it live as let bindings in flake.nix, by user ruling 2026-10-01. The VM is local only, so this is the one place a secret may sit in the repo. Its login page comes from authentik/flow-default-authentication-flow.yaml, swapped into the shipped blueprints directory after the authentik-nix override-scope test pattern.
 - client-check: runs sasha-client-generator, type-checks output with tsc
 - sasha-server nix package references legacyPackages.sashamud-server
 - needs meta.mainProgram for nix run to find the right binary
@@ -157,16 +157,14 @@
 - All state-modifying SFs sequential on one PlayerTick (parallel clock safety)
 - GID counter lives in AppCtx IORef (acNextAgentId :: IORef PInt), not in the accumulator — single-thread access, atomicModifyIORef'
 - processLeavesSF rewritten using RhineM interface — detects departed players session-based (gid ∈ acKnownPlayers ∧ gid has no InGame session in acSessions), removes from scenes, announces via NarrationMap
-- Departure detection NEVER uses AgentKind — Denizen includes NPCs; acKnownPlayers is the "is a player" source of truth
-- Game state vs server state: GameState (AccumT, single writer = PlayerTick chain) holds world truth; AppCtx (MVars/TChans, multi-writer) holds session/socket truth — disconnects are async, never route through the chain
-- One authority per question: is-a-player = acKnownPlayers, is-connected = acSessions InGame phase, is-in-scene = sceneAgents, character-or-object = AgentKind — never proxy one for another
+- Departure detection NEVER uses AgentKind — Denizen includes NPCs; the users table is the "is a player" source of truth
 - Persistence debt: acKnownPlayers (name→GID) and acNextAgentId (PInt GID counter) are world truth living in AppCtx — when save/load lands, they must be persisted alongside GameState, or a restart loses player identities and reissues colliding GIDs
 - AnalysisViewport = Parser | State | Meta | Graphics | GameMap — sum type keys AnalysisData (was Map Text; raw Text key silently dropped on client, ViewportManager.ts:65). In remove-worldaccum plan File 2. No producer yet; client key mapping updates when telemetry lands
 - Player input growth path (user-approved design): `data PlayerInput = UnVerifiedInput PUVI | VerifiedInput PVI` — PUVI/PVI are newtypes over Text. Wire Text wraps to PUVI at receipt; lexify accepts PVI only — unverified input cannot reach the parser by construction. First verifier is a pass-through (user-sanctioned placeholder); real checks (length cap, rate limit, character policy) replace it later
 - Errors in the signal chain are sum types, rendered to Text only at the display boundary: JoinFailure (ReturningAgentMissing | ReturningSceneMissing) inside JoinError, joinFailureText at executeJoinsSF → SystemMessage. Never naked Text in an Either
 - Future cut (user-approved): lexify/parseTokens return Either Text — sasha-grammar gets error sum types + render functions, same principle as JoinFailure
 - Future cut (user-approved): GameComputation ExceptT Text becomes ExceptT GameError (sum type + renderer) — Core surgery touching every evaluator/effect, own commit
-- MVar reads (supersedes the snapshot-threading ruling, which belonged to the deliver-first ordering): with deliverNarrationSF at the end of the chain, each SF reads the MVars it needs directly — processLeavesSF reads acSessions + acKnownPlayers; processJoinsSF reads acKnownPlayers; processInputSF reads acSessions post-join (executeJoinsSF promotes AwaitingJoin → InGame mid-tick, new player's first command routes same-tick); deliverNarrationSF reads acSessions at tick end; heartbeatSF reads acSessions. SFs project gids via sessionGid. Dead-session sends are safe: deliverOutbound logs SendDropped
+- MVar reads (supersedes the snapshot-threading ruling, which belonged to the deliver-first ordering): with deliverNarrationSF at the end of the chain, each SF reads the MVars it needs directly — processLeavesSF reads acSessions + acKnownPlayers; processJoinsSF reads acKnownPlayers; playerTickBlock reads acSessions once at tick start; a command whose join lands in the same tick resolves its actor through that tick's PlayerJoined gid (resolveCommands joining, user-ruled 2026-10-22); executeJoinIO promotes AwaitingJoin → InGame after the tick succeeds, before deliverNarrationIO; deliverNarrationSF reads acSessions at tick end; heartbeatSF reads acSessions. SFs project gids via sessionGid. Dead-session sends are safe: deliverOutbound logs SendDropped
 - NarrationMap Semigroup uses `unionWith (<>)` to merge per-player narrations
 - Narration ordering is CHRONOLOGICAL within a field: always append new entries (`<> [x]`, `flip (unionWith (<>)) newMap`) — never cons/prepend; user-ruled 2026-07-13 (raj arrived/looks-around backward bug). Full sweep completed 2026-07-13: bf769a5 fixed witnessLookM + merges; the five remaining cons sites (youSeeM ×3, StaticNarration actor + witness branches) converted on user instruction — no cons sites remain
 - "Not in IO" principle (user-ruled 2026-07-13): IO phases gather inputs and deliver outputs — TRANSPORT ONLY. Every game decision (incl. error judgment/rendering, who gets told what) lives in the GameComputation and throws/narrates there. Never respond to game events from the IO gather phase — that's a second authority outside the composed computation
@@ -179,32 +177,16 @@
 ## Code Rules (learned the hard way)
 - ALL packages use NoImplicitPrelude — always include it in default-extensions
 - Every module imports SashaPrelude — it is the project's custom prelude (based on attic/core/src/SashaPrelude.hs)
-- NEVER qualify imports — user makes the call on qualified imports, not Claude. If a name collision arises, STOP and ask.
-- Always explicitly import constructors (no (..) wildcards)
 - Always include type signatures
-- NEVER second-guess user instructions — apply them, come back with compiler error if it fails
-- ALWAYS use lenses (view, set, over), NEVER direct record field access
-- Never use _fieldName accessors — use the lens equivalent without underscore
-- Import from Lens.Micro.Platform (view, set, over) as needed
-- NO partial pattern matches — use case with all branches handled
-- NO head, NO [x] = expr, NO incomplete patterns
-- ALWAYS check old code FIRST before writing ANY pattern
-- If pattern not in old code, STOP and ASK — do not guess at APIs or function names
-- Do not pre-debate whether something will compile — make the change, let the compiler decide
 - Use Map.lookup with a specific key, not elems/toList dumping
-- ONLY do what is asked — do not show initiative, do not make extra changes
-- Do not invent names — use old code naming conventions (TopLevel, ActionManagement, etc.)
 - Do not touch files the user did not ask you to touch
 - When editing a file, do NOT reformat surrounding content — preserve the user's formatting exactly
 - Use minimal, targeted Edit calls — only change what was asked, leave everything else untouched
-- NEVER write stubs, placeholders, or fake implementations — if a field requires a stub value, the field should not exist yet
 - If a type/field has no real implementation yet, do not add it to the data type. Add it when the real code arrives.
 - DerivingVia needs the constructor in scope: import Foo (Foo) not just the type
 - Use Data.Time.Calendar for Year (= Integer), MonthOfYear (= Int), Day, toGregorian — NEVER roll custom date types
 - Check Hackage BEFORE inventing any type — if the standard library has it, use it
 - ALL tests use hspec-discover — Main.hs is just `{-# OPTIONS_GHC -F -pgmF hspec-discover #-}`, never manual spec wiring
-- NEVER run builds or tests unless user explicitly requests
-- When user asks for commit message, give the TEXT — do not run git commit
 - GameState is CONSTRUCTED from accumulated pieces. Builder accumulates, then constructs.
 - Before deleting files, confirm with user — destructive operation
 - Test types with real structure. Trivial newtypes over primitives (GID over Int) prove nothing.
@@ -250,3 +232,33 @@
 - IX (reactive EventNetwork): /home/mlitchard/github/ix/
 - Attic (SashaPrelude, old core types): /home/mlitchard/gitlab/sashamud/attic/
 - Memory: /home/mlitchard/gitlab/sashamud/.claude-memory/MEMORY.md (NOT the auto directory with - prefix)
+
+## Live DSL / Lobby (user-ruled 2026-10-14, branch 15-lobby-dsl-mechanic)
+- The world is the .dsl files under sashamud-world/src. Today these are sashamud-world/src/2/Lobby/1-lobby.dsl, 2-floor.dsl and 3-ball.dsl. World-wide files go in sashamud-world/src/1/World/ and load before rooms. sashamud-world has no library stanza. It holds the .dsl files and the sashamud-world-tests executable (DSL/BuilderSpec.hs).
+- sasha/src/Server/World.hs exports WorldLoadFailure(..), loadWorld, mintBootstrapToken, worldLoadFailureText, worldPrograms. worldPrograms walks SASHA_WORLD_DIR recursively. It descends with doesDirectoryExist, sorts entries, and returns the .dsl files in that order. loadWorld folds the programs from `WorldBuilderResult defaultGameState initialCounters []`.
+- The server starts empty. sashamud-server/app/Main.hs is `main = startServer (WorldBuilderResult defaultGameState initialCounters [])`. The world arrives through POST /api/game/dsl from a wizard session, with the BEARER header and a JSON string body. DELETE /api/game/logout ends the session.
+- Bootstrap mint is opt-in. startServer reads SASHA_BOOTSTRAP_TOKEN_FILE. When it is unset, no mint runs. SASHA_BOOTSTRAP_WIZARD names the account. The flake wrapper sets its default from the let binding bootstrapWizard ("wizard"). If a token file is set and SASHA_BOOTSTRAP_WIZARD is unset, the server exits with "bootstrap token failed: SASHA_BOOTSTRAP_WIZARD unset".
+- mintBootstrapToken runs through runHandler and runReaderT over AppM. It polls for the account row once a second and prints "bootstrap account missing: <name>, waiting" once. An ambiguous match is err500 "bootstrap account ambiguous". It mints a random token and hashes it. It makes the JWT with makeJwtForTesting (secondsToNominalDiffTime 300, a five-minute token) and stores it with tryAddHashAndJwt. It inserts an AwaitingSocket session with the same hasActiveSession/keepEntry/err409 shape as authCallback. It writes the token to the path with Data.Text.IO.writeFile.
+- Migrations are schema only. Account rows come from createAccount, signed with the admin sk key. In start-sashamud they come from psql, with the createAccountSql let binding and jq over the wizardAccount let binding.
+- Flake let bindings: bootstrapTokenFile = "bootstrap-token", bootstrapWizard = "wizard".
+- start-sashamud steps: remove the token file; start sasha-server with SASHA_BOOTSTRAP_TOKEN_FILE set; wait for the credentials table; create the wizard account with psql; wait for the token file and the port; deliver `find "$SASHA_WORLD_DIR" -name '*.dsl' | sort` with curl to POST /api/game/dsl; curl DELETE /api/game/logout; remove the token file. The teardown trap is installed after `up`, following quux (user ruling 2026-10-17).
+- stop-sashamud kills the .devpids entries first, then runs pkill, then removes the token file.
+- VM tests run-deploy-tests and run-end-to-end set SASHA_BOOTSTRAP_TOKEN_FILE=/root/bootstrap-token in the unit environment. They wait for the credentials table and create the wizard account with createAccount and a throwaway key. They wait for the unit, the file and the port. They deliver the world files. The deploy test then delivers study.dsl and amend-lobby.dsl. Both tests then log out.
+- Test harnesses: SeleniumHarness withServer and LoginLogoutSpec withTestServer start the server empty. Before the test body runs, they log in as the wizard, post each worldPrograms file to /api/game/dsl, wait 6 seconds for the DSL tick, and log out. LoginLogoutSpec uses a temp log file through `GameLog logFileHandle (Just logFilePath)`. GameLog is `GameLog { logHandle :: Handle, logPath :: Maybe FilePath }`.
+- dslTickSF (DSLTick, 5 seconds) reads `Routed sid dsl` from acDSLChan (`TChan (Routed (SashaLambdaDSL GameState))`). On Left err it logs DSLBuildFailed and sends the submitter `GameNarration` with worldBuilderErrorText in _actionConsequence. On Right next it logs `DSLBuildSucceeded [WorldChange]` and sends the submitter one plain line per change from worldChangeText. Only the submitter sees the report.
+- Amendment by label: SashaLambdaDSL constructors are ModifyScene SceneLabel (Scene -> SashaLambdaDSL Scene), ModifyObject ObjectLabel (Object -> SashaLambdaDSL Object), and ModifyNewUserAgent ((Text -> Agent) -> SashaLambdaDSL (Text -> Agent)). The wrappers are modifyScene, modifyObject, modifyNewUserAgent. The names are in the DSL.Reify list. ModifyScene keeps the stored sceneAgents. Example: sashamud-server/test-e2e/amend-lobby.dsl.
+- WorldBuilderError gained UndeclaredSceneLabel SceneLabel, UndeclaredObjectLabel ObjectLabel, InvalidObjectGID (GID Object) String, and MissingNewUserAgent.
+- WorldChange is SceneCreated (GID Scene) | ObjectCreated (GID Object) | SceneModified SceneLabel | ObjectModified ObjectLabel | NewUserAgentModified | NewUserRegistered (GID Scene). bsChanges and resultChanges are appended in order. GID's Show instance renders the bare number, so a line reads "Scene created: 0".
+- Deploys: a brief was sent to the deploys session (/home/mlitchard/gitlab/deploys, services/sashamud.nix, DynamicUser, StateDirectory sashamud). The unit needs SASHA_BOOTSTRAP_TOKEN_FILE under the state directory, the wizard account created after the schema exists, and a deliver-then-logout step.
+- deploy-dsl takes `local` or `live` first, then the file. `local` uses dslServerUrl, `live` uses liveDslServerUrl (https://sashamud.net). SASHA_URL overrides either. Every caller in flake.nix passes `local`.
+- Non-main deploys (user-ruled 2026-10-18): the deploys repo's sasha input names the commit, `sasha.url = "gitlab:liftlatch/sashamud/<commit hash>"`, then `nix flake update sasha` records it in flake.lock. Michael supplies the hash of the pushed branch head. A bare `gitlab:liftlatch/sashamud` follows main.
+
+## LLM sentence repair (branch 18-llm-experiments, done 2026-10-16)
+- Plan: .claude-plans/llm-sentence-repair.md, steps 1-5 done, flake check green.
+- Flow: a parse failure sends that session `RepairRequest UnparsedSentence ParseFailure Gbnf [RepairAttempt]`. The client asks llama-server at localhost:VITE_SLM_PORT and answers `RepairedCommand UnparsedSentence Text SlmName`. The server allows three attempts per failure, tracked in acPendingRepairs (Server.App). A slm-absent answer ends the repair at once. The failure message goes out as SystemMessage.
+- Generator: Grammar.Gbnf (sasha-grammar) holds `generateGbnf :: UnparsedSentence -> [PlayerName] -> Gbnf`. It narrows each non-verb list to the words the sentence names; verbs stay complete; a list the sentence names no word from stays full. It writes out the shapes of imperativeRules itself, so a shape added to Grammar/Parser/Composites/Rules.hs needs the same addition in generateGbnf.
+- The GBNF's player names are acKnownPlayers plus this tick's NewPlayerJoined names (playerTickBlock). llama-server rejects a grammar with an empty rule (HTTP 400).
+- Tables: slm (seeded rows 'qwen-Qwen3-1.7B-Q8_0' and 'slm-absent'), repair_failures, repair_successes. Both repair tables are records for study; the parse flow never reads them. Migration migrations/build/04-repair.sql, rollback migrations/rollback/95-repair.sql.
+- Model: Qwen3-1.7B Q8_0 from the official Qwen/Qwen3-1.7B-GGUF repo. Flake let bindings slmPort = "8082", slmModel, slmName, llamaCppCuda. Shelpers start-slm-model and stop-slm-model, called from start-sashamud and stop-sashamud. VITE_SLM_PORT and VITE_SLM_NAME are set in the dev shell and the web derivation. llama-cpp 9925 has no --cors-origins flag.
+- CI: sasha-e2e-wrapped runs the CPU llama-server with slmModel; SlmRepairSpec is the end-to-end test.
+- hlint runs inside the build and fails it on hints.

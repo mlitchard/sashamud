@@ -18,16 +18,6 @@ common shared
     NoImplicitPrelude
     OverloadedStrings
 
-library
-  import:          shared
-  hs-source-dirs:  src
-  exposed-modules: SashaMudWorld
-  build-depends:
-    , base           >=4.7 && <5
-    , containers
-    , sasha
-    , sasha-grammar
-
 executable sashamud-world-tests
   import:         shared
   main-is:        Spec.hs
@@ -42,5 +32,4 @@ executable sashamud-world-tests
     , mtl
     , sasha
     , sasha-grammar
-    , sashamud-world
     , transformers

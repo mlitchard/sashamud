@@ -6,72 +6,209 @@
 module SeleniumHarness
   ( withServer
   , webDriverTestWithClient
+  , webDriverTestWithPage
   , successToken
   ) where
 
 import           SashaPrelude
 
 import           API.TSClient (client)
+import           API.Types (SessionId (SessionId))
+import           Control.Concurrent (threadDelay)
 import           Control.Concurrent.Async (mapConcurrently_, race_)
+import           Control.Concurrent.STM (atomically)
+import           Control.Concurrent.STM.TMVar (putTMVar)
+import           Control.Monad.Logger (runStdoutLoggingT)
+import           Control.Monad.Trans.Reader (runReaderT)
+import           Data.Aeson (Object, encode, object, (.=))
+import           Data.Aeson.Key (fromString)
+import           Data.Aeson.KeyMap (fromList)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 (pack)
+import           Data.Pool (defaultPoolConfig, newPool, withResource)
 import           Data.String.Interpolate (i)
-import           Data.Text.Encoding (decodeUtf8')
+import           Data.Text (intercalate)
+import           Data.Text.Encoding (decodeUtf8', encodeUtf8)
 import qualified Data.Text.IO as TIO
 import           Data.Time.Clock.POSIX (getPOSIXTime)
+import           Database.PostgreSQL.Simple (close, connectPostgreSQL)
+import           Database.PostgreSQL.Simple.Migration
+  ( MigrationResult (MigrationError, MigrationSuccess)
+  , defaultOptions
+  , runMigrations
+  )
 import           Engine.Simulation.SignalNetwork (gameLoop)
+import           FakeProvider
+  ( fakeApp
+  , loginThroughFake
+  , newFakeState
+  , seedAccount
+  )
 import           GHC.IO (FilePath)
+import           Model.Account
+  ( ClientId (ClientId)
+  , ClientSecret (ClientSecret)
+  , OidcBaseUrl (OidcBaseUrl)
+  , RedirectUri (RedirectUri)
+  )
+import           Model.Authorization (RoleName (Wizard))
+import           Model.Core (defaultGameState, initialCounters)
 import           Network.HTTP.Client
-  ( defaultManagerSettings
+  ( Request (method, requestBody, requestHeaders)
+  , RequestBody (RequestBodyLBS)
+  , Response (responseBody, responseStatus)
+  , defaultManagerSettings
+  , httpLbs
   , managerResponseTimeout
   , newManager
+  , parseRequest
   , responseTimeoutMicro
   )
+import           Network.HTTP.Types.Status (statusIsSuccessful)
 import           Network.Wai.Handler.Warp (testWithApplication)
-import           SashaMudWorld (gameState, possibilityGraph)
-import           Server.App (AppCtx, GameLog (GameLog), newAppCtx)
-import           Server.Server (appWithStaticFiles, deliverOutbound)
+import           Servant.Server.Internal.Handler (runHandler)
+import           Server.App
+  ( AppCtx (acDbPool, acLoginGate)
+  , AppM (unAppM)
+  , GameLog (GameLog)
+  , OidcConfig (OidcConfig)
+  , ScriptMessage (WorldReady)
+  , newAppCtx
+  )
+import           Server.Migration (buildCommand)
+import           Server.Server (app, appWithStaticFiles, deliverOutbound)
+import           Server.Validator (PlayerNameVAL (PlayerNameVAL))
+import           Server.World (mintBootstrapToken, worldPrograms)
 import           System.Directory
   ( createDirectoryIfMissing
   , doesFileExist
   , getTemporaryDirectory
   , removeFile
   )
+import           System.Environment (lookupEnv)
 import           System.Exit (ExitCode (ExitFailure), exitFailure)
 import           System.FilePath ((<.>), (</>))
 import           System.IO
   ( BufferMode (LineBuffering)
+  , hClose
   , hSetBuffering
   , hSetEncoding
+  , openTempFile
   , stdout
   , utf8
+  )
+import           System.Posix.Signals
+  ( Handler (Catch)
+  , installHandler
+  , raiseSignal
+  , sigUSR1
   )
 import           System.Process (readProcessWithExitCode)
 import           System.Random (randomIO)
 import           Test.WebDriver
-  ( Browser (chromeOptions)
-  , WD
-  , WDConfig (wdHTTPManager)
+  ( Capabilities (_capabilitiesBrowserName, _capabilitiesGoogChromeOptions)
+  , _driverManager
   , asyncJS
-  , chrome
-  , defaultConfig
+  , closeSession'
+  , defaultCaps
+  , defaultChromeOptions
+  , mkManualDriver
   , openPage
-  , runSession
   , setScriptTimeout
-  , useBrowser
+  , startSession'
   )
+import           Test.WebDriver.Capabilities
+  ( ChromeOptions (_chromeOptionsArgs, _chromeOptionsPrefs)
+  )
+import           Test.WebDriver.WD (WD, runWD)
 
 successToken :: String
 successToken = "success"
+
+chromeCaps :: Capabilities
+chromeCaps = defaultCaps
+  { _capabilitiesBrowserName = Just "chrome"
+  , _capabilitiesGoogChromeOptions = Just defaultChromeOptions
+      { _chromeOptionsArgs = Just [ "--headless=new", "--disable-gpu", "--no-sandbox" ] }
+  }
+
+clipboardPrefs :: Int -> Object
+clipboardPrefs port = fromList
+  [ ( "profile.content_settings.exceptions.clipboard"
+    , object [ fromString ("http://127.0.0.1:" <> show port <> ",*") .= object [ "setting" .= (1 :: Int) ] ]
+    )
+  ]
 
 withServer :: (AppCtx -> IO ()) -> IO ()
 withServer action = do
   hSetEncoding stdout utf8
   hSetBuffering stdout LineBuffering
-  let logCfg = GameLog stderr
-  ctx <- newAppCtx logCfg
-  race_
-    (race_ (gameLoop ctx gameState possibilityGraph) (deliverOutbound ctx))
-    (action ctx)
+  let logCfg = GameLog stderr Nothing
+  connStr <- fromMaybe "dbname=sashamud" <$> lookupEnv "SASHA_DB_CONNSTR"
+  migrationsDir <- fromMaybe "migrations" <$> lookupEnv "SASHA_MIGRATIONS_DIR"
+  pool <- newPool (defaultPoolConfig (connectPostgreSQL (Data.ByteString.Char8.pack connStr)) close 60 10)
+  migrated <- withResource pool (\conn -> runMigrations conn defaultOptions (buildCommand migrationsDir))
+  case migrated of
+    MigrationError err -> do
+      hPutStrLn stderr ("migration failed: " <> err)
+      exitFailure
+    MigrationSuccess -> pure ()
+  worldDir <- lookupEnv "SASHA_WORLD_DIR"
+  dir <- case worldDir of
+    Nothing  -> do
+      hPutStrLn stderr "SASHA_WORLD_DIR unset"
+      exitFailure
+    Just worldPath -> pure worldPath
+  manager <- newManager defaultManagerSettings
+  fakeState <- newFakeState
+  testWithApplication (pure (fakeApp fakeState)) $ \fakePort -> do
+    let oidcConfig = OidcConfig
+          (OidcBaseUrl ("http://127.0.0.1:" <> pack (show fakePort)))
+          (ClientId "sashamud")
+          (ClientSecret "sashamud-dev")
+          (RedirectUri "http://127.0.0.1/api/auth/callback")
+    ctx <- newAppCtx logCfg pool oidcConfig manager initialCounters
+    _ <- installHandler sigUSR1 (Catch (atomically (putTMVar (acLoginGate ctx) WorldReady))) Nothing
+    race_
+      (race_ (gameLoop ctx defaultGameState) (deliverOutbound ctx))
+      (do
+        testWithApplication (pure (app ctx)) $ \port -> do
+          seedAccount (acDbPool ctx) Wizard (PlayerNameVAL "bootstrap")
+          tmpDir <- getTemporaryDirectory
+          (tokenPath, tokenHandle) <- openTempFile tmpDir "bootstrap-token"
+          hClose tokenHandle
+          minted <- runHandler (runReaderT (unAppM (mintBootstrapToken (PlayerNameVAL "bootstrap") tokenPath)) ctx)
+          case minted of
+            Left err -> error ("mint failed: " <> show err)
+            Right () -> pure ()
+          tokenBytes <- BS.readFile tokenPath
+          token <- case decodeUtf8' tokenBytes of
+            Left err -> error ("token file is not UTF-8: " <> show err)
+            Right t  -> pure t
+          paths <- worldPrograms dir
+          forM_ paths $ \path -> do
+            bytes <- BS.readFile path
+            case decodeUtf8' bytes of
+              Left err -> error ("lobby file is not UTF-8: " <> path <> " " <> show err)
+              Right source -> do
+                dslReq <- parseRequest ("http://127.0.0.1:" <> show port <> "/api/game/dsl")
+                resp <- httpLbs dslReq
+                  { method = "POST"
+                  , requestHeaders = [("BEARER", encodeUtf8 token), ("Content-Type", "application/json")]
+                  , requestBody = RequestBodyLBS (encode source)
+                  } manager
+                when (not (statusIsSuccessful (responseStatus resp))) $
+                  error ("lobby delivery failed: " <> show (responseStatus resp) <> " " <> show (responseBody resp))
+          threadDelay 6000000
+          logoutReq <- parseRequest ("http://127.0.0.1:" <> show port <> "/api/game/logout")
+          logoutResp <- httpLbs logoutReq
+            { method = "DELETE"
+            , requestHeaders = [("BEARER", encodeUtf8 token)]
+            } manager
+          when (not (statusIsSuccessful (responseStatus logoutResp))) $
+            error ("bootstrap logout failed: " <> show (responseStatus logoutResp) <> " " <> show (responseBody logoutResp))
+          raiseSignal sigUSR1
+        action ctx)
 
 indexhtml :: FilePath -> String
 indexhtml path = [i|<html>
@@ -108,10 +245,11 @@ removeFileIfExists fp = do
   when exists $ removeFile fp
 
 webDriverTestWithClient :: AppCtx
+                        -> [Text]
                         -> String
                         -> (WD (Maybe String) -> WD (Maybe String))
                         -> IO ()
-webDriverTestWithClient ctx jstest test = do
+webDriverTestWithClient ctx players jstest test = do
   rand :: Int <- randomIO
   now <- getPOSIXTime
   tmpDir <- getTemporaryDirectory
@@ -131,12 +269,19 @@ webDriverTestWithClient ctx jstest test = do
   testWithApplication (pure (appWithStaticFiles ctx tmpDir))
     (\port -> do
 
+      loginManager <- newManager defaultManagerSettings
+      seedAccount (acDbPool ctx) Wizard (PlayerNameVAL "raj")
+      SessionId rajToken <- loginThroughFake loginManager port "raj"
+      extraTokens <- mapM (\name -> do
+          seedAccount (acDbPool ctx) Wizard (PlayerNameVAL name)
+          SessionId t <- loginThroughFake loginManager port name
+          pure ("\"" <> name <> "\": \"" <> t <> "\"")) players
+      let tokensLiteral = intercalate ", " extraTokens
+
       TIO.writeFile (tmpDir </> testPath <.> "ts") (pack [i|
          import {
            API,
-           LoginResponse,
            SessionId,
-           PlayerNameUNV,
            MessageFrom,
            MessageTo,
          } from "./client-#{testPath}.js";
@@ -144,17 +289,13 @@ webDriverTestWithClient ctx jstest test = do
          API.base = "http://127.0.0.1:#{port}";
          API.baseWS = "ws://127.0.0.1:#{port}";
 
+         const sessionId: string = "#{rajToken}";
+         const tokens: Record<string, string> = { #{tokensLiteral} };
+
          const testraw = async #{jstest}
 
          window["test"] = async resolve => {
            try {
-             const playerName = "Raj";
-             const sessionId: string = await API["/api/game/login(PlayerNameUNV)"](playerName);
-             if (!sessionId) {
-               resolve("Login failed: no SessionId returned");
-               return;
-             }
-
              const sock = await API["/ws/game{Sec-WebSocket-Protocol}"](sessionId);
 
              sock.receive((msg: MessageFrom) => {});
@@ -177,23 +318,53 @@ webDriverTestWithClient ctx jstest test = do
 
         mgr <- newManager defaultManagerSettings
           { managerResponseTimeout = responseTimeoutMicro (720 * 1000000) }
-        res <-
-          runSession
-            (useBrowser
-               chrome
-                 { chromeOptions =
-                     [ "--headless=new"
-                     , "--disable-gpu"
-                     , "--no-sandbox"
-                     ]
-                 }
-                 defaultConfig { wdHTTPManager = Just mgr })
-            (do
+        res <- runStdoutLoggingT $ do
+          driver <- mkManualDriver "127.0.0.1" 4444 "/wd/hub" []
+          sess <- startSession' driver { _driverManager = mgr } chromeCaps "client"
+          r <- runWD sess (do
             openPage $ "http://127.0.0.1:" <> show port </> indexName <.> "html"
-            setScriptTimeout 720000
-            test $ asyncJS [] [i|test(arguments[0])|])
+            setScriptTimeout (Just 720000)
+            test $ asyncJS [] [i|
+              const done = arguments[0];
+              const go = () => {
+                if (window["test"]) { window["test"](done); } else { setTimeout(go, 50); }
+              };
+              go();|])
+          closeSession' sess
+          pure r
 
         case res of
           Just x | x == successToken -> death
           Just x                     -> death >> error x
           Nothing                    -> death >> error "TIMEOUT")
+
+webDriverTestWithPage :: AppCtx -> (Text -> WD (Maybe String)) -> IO ()
+webDriverTestWithPage ctx test = do
+  dist <- fromMaybe "web/apps/sasha-web/dist" <$> lookupEnv "SASHA_WEB_DIST"
+  testWithApplication (pure (appWithStaticFiles ctx dist))
+    (\port -> do
+      loginManager <- newManager defaultManagerSettings
+      seedAccount (acDbPool ctx) Wizard (PlayerNameVAL "raj")
+      SessionId rajToken <- loginThroughFake loginManager port "raj"
+      mgr <- newManager defaultManagerSettings
+        { managerResponseTimeout = responseTimeoutMicro (720 * 1000000) }
+      res <- runStdoutLoggingT $ do
+        driver <- mkManualDriver "127.0.0.1" 4444 "/wd/hub" []
+        sess <- startSession' driver { _driverManager = mgr }
+          chromeCaps
+            { _capabilitiesGoogChromeOptions = Just defaultChromeOptions
+                { _chromeOptionsArgs = Just [ "--headless=new", "--disable-gpu", "--no-sandbox" ]
+                , _chromeOptionsPrefs = Just (clipboardPrefs port)
+                }
+            }
+          "page"
+        r <- runWD sess (do
+          openPage $ "http://127.0.0.1:" <> show port <> "/index.html#token=" <> unpack rajToken
+          setScriptTimeout (Just 720000)
+          test rajToken)
+        closeSession' sess
+        pure r
+      case res of
+        Just x | x == successToken -> pure ()
+        Just x                     -> error x
+        Nothing                    -> error "TIMEOUT")

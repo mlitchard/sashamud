@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS dsl_submission CASCADE;

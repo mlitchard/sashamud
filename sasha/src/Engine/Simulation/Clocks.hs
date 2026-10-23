@@ -1,5 +1,6 @@
 module Engine.Simulation.Clocks
-  ( HeartbeatTick
+  ( DSLTick
+  , HeartbeatTick
   , PlayerTick
   ) where
 
@@ -14,3 +15,7 @@ type HeartbeatTick = Millisecond 5000
 -- | Player tick every 1 second.
 type PlayerTick :: Type
 type PlayerTick = Millisecond 1000
+
+-- | DSL submission tick every 5 seconds.
+type DSLTick :: Type
+type DSLTick = Millisecond 5000

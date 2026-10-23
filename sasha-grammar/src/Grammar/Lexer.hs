@@ -17,13 +17,14 @@ import           Control.Applicative
   )
 import           Control.DeepSeq (NFData)
 import           Control.Monad (Monad, MonadPlus, void)
+import           Data.Aeson (FromJSON, ToJSON)
 import           Data.Either (Either (Left, Right))
 import           Data.Eq (Eq)
 import           Data.Functor (Functor, (<$>))
 import           Data.Hashable (Hashable)
 import           Data.Kind (Constraint, Type)
 import           Data.Ord (Ord)
-import           Data.Text (Text, pack, toUpper)
+import           Data.Text (Text, pack)
 import           Data.Void (Void)
 import           GHC.Enum
   ( Bounded (maxBound, minBound)
@@ -45,30 +46,59 @@ newtype Lexer a = Lexer { runLexer :: Parsec Void Text a }
   deriving newtype (Alternative, Applicative, Functor, Monad, MonadPlus)
 
 type Lexeme :: Type
-data Lexeme = AT
+data Lexeme = A
+            | AT
             | BALL
+            | CUP
+            | DROP
             | FLOOR
+            | GET
             | LOOK
-            | PLAYERNAME Text
+            | RED
+            | SMALL
+            | TABLE
+            | THE
+            | WHITE
+            | AGENTNAME Text
+            | UNKNOWN Text
   deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (Hashable, NFData)
+  deriving anyclass (FromJSON, Hashable, NFData, ToJSON)
 
 instance Bounded Lexeme where
-  minBound = AT
-  maxBound = LOOK
+  minBound = A
+  maxBound = WHITE
 
 instance Enum Lexeme where
-  toEnum 0 = AT
-  toEnum 1 = BALL
-  toEnum 2 = FLOOR
-  toEnum 3 = LOOK
-  toEnum _ = error "toEnum: no Lexeme at this index"
+  toEnum 0  = A
+  toEnum 1  = AT
+  toEnum 2  = BALL
+  toEnum 3  = CUP
+  toEnum 4  = DROP
+  toEnum 5  = FLOOR
+  toEnum 6  = GET
+  toEnum 7  = LOOK
+  toEnum 8  = RED
+  toEnum 9  = SMALL
+  toEnum 10 = TABLE
+  toEnum 11 = THE
+  toEnum 12 = WHITE
+  toEnum _  = error "toEnum: no Lexeme at this index"
 
-  fromEnum AT             = 0
-  fromEnum BALL           = 1
-  fromEnum FLOOR          = 2
-  fromEnum LOOK           = 3
-  fromEnum (PLAYERNAME _) = 4
+  fromEnum A             = 0
+  fromEnum AT            = 1
+  fromEnum BALL          = 2
+  fromEnum CUP           = 3
+  fromEnum DROP          = 4
+  fromEnum FLOOR         = 5
+  fromEnum GET           = 6
+  fromEnum LOOK          = 7
+  fromEnum RED           = 8
+  fromEnum SMALL         = 9
+  fromEnum TABLE         = 10
+  fromEnum THE           = 11
+  fromEnum WHITE         = 12
+  fromEnum (AGENTNAME _) = 13
+  fromEnum (UNKNOWN _)   = 14
 
 type HasLexeme :: Type -> Constraint
 class HasLexeme a where
@@ -76,7 +106,7 @@ class HasLexeme a where
 
 lexify :: Lexer a -> Text -> Either Text a
 lexify (Lexer parser) txt =
-  case parse parser "" (toUpper txt) of
+  case parse parser "" txt of
     Left err  -> Left (pack (errorBundlePretty err))
     Right res -> Right res
 
@@ -92,11 +122,20 @@ term :: Lexer Lexeme
 term = classify <$> word
   where
     classify :: Text -> Lexeme
-    classify "AT"    = AT
-    classify "BALL"  = BALL
-    classify "FLOOR" = FLOOR
-    classify "LOOK"  = LOOK
-    classify w       = PLAYERNAME w
+    classify "a"     = A
+    classify "at"    = AT
+    classify "ball"  = BALL
+    classify "cup"   = CUP
+    classify "drop"  = DROP
+    classify "floor" = FLOOR
+    classify "get"   = GET
+    classify "look"  = LOOK
+    classify "red"   = RED
+    classify "small" = SMALL
+    classify "table" = TABLE
+    classify "the"   = THE
+    classify "white" = WHITE
+    classify w       = UNKNOWN w
 
 word :: Lexer Text
 word = Lexer (pack <$> some alphaNumChar) <* sc

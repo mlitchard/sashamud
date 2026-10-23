@@ -15,4 +15,4 @@ import           Test.Hspec (Spec, around, describe, it)
 spec :: Spec
 spec = describe "Generated TypeScript client" . around withServer $ do
     it "ROSE" $ \ctx ->
-      webDriverTestWithClient ctx [i|(sessionId, sock, resolve) => { resolve("#{successToken}"); };|] id
+      webDriverTestWithClient ctx [] [i|(sessionId, sock, resolve) => { resolve("#{successToken}"); };|] id

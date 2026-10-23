@@ -18,7 +18,7 @@ import           Data.Aeson.TypeScript (derivingTypeScriptDefinition)
 import           Data.ByteString.Lazy (fromStrict)
 import           Data.Char (isAlphaNum)
 import           Data.String (fromString)
-import           Data.Text (strip)
+import           Data.Text (strip, toLower)
 import qualified Data.Text
 import           Data.Text.Encoding (encodeUtf8)
 import           Lens.Micro.Platform (makeLenses)
@@ -28,9 +28,11 @@ import           Test.QuickCheck.Instances.Text ()
 #endif
 import           Network.Wai (lazyRequestBody)
 import           Servant
-  ( HasServer (ServerT, hoistServerWithContext, route)
+  ( FromHttpApiData
+  , HasServer (ServerT, hoistServerWithContext, route)
   , Proxy (Proxy)
   , ServerError (errBody)
+  , ToHttpApiData
   , err400
   , type (:>)
   )
@@ -73,7 +75,7 @@ instance forall list unv val api ctx.
 
 newtype PlayerNameUNV = PlayerNameUNV { unPlayerNameUNV :: Text }
   deriving stock (Generic, Show)
-  deriving newtype (Eq, FromJSON, Ord, ToJSON)
+  deriving newtype (Eq, FromHttpApiData, FromJSON, Ord, ToHttpApiData, ToJSON)
   deriving anyclass (NFData)
 
 derivingTypeScriptDefinition ''PlayerNameUNV
@@ -98,7 +100,7 @@ instance Validate PlayerNameUNV PlayerNameVAL where
         | not (Data.Text.all isAlphaNum trimmed) ->
             Left "Player name may only contain letters and numbers"
         | otherwise ->
-            Right (PlayerNameVAL trimmed)
+            Right (PlayerNameVAL (toLower trimmed))
 
 #ifdef TESTING
 deriving newtype instance Arbitrary PlayerNameUNV
